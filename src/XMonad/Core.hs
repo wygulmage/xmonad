@@ -180,7 +180,7 @@ newtype Query a = Query (ReaderT Window X a)
     deriving (Functor, Applicative, Monad, MonadReader Window, MonadIO)
 
 runQuery :: Query a -> Window -> X a
-runQuery (Query m) w = runReaderT m w
+runQuery (Query m) = runReaderT m
 
 instance Semigroup a => Semigroup (Query a) where
     (<>) = liftA2 (<>)
@@ -226,7 +226,7 @@ userCodeDef defValue a = fromMaybe defValue <$> userCode a
 
 -- | Run a monad action with the current display settings
 withDisplay :: (Display -> X a) -> X a
-withDisplay   f = asks display >>= f
+withDisplay f = asks display >>= f
 
 -- | Run a monadic action with the current stack set
 withWindowSet :: (WindowSet -> X a) -> X a
@@ -336,19 +336,19 @@ class (Show (layout a), Typeable layout) => LayoutClass layout a where
     -- 'handleMessage' (this restricts the risk of error, and makes
     -- testing much easier).
     handleMessage :: layout a -> SomeMessage -> X (Maybe (layout a))
-    handleMessage l  = pure . pureMessage l
+    handleMessage l = pure . pureMessage l
 
     -- | Respond to a message by (possibly) changing our layout, but
     -- taking no other action.  If the layout changes, the screen will
     -- be refreshed.
     pureMessage :: layout a -> SomeMessage -> Maybe (layout a)
-    pureMessage _ _  = Nothing
+    pureMessage _ _ = Nothing
 
     -- | This should be a human-readable string that is used when
     -- selecting layouts by name.  The default implementation is
     -- 'show', which is in some cases a poor default.
     description :: layout a -> String
-    description      = show
+    description = show
 
 instance LayoutClass Layout Window where
     runLayout (Workspace i (Layout l) ms) r = fmap (fmap Layout) `fmap` runLayout (Workspace i l ms) r
@@ -411,8 +411,8 @@ class Typeable a => ExtensionClass a where
     extensionType = StateExtension
 
 -- | Existential type to store a state extension.
-data StateExtension =
-    forall a. ExtensionClass a => StateExtension a
+data StateExtension
+  = forall a. ExtensionClass a => StateExtension a
     -- ^ Non-persistent state extension
   | forall a. (Read a, Show a, ExtensionClass a) => PersistentExtension a
     -- ^ Persistent extension
