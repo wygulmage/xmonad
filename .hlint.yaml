@@ -4,12 +4,14 @@
 - fixity: "infixl 4 *>"
 - fixity: "infixl 4 <*"
 
+- ignore: {name: Use camelCase}
 - ignore: {name: Use list literal}
 - ignore: {name: Use void}
 
 - warn: {lhs: pure x <* y, rhs: x <$ y}
 
 - error: {lhs: liftM, rhs: fmap}
+- error: {lhs: x `liftM` y, rhs: x <$> y}
 
 - error: {lhs: return, rhs: pure}
 - error: {lhs: ap, rhs: (<*>)}

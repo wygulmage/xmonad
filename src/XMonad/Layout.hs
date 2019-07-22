@@ -40,7 +40,7 @@ import Data.Maybe (fromMaybe)
 data Resize     = Shrink | Expand   deriving Typeable
 
 -- | Increase the number of clients in the master pane.
-data IncMasterN = IncMasterN !Int    deriving Typeable
+newtype IncMasterN = IncMasterN Int    deriving Typeable
 
 instance Message Resize
 instance Message IncMasterN
