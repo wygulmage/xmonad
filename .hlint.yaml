@@ -4,6 +4,7 @@
 - fixity: "infixl 4 *>"
 - fixity: "infixl 4 <*"
 
+- ignore: {name: Use list literal}
 - ignore: {name: Use void}
 
 - warn: {lhs: pure x <* y, rhs: x <$ y}
