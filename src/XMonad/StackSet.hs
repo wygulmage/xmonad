@@ -288,7 +288,7 @@ modify' f = modify Nothing (Just . f)
 -- Return 'Just' that element, or 'Nothing' for an empty stack.
 --
 peek :: StackSet i l a s sd -> Maybe a
-peek = with Nothing (return . focus)
+peek = with Nothing (pure . focus)
 
 -- |
 -- /O(n)/. Flatten a 'Stack' into a list.
@@ -371,7 +371,7 @@ focusWindow :: (Eq s, Eq a, Eq i) => a -> StackSet i l a s sd -> StackSet i l a 
 focusWindow w s | Just w == peek s = s
                 | otherwise        = fromMaybe s $ do
                     n <- findTag w s
-                    return $ until ((Just w ==) . peek) focusUp (view n s)
+                    pure $ until ((Just w ==) . peek) focusUp (view n s)
 
 -- | Get a list of all screens in the 'StackSet'.
 screens :: StackSet i l a s sd -> [Screen i l a s sd]

@@ -1,0 +1,28 @@
+
+- fixity: "infixl 4 $>"
+- fixity: "infixl 4 <$"
+- fixity: "infixl 4 *>"
+- fixity: "infixl 4 <*"
+
+- ignore: {name: Use void}
+
+- warn: {lhs: pure x <* y, rhs: x <$ y}
+
+- error: {lhs: liftM, rhs: fmap}
+
+- error: {lhs: return, rhs: pure}
+- error: {lhs: ap, rhs: (<*>)}
+- error: {lhs: liftM2, rhs: liftA2}
+- error: {lhs: x >> y, rhs: x *> y}
+- error: {lhs: x << y, rhs: x <* y}
+
+- error: {lhs: concat, rhs: fold}
+- error: {lhs: mconcat, rhs: fold}
+- error: {lhs: mapM_, rhs: traverse_}
+- error: {lhs: forM_, rhs: for_}
+
+- error: {lhs: mapM, rhs: traverse}
+- error: {lhs: forM, rhs: for}
+
+- error: {lhs: mappend, rhs: (<>)}
+

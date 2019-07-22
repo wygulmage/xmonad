@@ -107,7 +107,7 @@ manageHook = composeAll
 -- See the 'DynamicLog' extension for examples.
 --
 logHook :: X ()
-logHook = return ()
+logHook = pure ()
 
 ------------------------------------------------------------------------
 -- Event handling
@@ -116,11 +116,11 @@ logHook = return ()
 -- return (All True) if the default handler is to be run afterwards.
 -- To combine event hooks, use mappend or mconcat from Data.Monoid.
 handleEventHook :: Event -> X All
-handleEventHook _ = return (All True)
+handleEventHook _ = pure (All True)
 
 -- | Perform an arbitrary action at xmonad startup.
 startupHook :: X ()
-startupHook = return ()
+startupHook = pure ()
 
 ------------------------------------------------------------------------
 -- Extensible layouts
@@ -182,7 +182,7 @@ clickJustFocuses = True
 -- (The comment formatting character is used when generating the manpage)
 --
 keys :: XConfig Layout -> M.Map (KeyMask, KeySym) (X ())
-keys conf@(XConfig {XMonad.modMask = modMask}) = M.fromList $
+keys conf@XConfig {XMonad.modMask = modMask} = M.fromList $
     -- launching and killing programs
     [ ((modMask .|. shiftMask, xK_Return), spawn $ XMonad.terminal conf) -- %! Launch terminal
     , ((modMask,               xK_p     ), spawn "dmenu_run") -- %! Launch dmenu
@@ -218,7 +218,7 @@ keys conf@(XConfig {XMonad.modMask = modMask}) = M.fromList $
     , ((modMask              , xK_period), sendMessage (IncMasterN (-1))) -- %! Deincrement the number of windows in the master area
 
     -- quit, or restart
-    , ((modMask .|. shiftMask, xK_q     ), io (exitWith ExitSuccess)) -- %! Quit xmonad
+    , ((modMask .|. shiftMask, xK_q     ), io exitSuccess) -- %! Quit xmonad
     , ((modMask              , xK_q     ), spawn "if type xmonad; then xmonad --recompile && xmonad --restart; else xmessage xmonad not in \\$PATH: \"$PATH\"; fi") -- %! Restart xmonad
 
     , ((modMask .|. shiftMask, xK_slash ), helpCommand) -- %! Run xmessage with a summary of the default keybindings (useful for beginners)
@@ -243,15 +243,13 @@ keys conf@(XConfig {XMonad.modMask = modMask}) = M.fromList $
 
 -- | Mouse bindings: default actions bound to mouse events
 mouseBindings :: XConfig Layout -> M.Map (KeyMask, Button) (Window -> X ())
-mouseBindings (XConfig {XMonad.modMask = modMask}) = M.fromList
+mouseBindings XConfig {XMonad.modMask = modMask} = M.fromList
     -- mod-button1 %! Set the window to floating mode and move by dragging
-    [ ((modMask, button1), \w -> focus w >> mouseMoveWindow w
-                                          >> windows W.shiftMaster)
+    [ ((modMask, button1), \w -> focus w *> mouseMoveWindow w *> windows W.shiftMaster)
     -- mod-button2 %! Raise the window to the top of the stack
     , ((modMask, button2), windows . (W.shiftMaster .) . W.focusWindow)
     -- mod-button3 %! Set the window to floating mode and resize by dragging
-    , ((modMask, button3), \w -> focus w >> mouseResizeWindow w
-                                         >> windows W.shiftMaster)
+    , ((modMask, button3), \w -> focus w *> mouseResizeWindow w *> windows W.shiftMaster)
     -- you may also bind events to the mouse scroll wheel (button4 and button5)
     ]
 
@@ -275,7 +273,7 @@ instance (a ~ Choose Tall (Choose (Mirror Tall) Full)) => Default (XConfig a) wh
     , XMonad.clientMask         = clientMask
     , XMonad.rootMask           = rootMask
     , XMonad.handleExtraArgs = \ xs theConf -> case xs of
-                [] -> return theConf
+                [] -> pure theConf
                 _ -> fail ("unrecognized flags:" ++ show xs)
     }
 

@@ -28,8 +28,10 @@ import XMonad.Core
 
 import Graphics.X11 (Rectangle(..))
 import qualified XMonad.StackSet as W
+import Control.Applicative (Applicative, (<*>), (<*), (*>), pure, liftA2)
 import Control.Arrow ((***), second)
 import Control.Monad
+import Data.Functor (Functor, (<$>), (<$))
 import Data.Maybe (fromMaybe)
 
 ------------------------------------------------------------------------
@@ -182,7 +184,7 @@ instance (LayoutClass l a, LayoutClass r a) => LayoutClass (Choose l r) a where
 
     handleMessage lr m | Just NextLayout <- fromMessage m = do
         mlr' <- handle lr NextNoWrap
-        maybe (handle lr FirstLayout) (return . Just) mlr'
+        maybe (handle lr FirstLayout) (pure . Just) mlr'
 
     handleMessage c@(Choose d l r) m | Just NextNoWrap <- fromMessage m =
         case d of
@@ -198,7 +200,7 @@ instance (LayoutClass l a, LayoutClass r a) => LayoutClass (Choose l r) a where
         flip (choose c CL) Nothing =<< handle l FirstLayout
 
     handleMessage c@(Choose d l r) m | Just ReleaseResources <- fromMessage m =
-        join $ liftM2 (choose c d) (handle l ReleaseResources) (handle r ReleaseResources)
+        join $ liftA2 (choose c d) (handle l ReleaseResources) (handle r ReleaseResources)
 
     handleMessage c@(Choose d l r) m = do
         ml' <- case d of

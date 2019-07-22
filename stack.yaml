@@ -1,8 +1,4 @@
-resolver: nightly-2021-01-05
-
-flags:
-  xmonad:
-    generatemanpage: true
+resolver: lts-16.31
 
 packages:
 - ./
