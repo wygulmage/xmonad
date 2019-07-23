@@ -209,6 +209,15 @@ data Stack a = Stack { focus  :: !a        -- focused thing in this set
                      , down   :: [a] }     -- jokers to the right
     deriving (Show, Read, Eq)
 
+_focus :: Functor m => (a -> m a) -> Stack a -> m (Stack a)
+_focus f stack@Stack{ focus = x } =
+    (\ x' -> stack{ focus = x' }) <$> f x
+_up :: Functor m => ([a] -> m [a]) -> Stack a -> m (Stack a)
+_up f stack@Stack{ up = xs } =
+   (\ xs' -> stack{ up = xs'  }) <$> f xs
+_down :: Functor m => ([a] -> m [a]) -> Stack a -> m (Stack a)
+_down f stack@Stack{ down = xs } =
+    (\ xs' -> stack{ down = xs' }) <$> f xs
 
 -- | this function indicates to catch that an error is expected
 abort :: String -> a
