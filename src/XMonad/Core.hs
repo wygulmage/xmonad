@@ -88,6 +88,25 @@ data XState = XState
     -- provides additional information and a simple interface for using this.
     }
 
+_windowset :: Functor m => (WindowSet -> m WindowSet) -> XState -> m XState
+_windowset f xstate@XState{ windowset = x } =
+    (\ x' -> xstate{ windowset = x' }) <$> f x
+_mapped :: Functor m => (S.Set Window -> m (S.Set Window)) -> XState -> m XState
+_mapped f xstate@XState{ mapped = x } =
+    (\ x' -> xstate{ mapped = x' }) <$> f x
+_waitingUnmap :: Functor m => (M.Map Window Int -> m (M.Map Window Int)) -> XState -> m XState
+_waitingUnmap f xstate@XState{ waitingUnmap = x } =
+    (\ x' -> xstate{ waitingUnmap = x' }) <$> f x
+_dragging :: Functor m => (Maybe (Position -> Position -> X (), X ()) -> m (Maybe (Position -> Position -> X (), X ()))) -> XState -> m XState
+_dragging f xstate@XState{ dragging = x } =
+    (\ x' -> xstate{ dragging = x' }) <$> f x
+_numberlockMask :: Functor m => (KeyMask -> m KeyMask) -> XState -> m XState
+_numberlockMask f xstate@XState{ numberlockMask = x } =
+    (\ x' -> xstate{ numberlockMask = x' }) <$> f x
+_extensibleState :: Functor m => (M.Map String (Either String StateExtension) -> m (M.Map String (Either String StateExtension))) -> XState -> m XState
+_extensibleState f xstate@XState{ extensibleState = x } =
+    (\ x' -> xstate{ extensibleState = x' }) <$> f x
+
 -- | XConf, the (read-only) window manager configuration.
 data XConf = XConf
     { display       :: Display        -- ^ the X11 display
@@ -106,6 +125,13 @@ data XConf = XConf
     , currentEvent :: !(Maybe Event)  -- ^ event currently being processed
     , dirs         :: !Dirs           -- ^ directories to use
     }
+
+_display :: Functor m => (Display -> m Display) -> XConf -> m XConf
+_display f xconf@XConf{ display = x } =
+    (\ x' -> xconf{ display = x' }) <$> f x
+_config :: Functor m => (XConfig Layout -> m (XConfig Layout)) -> XConf -> m XConf
+_config f xconf@XConf{ config = x } =
+    (\ x' -> xconf{ config = x' }) <$> f x
 
 -- todo, better name
 data XConfig l = XConfig
@@ -442,11 +468,8 @@ spawnPID x = xfork $ executeFile "/bin/sh" False ["-c", x] Nothing
 
 -- | A replacement for 'forkProcess' which resets default signal handlers.
 xfork :: MonadIO m => IO () -> m ProcessID
-xfork x = io . forkProcess . finally nullStdin $ do
-                uninstallSignalHandlers
-                createSession
-                x
- where
+xfork x = io . forkProcess . finally nullStdin $ uninstallSignalHandlers *> createSession *> x
+    where
     nullStdin = do
         fd <- openFd "/dev/null" ReadOnly Nothing defaultFileFlags
         dupTo fd stdInput
@@ -458,6 +481,7 @@ runOnWorkspaces :: (WindowSpace -> X WindowSpace) -> X ()
 runOnWorkspaces job = do
     ws <- gets windowset
     h <- traverse job $ hidden ws
+    -- c:v <- traverse _workspace job $ current ws : visible ws
     c:v <- traverse (\s -> (\w -> s { workspace = w}) <$> job (workspace s))
              $ current ws : visible ws
     modify $ \s -> s { windowset = ws { current = c, visible = v, hidden = h } }
@@ -636,9 +660,9 @@ recompile Dirs{ cfgDir, dataDir } force = io $ do
             else do
                 ghcErr <- readFile err
                 let msg = unlines $
-                        ["Error detected while loading xmonad configuration file: " ++ src]
-                        ++ lines (if null ghcErr then show status else ghcErr)
-                        ++ ["","Please check the file for errors."]
+                        ["Error detected while loading xmonad configuration file: " <> src]
+                        <> lines (if null ghcErr then show status else ghcErr)
+                        <> ["","Please check the file for errors."]
                 -- nb, the ordering of printing, then forking, is crucial due to
                 -- lazy evaluation
                 hPutStrLn stderr msg
@@ -650,12 +674,12 @@ recompile Dirs{ cfgDir, dataDir } force = io $ do
        isSource = flip elem [".hs",".lhs",".hsc"] . takeExtension
        isExecutable f = E.catch (executable <$> getPermissions f) (\(SomeException _) -> pure False)
        allFiles t = do
-            let prep = map (t</>) . Prelude.filter (`notElem` [".",".."])
+            let prep = fmap (t</>) . Prelude.filter (`notElem` [".",".."])
             cs <- prep <$> E.catch (getDirectoryContents t) (\(SomeException _) -> pure [])
             ds <- filterM doesDirectoryExist cs
-            fold . ((cs \\ ds):) <$> traverse allFiles ds
+            fold . ((cs \\ ds) :) <$> traverse allFiles ds
        -- Replace some of the unicode symbols GHC uses in its output
-       replaceUnicode = map $ \c -> case c of
+       replaceUnicode = fmap $ \c -> case c of
            '\8226' -> '*'  -- •
            '\8216' -> '`'  -- ‘
            '\8217' -> '`'  -- ’

@@ -25,6 +25,7 @@ module XMonad.StackSet (
         -- $focus
 
         StackSet(..), Workspace(..), Screen(..), Stack(..), RationalRect(..),
+        _workspace,
         -- *  Construction
         -- $construction
         new, view, greedyView,
@@ -138,17 +139,46 @@ data StackSet i l a sid sd =
              , floating :: M.Map a RationalRect      -- ^ floating windows
              } deriving (Show, Read, Eq)
 
+_current ::
+    Functor m =>
+    (Screen  i l a sid sd -> m (Screen   i l a sid sd)) ->
+    StackSet i l a sid sd -> m (StackSet i l a sid sd)
+_current f stackset@StackSet{ current = x } =
+    (\ x' -> stackset{ current = x' }) <$> f x
+_visible f stackset@StackSet{ visible = x } =
+    (\ x' -> stackset{ visible = x' }) <$> f x
+_hidden f stackset@StackSet{ hidden = x } =
+    (\ x' -> stackset{ visible = x' }) <$> f x
+
 -- | Visible workspaces, and their Xinerama screens.
 data Screen i l a sid sd = Screen { workspace :: !(Workspace i l a)
                                   , screen :: !sid
                                   , screenDetail :: !sd }
     deriving (Show, Read, Eq)
 
+_workspace :: Functor m => (Workspace i l a -> m (Workspace j k b)) -> Screen i l a sid sd -> m (Screen j k b sid sd)
+_workspace f scrn@Screen{ workspace = x } =
+    (\ x' -> scrn{ workspace = x' }) <$> f x
+_screen :: Functor m => (sid -> m sid') -> Screen i l a sid sd -> m (Screen i l a sid' sd)
+_screen f scrn@Screen{ screen = x } =
+    (\ x' -> scrn{ screen = x' }) <$> f x
+_screenDetail :: Functor m => (sd -> m sd') -> Screen i l a sid sd -> m (Screen i l a sid sd')
+_screenDetail f scrn@Screen{ screenDetail = x } =
+    (\ x' -> scrn{ screenDetail = x' }) <$> f x
+
 -- |
 -- A workspace is just a tag, a layout, and a stack.
 --
 data Workspace i l a = Workspace  { tag :: !i, layout :: l, stack :: Maybe (Stack a) }
     deriving (Show, Read, Eq)
+
+_tag :: Functor m => (i -> m i') -> Workspace i l a -> m (Workspace i' l a)
+_tag f wrkspc@Workspace{ tag = x } =
+    (\ x' -> wrkspc{ tag = x' }) <$> f x
+_layout f wrkspc@Workspace{ layout = x } =
+    (\ x' -> wrkspc{ layout = x' }) <$> f x
+_stack f wrkspc@Workspace{ stack = x } =
+    (\ x' -> wrkspc{ stack = x' }) <$> f x
 
 -- | A structure for window geometries
 data RationalRect = RationalRect !Rational !Rational !Rational !Rational
