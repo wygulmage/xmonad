@@ -89,7 +89,7 @@ tile
     -> [Rectangle]
 tile f r nmaster n = if n <= nmaster || nmaster == 0
     then splitVertically n r
-    else splitVertically nmaster r1 ++ splitVertically (n-nmaster) r2 -- two columns
+    else splitVertically nmaster r1 <> splitVertically (n-nmaster) r2 -- two columns
   where (r1,r2) = splitHorizontallyBy f r
 
 --
@@ -102,7 +102,7 @@ splitVertically n (Rectangle sx sy sw sh) = Rectangle sx sy sw smallh :
   where smallh = sh `div` fromIntegral n --hmm, this is a fold or map.
 
 -- Not used in the core, but exported
-splitHorizontally n = map mirrorRect . splitVertically n . mirrorRect
+splitHorizontally n = fmap mirrorRect . splitVertically n . mirrorRect
 
 -- Divide the screen into two rectangles, using a rational to specify the ratio
 splitHorizontallyBy, splitVerticallyBy :: RealFrac r => r -> Rectangle -> (Rectangle, Rectangle)
@@ -120,10 +120,10 @@ splitVerticallyBy f = (mirrorRect *** mirrorRect) . splitHorizontallyBy f . mirr
 newtype Mirror l a = Mirror (l a) deriving (Show, Read)
 
 instance LayoutClass l a => LayoutClass (Mirror l) a where
-    runLayout (W.Workspace i (Mirror l) ms) r = (map (second mirrorRect) *** fmap Mirror)
+    runLayout (W.Workspace i (Mirror l) ms) r = (fmap (second mirrorRect) *** fmap Mirror)
                                                 `fmap` runLayout (W.Workspace i l ms) (mirrorRect r)
     handleMessage (Mirror l) = fmap (fmap Mirror) . handleMessage l
-    description (Mirror l) = "Mirror "++ description l
+    description (Mirror l) = "Mirror " <> description l
 
 -- | Mirror a rectangle.
 mirrorRect :: Rectangle -> Rectangle

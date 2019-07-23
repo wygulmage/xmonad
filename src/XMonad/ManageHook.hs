@@ -103,7 +103,7 @@ getStringProperty :: Display -> Window -> String -> X (Maybe String)
 getStringProperty d w p = do
   a  <- getAtom p
   md <- io $ getWindowProperty8 d a w
-  pure $ fmap (map (toEnum . fromIntegral)) md
+  pure $ fmap (fmap (toEnum . fromIntegral)) md
 
 -- | Modify the 'WindowSet' with a pure function.
 doF :: (s -> s) -> Query (Endo s)

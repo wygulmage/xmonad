@@ -56,7 +56,7 @@ import Graphics.X11.Xlib.Extras
 -- > workspaces = ["web", "irc", "code" ] ++ map show [4..9]
 --
 workspaces :: [WorkspaceId]
-workspaces = map show [1 .. 9 :: Int]
+workspaces = fmap show [1 .. 9 :: Int]
 
 -- | modMask lets you specify which modkey you want to use. The default
 -- is mod1Mask ("left alt").  You may also consider using mod3Mask
@@ -224,14 +224,12 @@ keys conf@XConfig {XMonad.modMask = modMask} = M.fromList $
     , ((modMask .|. shiftMask, xK_slash ), helpCommand) -- %! Run xmessage with a summary of the default keybindings (useful for beginners)
     -- repeat the binding for non-American layout keyboards
     , ((modMask              , xK_question), helpCommand) -- %! Run xmessage with a summary of the default keybindings (useful for beginners)
-    ]
-    ++
+    ] <>
     -- mod-[1..9] %! Switch to workspace N
     -- mod-shift-[1..9] %! Move client to workspace N
     [((m .|. modMask, k), windows $ f i)
         | (i, k) <- zip (XMonad.workspaces conf) [xK_1 .. xK_9]
-        , (f, m) <- [(W.greedyView, 0), (W.shift, shiftMask)]]
-    ++
+        , (f, m) <- [(W.greedyView, 0), (W.shift, shiftMask)]] <>
     -- mod-{w,e,r} %! Switch to physical/Xinerama screens 1, 2, or 3
     -- mod-shift-{w,e,r} %! Move client to screen 1, 2, or 3
     [((m .|. modMask, key), screenWorkspace sc >>= flip whenJust (windows . f))
@@ -239,7 +237,7 @@ keys conf@XConfig {XMonad.modMask = modMask} = M.fromList $
         , (f, m) <- [(W.view, 0), (W.shift, shiftMask)]]
   where
     helpCommand :: X ()
-    helpCommand = spawn ("echo " ++ show help ++ " | xmessage -file -")
+    helpCommand = spawn ("echo " <> show help <> " | xmessage -file -")
 
 -- | Mouse bindings: default actions bound to mouse events
 mouseBindings :: XConfig Layout -> M.Map (KeyMask, Button) (Window -> X ())
@@ -274,7 +272,7 @@ instance (a ~ Choose Tall (Choose (Mirror Tall) Full)) => Default (XConfig a) wh
     , XMonad.rootMask           = rootMask
     , XMonad.handleExtraArgs = \ xs theConf -> case xs of
                 [] -> pure theConf
-                _ -> fail ("unrecognized flags:" ++ show xs)
+                _ -> fail ("unrecognized flags:" <> show xs)
     }
 
 -- | The default set of configuration values itself

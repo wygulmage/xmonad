@@ -161,14 +161,14 @@ data XConfig l = XConfig
     }
 
 
-type WindowSet   = StackSet  WorkspaceId (Layout Window) Window ScreenId ScreenDetail
+type WindowSet = StackSet  WorkspaceId (Layout Window) Window ScreenId ScreenDetail
 type WindowSpace = Workspace WorkspaceId (Layout Window) Window
 
 -- | Virtual workspace indices
 type WorkspaceId = String
 
 -- | Physical screen indices
-newtype ScreenId    = S Int deriving (Eq,Ord,Show,Read,Enum,Num,Integral,Real)
+newtype ScreenId = S Int deriving (Eq,Ord,Show,Read,Enum,Num,Integral,Real)
 
 -- | The 'Rectangle' with screen dimensions
 newtype ScreenDetail = SD { screenRect :: Rectangle }
@@ -618,17 +618,17 @@ recompile Dirs{ cfgDir, dataDir } force = io $ do
           isExe <- isExecutable buildscript
           if isExe
             then do
-              trace $ "XMonad will use build script at " ++ show buildscript ++ " to recompile."
+              trace $ "XMonad will use build script at " <> show buildscript <> " to recompile."
               pure True
             else do
               trace $ unlines
-                [ "XMonad will not use build script, because " ++ show buildscript ++ " is not executable."
-                , "Suggested resolution to use it: chmod u+x " ++ show buildscript
+                [ "XMonad will not use build script, because " <> show buildscript <> " is not executable."
+                , "Suggested resolution to use it: chmod u+x " <> show buildscript
                 ]
               pure False
         else do
           trace $
-            "XMonad will use ghc to recompile, because " ++ show buildscript ++ " does not exist."
+            "XMonad will use ghc to recompile, because " <> show buildscript <> " does not exist."
           pure False
 
     shouldRecompile <-
@@ -661,7 +661,8 @@ recompile Dirs{ cfgDir, dataDir } force = io $ do
                 ghcErr <- readFile err
                 let msg = unlines $
                         ["Error detected while loading xmonad configuration file: " <> src]
-                        <> lines (if null ghcErr then show status else ghcErr)
+                        <>  [if null ghcErr then show status else ghcErr]
+                        -- <> lines (if null ghcErr then show status else ghcErr)
                         <> ["","Please check the file for errors."]
                 -- nb, the ordering of printing, then forking, is crucial due to
                 -- lazy evaluation
@@ -727,3 +728,4 @@ uninstallSignalHandlers = io $ do
     installHandler openEndedPipe Default Nothing
     installHandler sigCHLD Default Nothing
     pure ()
+

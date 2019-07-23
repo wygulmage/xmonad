@@ -133,13 +133,13 @@ windows f = do
     modify (\s -> s { windowset = ws })
 
     -- notify non visibility
-    let tags_oldvisible = map (W.tag . W.workspace) $ W.current old : W.visible old
+    let tags_oldvisible = fmap (W.tag . W.workspace) $ W.current old : W.visible old
         gottenhidden    = filter (flip elem tags_oldvisible . W.tag) $ W.hidden ws
     traverse_ (sendMessageWithNoRefresh Hide) gottenhidden
 
     -- for each workspace, layout the currently visible workspaces
     let allscreens     = W.screens ws
-        summed_visible = scanl (++) [] $ map (W.integrate' . W.stack . W.workspace) allscreens
+        summed_visible = scanl (++) [] $ fmap (W.integrate' . W.stack . W.workspace) allscreens
     rects <- fmap fold $ for (zip allscreens summed_visible) $ \ (w, vis) -> do
         let wsp   = W.workspace w
             this  = W.view n ws
@@ -159,13 +159,13 @@ windows f = do
             flt = [(fw, scaleRationalRect viewrect r)
                     | fw <- filter (flip M.member m) (W.index this)
                     , Just r <- [M.lookup fw m]]
-            vs = flt ++ rs
+            vs = flt <> rs
 
-        io $ restackWindows d (map fst vs)
+        io $ restackWindows d (fmap fst vs)
         -- return the visible windows for this workspace:
         pure vs
 
-    let visible = map fst rects
+    let visible = fmap fst rects
 
     traverse_ (uncurry tileWindow) rects
 
@@ -178,7 +178,7 @@ windows f = do
 
     -- hide every window that was potentially visible before, but is not
     -- given a position by a layout now.
-    traverse_ hide (nub (oldvisible ++ newwindows) \\ visible)
+    traverse_ hide (nub (oldvisible <> newwindows) \\ visible)
 
     -- all windows that are no longer in the windowset are marked as
     -- withdrawn, it is important to do this after the above, otherwise 'hide'
@@ -322,8 +322,8 @@ rescreen = do
     xinesc <- withDisplay getCleanedScreenInfo
 
     windows $ \ws@W.StackSet { W.current = v, W.visible = vs, W.hidden = hs } ->
-        let (xs, ys) = splitAt (length xinesc) $ map W.workspace (v:vs) ++ hs
-            (a:as)   = zipWith3 W.Screen xs [0..] $ map SD xinesc
+        let (xs, ys) = splitAt (length xinesc) $ fmap W.workspace (v:vs) <> hs
+            (a:as)   = zipWith3 W.Screen xs [0..] $ fmap SD xinesc
         in  ws { W.current = a
                , W.visible = as
                , W.hidden  = ys }
@@ -418,9 +418,9 @@ sendMessage a = windowBracket_ $ do
 broadcastMessage :: Message a => a -> X ()
 broadcastMessage a = withWindowSet $ \ws -> do
    let c = W.workspace . W.current $ ws
-       v = map W.workspace . W.visible $ ws
+       v = fmap W.workspace . W.visible $ ws
        h = W.hidden ws
-   traverse_ (sendMessageWithNoRefresh a) (c : v ++ h)
+   traverse_ (sendMessageWithNoRefresh a) (c : v <> h)
 
 -- | Send a message to a layout, without refreshing.
 sendMessageWithNoRefresh :: Message a => a -> W.Workspace WorkspaceId (Layout Window) Window -> X ()
@@ -515,7 +515,7 @@ readStateFile xmc = do
       sf <- join sf'
 
       let winset = W.ensureTags layout (workspaces xmc) $ W.mapLayout (fromMaybe layout . maybeRead lreads) (sfWins sf)
-          extState = M.fromList . map (second Left) $ sfExt sf
+          extState = M.fromList . fmap (second Left) $ sfExt sf
 
       pure XState { windowset       = winset
                     , numberlockMask  = 0
@@ -618,7 +618,7 @@ float w = do
     (sc, rr) <- floatLocation w
     windows $ \ws -> W.float w rr . fromMaybe ws $ do
         i  <- W.findTag w ws
-        guard $ i `elem` map (W.tag . W.workspace) (W.screens ws)
+        guard $ i `elem` fmap (W.tag . W.workspace) (W.screens ws)
         f  <- W.peek ws
         sw <- W.lookupWorkspace sc ws
         pure (W.focusWindow f . W.shiftWin sw w $ ws)

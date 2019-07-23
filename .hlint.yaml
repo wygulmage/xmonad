@@ -10,6 +10,7 @@
 
 - warn: {lhs: pure x <* y, rhs: x <$ y}
 
+- error: {lhs: map, rhs: fmap}
 - error: {lhs: liftM, rhs: fmap}
 - error: {lhs: x `liftM` y, rhs: x <$> y}
 
@@ -27,5 +28,6 @@
 - error: {lhs: mapM, rhs: traverse}
 - error: {lhs: forM, rhs: for}
 
+- error: {lhs: x ++ y, rhs: x <> y}
 - error: {lhs: mappend, rhs: (<>)}
 
