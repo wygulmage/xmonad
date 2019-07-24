@@ -2,7 +2,7 @@
     RankNTypes
   #-}
 
-module XMonad.Optics where
+module XMonad.Optic where
 
 import XMonad.StackSet
     ( Stack (Stack)
