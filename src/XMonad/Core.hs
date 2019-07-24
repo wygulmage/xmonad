@@ -88,25 +88,6 @@ data XState = XState
     -- provides additional information and a simple interface for using this.
     }
 
-_windowset :: Functor m => (WindowSet -> m WindowSet) -> XState -> m XState
-_windowset f xstate@XState{ windowset = x } =
-    (\ x' -> xstate{ windowset = x' }) <$> f x
-_mapped :: Functor m => (S.Set Window -> m (S.Set Window)) -> XState -> m XState
-_mapped f xstate@XState{ mapped = x } =
-    (\ x' -> xstate{ mapped = x' }) <$> f x
-_waitingUnmap :: Functor m => (M.Map Window Int -> m (M.Map Window Int)) -> XState -> m XState
-_waitingUnmap f xstate@XState{ waitingUnmap = x } =
-    (\ x' -> xstate{ waitingUnmap = x' }) <$> f x
-_dragging :: Functor m => (Maybe (Position -> Position -> X (), X ()) -> m (Maybe (Position -> Position -> X (), X ()))) -> XState -> m XState
-_dragging f xstate@XState{ dragging = x } =
-    (\ x' -> xstate{ dragging = x' }) <$> f x
-_numberlockMask :: Functor m => (KeyMask -> m KeyMask) -> XState -> m XState
-_numberlockMask f xstate@XState{ numberlockMask = x } =
-    (\ x' -> xstate{ numberlockMask = x' }) <$> f x
-_extensibleState :: Functor m => (M.Map String (Either String StateExtension) -> m (M.Map String (Either String StateExtension))) -> XState -> m XState
-_extensibleState f xstate@XState{ extensibleState = x } =
-    (\ x' -> xstate{ extensibleState = x' }) <$> f x
-
 -- | XConf, the (read-only) window manager configuration.
 data XConf = XConf
     { display       :: Display        -- ^ the X11 display
@@ -125,13 +106,6 @@ data XConf = XConf
     , currentEvent :: !(Maybe Event)  -- ^ event currently being processed
     , dirs         :: !Dirs           -- ^ directories to use
     }
-
-_display :: Functor m => (Display -> m Display) -> XConf -> m XConf
-_display f xconf@XConf{ display = x } =
-    (\ x' -> xconf{ display = x' }) <$> f x
-_config :: Functor m => (XConfig Layout -> m (XConfig Layout)) -> XConf -> m XConf
-_config f xconf@XConf{ config = x } =
-    (\ x' -> xconf{ config = x' }) <$> f x
 
 -- todo, better name
 data XConfig l = XConfig

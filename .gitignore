@@ -18,6 +18,7 @@ tags
 
 # stack artifacts
 /.stack-work/
+stack.yaml.lock
 
 # cabal-install artifacts
 /.*.environment.*-*
