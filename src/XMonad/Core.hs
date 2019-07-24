@@ -42,6 +42,7 @@ module XMonad.Core (
   ) where
 
 import XMonad.StackSet hiding (modify)
+import XMonad.Optic
 
 import Prelude
 import Control.Exception (fromException, try, bracket, throw, finally, SomeException(..))
@@ -71,22 +72,50 @@ import Data.Typeable
 import Data.List ((\\))
 import Data.Maybe (isJust,fromMaybe)
 
+import Data.Map (Map)
 import qualified Data.Map as M
+import Data.Set (Set)
 import qualified Data.Set as S
 
 -- | XState, the (mutable) window manager state.
 data XState = XState
     { windowset        :: !WindowSet                     -- ^ workspace list
-    , mapped           :: !(S.Set Window)                -- ^ the Set of mapped windows
-    , waitingUnmap     :: !(M.Map Window Int)            -- ^ the number of expected UnmapEvents
+    , mapped           :: !(Set Window)                -- ^ the Set of mapped windows
+    , waitingUnmap     :: !(Map Window Int)            -- ^ the number of expected UnmapEvents
     , dragging         :: !(Maybe (Position -> Position -> X (), X ()))
     , numberlockMask   :: !KeyMask                       -- ^ The numlock modifier
-    , extensibleState  :: !(M.Map String (Either String StateExtension))
+    , extensibleState  :: !(Map String (Either String StateExtension))
     -- ^ stores custom state information.
     --
     -- The module "XMonad.Util.ExtensibleState" in xmonad-contrib
     -- provides additional information and a simple interface for using this.
     }
+
+_windowset :: MonoLens XState WindowSet 
+_windowset f xstate@XState{ windowset = x } =
+    (\ x' -> xstate{ windowset = x' }) <$> f x
+
+_mapped :: MonoLens XState (Set Window)
+_mapped f xstate@XState{ mapped = x } =
+    (\ x' -> xstate{ mapped = x' }) <$> f x
+
+_waitingUnmap :: MonoLens XState (Map Window Int)
+_waitingUnmap f xstate@XState{ waitingUnmap = x } =
+    (\ x' -> xstate{ waitingUnmap = x' }) <$> f x
+
+_dragging :: MonoLens XState (Maybe (Position -> Position -> X (), X ()))
+_dragging f xstate@XState{ dragging = x } =
+    (\ x' -> xstate{ dragging = x' }) <$> f x
+
+_numberlockMask :: MonoLens XState KeyMask
+_numberlockMask f xstate@XState{ numberlockMask = x } =
+    (\ x' -> xstate{ numberlockMask = x' }) <$> f x
+
+_extensibleState :: MonoLens XState (Map String (Either String StateExtension)) 
+_extensibleState f xstate@XState{ extensibleState = x } =
+    (\ x' -> xstate{ extensibleState = x' }) <$> f x
+
+
 
 -- | XConf, the (read-only) window manager configuration.
 data XConf = XConf
@@ -95,9 +124,9 @@ data XConf = XConf
     , theRoot       :: !Window        -- ^ the root window
     , normalBorder  :: !Pixel         -- ^ border color of unfocused windows
     , focusedBorder :: !Pixel         -- ^ border color of the focused window
-    , keyActions    :: !(M.Map (KeyMask, KeySym) (X ()))
+    , keyActions    :: !(Map (KeyMask, KeySym) (X ()))
                                       -- ^ a mapping of key presses to actions
-    , buttonActions :: !(M.Map (KeyMask, Button) (Window -> X ()))
+    , buttonActions :: !(Map (KeyMask, Button) (Window -> X ()))
                                       -- ^ a mapping of button presses to actions
     , mouseFocused :: !Bool           -- ^ was refocus caused by mouse action?
     , mousePosition :: !(Maybe (Position, Position))
@@ -106,6 +135,48 @@ data XConf = XConf
     , currentEvent :: !(Maybe Event)  -- ^ event currently being processed
     , dirs         :: !Dirs           -- ^ directories to use
     }
+
+_display :: MonoLens XConf Display
+_display f xconf@XConf{ display = x } =
+    (\ x' -> xconf{ display = x' }) <$> f x
+
+_config :: MonoLens XConf (XConfig Layout)
+_config f xconf@XConf{ config = x } =
+    (\ x' -> xconf{ config = x' }) <$> f x
+
+_theRoot :: MonoLens XConf Window
+_theRoot f xconf@XConf{ theRoot = x } =
+    (\ x' -> xconf{ theRoot = x' }) <$> f x
+
+_normalBorder :: MonoLens XConf Pixel
+_normalBorder f xconf@XConf{ normalBorder = x } =
+    (\ x' -> xconf{ normalBorder = x' }) <$> f x
+
+_focusedBorder :: MonoLens XConf Pixel
+_focusedBorder f xconf@XConf{ focusedBorder = x } =
+    (\ x' -> xconf{ focusedBorder = x' }) <$> f x
+
+_keyActions :: MonoLens XConf (Map (KeyMask, KeySym) (X ()))
+_keyActions f xconf@XConf{ keyActions = x } =
+    (\ x' -> xconf{ keyActions = x' }) <$> f x
+
+_buttonActions :: MonoLens XConf (Map (KeyMask, Button) (Window -> X ()))
+_buttonActions f xconf@XConf{ buttonActions = x } =
+    (\ x' -> xconf{ buttonActions = x' }) <$> f x
+
+_mouseFocused :: MonoLens XConf Bool
+_mouseFocused f xconf@XConf{ mouseFocused = x } =
+    (\ x' -> xconf{ mouseFocused = x' }) <$> f x
+
+_mousePosition :: MonoLens XConf (Maybe (Position, Position))
+_mousePosition f xconf@XConf{ mousePosition = x } =
+    (\ x' -> xconf{ mousePosition = x' }) <$> f x
+
+_currentEvent :: MonoLens XConf (Maybe Event)
+_currentEvent f xconf@XConf{ currentEvent = x } =
+    (\ x' -> xconf{ currentEvent = x' }) <$> f x
+
+
 
 -- todo, better name
 data XConfig l = XConfig
@@ -119,9 +190,9 @@ data XConfig l = XConfig
                                                  -- event hooks in most cases.
     , workspaces         :: ![String]            -- ^ The list of workspaces' names
     , modMask            :: !KeyMask             -- ^ the mod modifier
-    , keys               :: !(XConfig Layout -> M.Map (ButtonMask,KeySym) (X ()))
+    , keys               :: !(XConfig Layout -> Map (ButtonMask,KeySym) (X ()))
                                                  -- ^ The key binding: a map from key presses and actions
-    , mouseBindings      :: !(XConfig Layout -> M.Map (ButtonMask, Button) (Window -> X ()))
+    , mouseBindings      :: !(XConfig Layout -> Map (ButtonMask, Button) (Window -> X ()))
                                                  -- ^ The mouse bindings
     , borderWidth        :: !Dimension           -- ^ The border width
     , logHook            :: !(X ())              -- ^ The action to perform when the windows set is changed
@@ -133,6 +204,15 @@ data XConfig l = XConfig
     , handleExtraArgs    :: !([String] -> XConfig Layout -> IO (XConfig Layout))
                                                  -- ^ Modify the configuration, complain about extra arguments etc. with arguments that are not handled by default
     }
+
+_layoutHook :: Lens (XConfig l) (XConfig l') (l Window) (l' Window)
+_layoutHook f xconfig@XConfig{ layoutHook = x } =
+    (\ y -> xconfig{ layoutHook = y }) <$> f x
+
+_manageHook :: MonoLens (XConfig l) ManageHook
+_manageHook f xconfig@XConfig{ manageHook = x } =
+    (\ x' -> xconfig{ manageHook = x' }) <$> f x
+
 
 
 type WindowSet = StackSet  WorkspaceId (Layout Window) Window ScreenId ScreenDetail

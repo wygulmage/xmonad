@@ -1,4 +1,8 @@
-{-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE
+    PatternGuards
+  , RankNTypes
+  , TypeFamilies
+  #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -24,7 +28,10 @@ module XMonad.StackSet (
         -- ** Master and Focus
         -- $focus
 
-        StackSet(..), Workspace(..), Screen(..), Stack(..), RationalRect(..),
+        StackSet(..), _current, _visible, _hidden, _floating,
+        Workspace(..), _tag, _layout, _stack,
+        Screen(..), _workspace, _screen, _screenDetail,
+        Stack(..), RationalRect(..),
         -- *  Construction
         -- $construction
         new, view, greedyView,
@@ -57,7 +64,12 @@ import Data.Foldable
 import Data.Maybe   (listToMaybe,isJust,fromMaybe)
 import qualified Data.List as L (deleteBy,find,splitAt,filter,nub)
 import Data.List ( (\\) )
-import qualified Data.Map  as M (Map,insert,delete,empty)
+import Data.Map (Map)
+import qualified Data.Map  as Map (insert, delete, empty)
+import XMonad.Optic (Lens, MonoLens, views, over, set)
+import qualified XMonad.Optic as Lens (view)
+
+
 
 -- $intro
 --
@@ -137,15 +149,125 @@ data StackSet i l a sid sd =
     StackSet { current  :: !(Screen i l a sid sd)    -- ^ currently focused workspace
              , visible  :: [Screen i l a sid sd]     -- ^ non-focused workspaces, visible in xinerama
              , hidden   :: [Workspace i l a]         -- ^ workspaces not visible anywhere
-             , floating :: M.Map a RationalRect      -- ^ floating windows
+             , floating :: Map a RationalRect      -- ^ floating windows
              } deriving (Show, Read, Eq)
+
+_current :: MonoLens 
+    (StackSet i l a sid sd) (Screen i l a sid sd)
+_current f ss@StackSet{ current = x } =
+    (\ x' -> ss{ current = x' }) <$> f x
+
+_visible :: MonoLens 
+    (StackSet i l a sid sd) [Screen i l a sid sd]
+_visible f ss@StackSet{ visible = x } =
+    (\ x' -> ss{ visible = x' }) <$> f x
+
+_hidden :: MonoLens
+    (StackSet i l a sid sd) [Workspace i l a]
+_hidden f ss@StackSet{ hidden = x } =
+    (\ x' -> ss{ hidden = x' }) <$> f x
+
+_floating :: MonoLens 
+    (StackSet i l a sid sd) (Map a RationalRect)
+_floating f ss@StackSet{ floating = x } =
+    (\ x' -> ss{ floating = x' }) <$> f x
+
+_workspaces :: Applicative m =>
+    (Workspace i l a -> m (Workspace i' l' a)) -> StackSet i l a sid sd -> m (StackSet i' l' a sid sd)
+_workspaces f (StackSet cur vis hid flo) =
+    StackSet <$> _workspace f cur <*> (traverse . _workspace) f vis <*> traverse f hid <*> pure flo
+
+-- | Map a function on all the workspaces in the 'StackSet'.
+mapWorkspace :: (Workspace i l a -> Workspace i' l' a) -> StackSet i l a s sd -> StackSet i' l' a s sd
+mapWorkspace f = over _workspaces f
+
+-- | Map a function on all the layouts in the 'StackSet'.
+mapLayout :: (l -> l') -> StackSet i l a s sd -> StackSet i l' a s sd
+mapLayout = over (_workspaces . _layout)
 
 
 -- | Visible workspaces, and their Xinerama screens.
-data Screen i l a sid sd = Screen { workspace :: !(Workspace i l a)
-                                  , screen :: !sid
-                                  , screenDetail :: !sd }
+data Screen i l a sid sd = Screen 
+    { workspace :: !(Workspace i l a)
+    , screen :: !sid
+    , screenDetail :: !sd 
+    }
     deriving (Show, Read, Eq)
+
+_workspace :: Lens
+    (Screen    i l a sid sd) (Screen    i' l' a' sid sd)
+    (Workspace i l a)        (Workspace i' l' a')
+_workspace f scrn@Screen{ workspace = x } =
+    (\ y -> scrn{ workspace = y }) <$> f x
+
+_screen :: Lens 
+    (Screen i l a sid sd) (Screen i l a sid' sd) sid sid'
+_screen f scrn@Screen{ screen = x } =
+    (\ y -> scrn{ screen = y }) <$> f x
+
+_screenDetail :: Lens 
+    (Screen i l a sid sd) (Screen i l a sid sd') sd sd'
+_screenDetail f scrn@Screen{ screenDetail = x } =
+    (\ y -> scrn{ screenDetail = y }) <$> f x
+
+
+-- $construction
+
+-- | /O(n)/. Create a new stackset, of empty stacks, with given tags,
+-- with physical screens whose descriptions are given by 'm'. The
+-- number of physical screens (@length 'm'@) should be less than or
+-- equal to the number of workspace tags.  The first workspace in the
+-- list will be current.
+--
+-- Xinerama: Virtual workspaces are assigned to physical screens, starting at 0.
+--
+new :: (Integral s) =>
+    l ->   -- layout
+   [i] ->  -- workspace ? IDs ?
+   [sd] -> -- screen dimensions (i.e. a list of unnamed screens)
+   StackSet i l a s sd
+new l wids m 
+    | not (null wids) && length m <= length wids && not (null m)
+        = StackSet cur visi unseen Map.empty
+    where 
+    (seen, unseen) =
+        L.splitAt (length m) $ fmap (\i -> Workspace i l Nothing) wids
+    (cur : visi) = 
+        [ Screen i s sd | (i, s, sd) <- zip3 seen [0..] m ]
+                -- now zip up visibles with their screen id
+new _ _ _ = abort "non-positive argument to StackSet.new"
+
+-- |
+-- /O(w)/. Set focus to the workspace with index \'i\'.
+-- If the index is out of range, return the original 'StackSet'.
+--
+-- Xinerama: If the workspace is not visible on any Xinerama screen, it
+-- becomes the current screen. If it is in the visible list, it becomes
+-- current.
+
+view :: (Eq s, Eq i) => 
+    i -> StackSet i l a s sd -> StackSet i l a s sd
+view i s
+    | i == currentTag s = s  -- current
+
+    | Just x <- L.find ((i==).tag.workspace) (visible s)
+    -- if it is visible, it is just raised
+    = s { current = x, visible = current s : L.deleteBy (equating screen) x (visible s) }
+
+    | Just x <- L.find ((i==).tag)           (hidden  s) -- must be hidden then
+    -- if it was hidden, it is raised on the xine screen currently used
+    = s { current = (current s) { workspace = x }
+        , hidden = workspace (current s) : L.deleteBy (equating tag) x (hidden s) }
+
+    | otherwise = s -- not a member of the stackset
+
+  where equating f x y = f x == f y
+
+    -- 'Catch'ing this might be hard. Relies on monotonically increasing
+    -- workspace tags defined in 'new'
+    --
+    -- and now tags are not monotonic, what happens here?
+
 
 -- |
 -- A workspace is just a tag, a layout, and a stack.
@@ -153,6 +275,19 @@ data Screen i l a sid sd = Screen { workspace :: !(Workspace i l a)
 data Workspace i l a = Workspace  { tag :: !i, layout :: l, stack :: Maybe (Stack a) }
     deriving (Show, Read, Eq)
 
+_tag :: Lens (Workspace i l a) (Workspace i' l a) i i'
+_tag f ws@Workspace{ tag = x } =
+    (\ x' -> ws{ tag = x' }) <$> f x
+
+_layout :: Lens (Workspace i l a) (Workspace i l' a) l l'
+_layout f ws@Workspace{ layout = x } =
+    (\ x' -> ws{ layout = x' }) <$> f x
+
+_stack :: Lens
+    (Workspace i l a) (Workspace i l a')
+    (Maybe (Stack  a)) (Maybe (Stack a'))
+_stack f ws@Workspace{ stack = x } =
+    (\ x' -> ws{ stack = x' }) <$> f x
 
 -- | A structure for window geometries
 data RationalRect = RationalRect !Rational !Rational !Rational !Rational
@@ -176,10 +311,28 @@ data RationalRect = RationalRect !Rational !Rational !Rational !Rational
 -- structures, it is the differentiation of a [a], and integrating it
 -- back has a natural implementation used in 'index'.
 --
-data Stack a = Stack { focus  :: !a        -- focused thing in this set
-                     , up     :: [a]       -- clowns to the left
-                     , down   :: [a] }     -- jokers to the right
+data Stack a = Stack 
+    { focus  :: !a
+    , up     :: [a] -- reversed
+    , down   :: [a] 
+    }
     deriving (Show, Read, Eq)
+
+_focus, _master :: MonoLens (Stack a) a
+_focus f s@Stack{ focus = x } =
+    (\ x' -> s{ focus = x' }) <$> f x
+_master f s@Stack{ up = xu } =
+    case reverse xu of
+    x : xu' -> 
+        (\ x' -> s{ up = reverse (x' : xu')}) <$> f x
+    _ -> 
+        _focus f s
+
+_up, _down :: MonoLens (Stack a) [a]
+_up f s@Stack{ up = xs } =
+    (\ xs' -> s{ up = xs'  }) <$> f xs
+_down f s@Stack{ down = xs } =
+    (\ xs' -> s{ down = xs' }) <$> f xs
 
 
 instance Traversable Stack where
@@ -195,60 +348,12 @@ instance Functor Stack where
 
 instance Semigroup (Stack a) where
     Stack x xu xd <> s =
-        Stack x xu (xd <> integrate s)
+        Stack x xu (xd <> toList s)
+
 
 -- | this function indicates to catch that an error is expected
 abort :: String -> a
 abort x = error $ "xmonad: StackSet: " <> x
-
--- ---------------------------------------------------------------------
--- $construction
-
--- | /O(n)/. Create a new stackset, of empty stacks, with given tags,
--- with physical screens whose descriptions are given by 'm'. The
--- number of physical screens (@length 'm'@) should be less than or
--- equal to the number of workspace tags.  The first workspace in the
--- list will be current.
---
--- Xinerama: Virtual workspaces are assigned to physical screens, starting at 0.
---
-new :: (Integral s) => l -> [i] -> [sd] -> StackSet i l a s sd
-new l wids m | not (null wids) && length m <= length wids && not (null m)
-  = StackSet cur visi unseen M.empty
-  where (seen,unseen) = L.splitAt (length m) $ fmap (\i -> Workspace i l Nothing) wids
-        (cur:visi)    = [ Screen i s sd |  (i, s, sd) <- zip3 seen [0..] m ]
-                -- now zip up visibles with their screen id
-new _ _ _ = abort "non-positive argument to StackSet.new"
-
--- |
--- /O(w)/. Set focus to the workspace with index \'i\'.
--- If the index is out of range, return the original 'StackSet'.
---
--- Xinerama: If the workspace is not visible on any Xinerama screen, it
--- becomes the current screen. If it is in the visible list, it becomes
--- current.
-
-view :: (Eq s, Eq i) => i -> StackSet i l a s sd -> StackSet i l a s sd
-view i s
-    | i == currentTag s = s  -- current
-
-    | Just x <- L.find ((i==).tag.workspace) (visible s)
-    -- if it is visible, it is just raised
-    = s { current = x, visible = current s : L.deleteBy (equating screen) x (visible s) }
-
-    | Just x <- L.find ((i==).tag)           (hidden  s) -- must be hidden then
-    -- if it was hidden, it is raised on the xine screen currently used
-    = s { current = (current s) { workspace = x }
-        , hidden = workspace (current s) : L.deleteBy (equating tag) x (hidden s) }
-
-    | otherwise = s -- not a member of the stackset
-
-  where equating f x y = f x == f y
-
-    -- 'Catch'ing this might be hard. Relies on monotonically increasing
-    -- workspace tags defined in 'new'
-    --
-    -- and now tags are not monotonic, what happens here?
 
 -- |
 -- Set focus to the given workspace.  If that workspace does not exist
@@ -398,7 +503,8 @@ screens s = current s : visible s
 
 -- | Get a list of all workspaces in the 'StackSet'.
 workspaces :: StackSet i l a s sd -> [Workspace i l a]
-workspaces s = workspace (current s) : (fmap workspace (visible s) <> hidden s)
+-- workspaces s = workspace (current s) : (fmap workspace (visible s) <> hidden s)
+workspaces = views _workspaces (:[])
 
 -- | Get a list of all windows in the 'StackSet' in no particular order
 allWindows :: Eq a => StackSet i l a s sd -> [a]
@@ -426,20 +532,6 @@ ensureTags l allt st = et allt (fmap tag (workspaces st) \\ allt) st
           et (i:is) rn s | i `tagMember` s = et is rn s
           et (i:is) [] s = et is [] (s { hidden = Workspace i l Nothing : hidden s })
           et (i:is) (r:rs) s = et is rs $ renameTag r i s
-
--- | Map a function on all the workspaces in the 'StackSet'.
-mapWorkspace :: (Workspace i l a -> Workspace i l a) -> StackSet i l a s sd -> StackSet i l a s sd
-mapWorkspace f s = s { current = updScr (current s)
-                     , visible = fmap updScr (visible s)
-                     , hidden  = fmap f (hidden s) }
-    where updScr scr = scr { workspace = f (workspace scr) }
-
--- | Map a function on all the layouts in the 'StackSet'.
-mapLayout :: (l -> l') -> StackSet i l a s sd -> StackSet i l' a s sd
-mapLayout f (StackSet v vs hs m) = StackSet (fScreen v) (fmap fScreen vs) (fmap fWorkspace hs) m
- where
-    fScreen (Screen ws s sd) = Screen (fWorkspace ws) s sd
-    fWorkspace (Workspace t l s) = Workspace t (f l) s
 
 -- | /O(n)/. Is a window in the 'StackSet'?
 member :: Eq a => a -> StackSet i l a s sd -> Bool
@@ -513,11 +605,11 @@ delete' w s = s { current = removeFromScreen        (current s)
 -- | Given a window, and its preferred rectangle, set it as floating
 -- A floating window should already be managed by the 'StackSet'.
 float :: Ord a => a -> RationalRect -> StackSet i l a s sd -> StackSet i l a s sd
-float w r s = s { floating = M.insert w r (floating s) }
+float w r s = s { floating = Map.insert w r (floating s) }
 
 -- | Clear the floating status of a window
 sink :: Ord a => a -> StackSet i l a s sd -> StackSet i l a s sd
-sink w s = s { floating = M.delete w (floating s) }
+sink w s = s { floating = Map.delete w (floating s) }
 
 ------------------------------------------------------------------------
 -- $settingMW
