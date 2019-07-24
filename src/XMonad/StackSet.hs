@@ -25,7 +25,6 @@ module XMonad.StackSet (
         -- $focus
 
         StackSet(..), Workspace(..), Screen(..), Stack(..), RationalRect(..),
-        _workspace,
         -- *  Construction
         -- $construction
         new, view, greedyView,
@@ -53,6 +52,8 @@ module XMonad.StackSet (
     ) where
 
 import Prelude hiding (filter)
+import Data.Traversable
+import Data.Foldable
 import Data.Maybe   (listToMaybe,isJust,fromMaybe)
 import qualified Data.List as L (deleteBy,find,splitAt,filter,nub)
 import Data.List ( (\\) )
@@ -139,18 +140,6 @@ data StackSet i l a sid sd =
              , floating :: M.Map a RationalRect      -- ^ floating windows
              } deriving (Show, Read, Eq)
 
-_current ::
-    Functor m =>
-    (Screen  i l a sid sd -> m (Screen   i l a sid sd)) ->
-    StackSet i l a sid sd -> m (StackSet i l a sid sd)
-_current f stackset@StackSet{ current = x } =
-    (\ x' -> stackset{ current = x' }) <$> f x
-_visible f stackset@StackSet{ visible = x } =
-    (\ x' -> stackset{ visible = x' }) <$> f x
-_hidden f stackset@StackSet{ hidden = x } =
-    (\ x' -> stackset{ visible = x' }) <$> f x
-_floating f stackset@StackSet{ floating = x } =
-    (\ x' -> stackset{ floating = x' }) <$> f x
 
 -- | Visible workspaces, and their Xinerama screens.
 data Screen i l a sid sd = Screen { workspace :: !(Workspace i l a)
@@ -158,29 +147,12 @@ data Screen i l a sid sd = Screen { workspace :: !(Workspace i l a)
                                   , screenDetail :: !sd }
     deriving (Show, Read, Eq)
 
-_workspace :: Functor m => (Workspace i l a -> m (Workspace j k b)) -> Screen i l a sid sd -> m (Screen j k b sid sd)
-_workspace f scrn@Screen{ workspace = x } =
-    (\ x' -> scrn{ workspace = x' }) <$> f x
-_screen :: Functor m => (sid -> m sid') -> Screen i l a sid sd -> m (Screen i l a sid' sd)
-_screen f scrn@Screen{ screen = x } =
-    (\ x' -> scrn{ screen = x' }) <$> f x
-_screenDetail :: Functor m => (sd -> m sd') -> Screen i l a sid sd -> m (Screen i l a sid sd')
-_screenDetail f scrn@Screen{ screenDetail = x } =
-    (\ x' -> scrn{ screenDetail = x' }) <$> f x
-
 -- |
 -- A workspace is just a tag, a layout, and a stack.
 --
 data Workspace i l a = Workspace  { tag :: !i, layout :: l, stack :: Maybe (Stack a) }
     deriving (Show, Read, Eq)
 
-_tag :: Functor m => (i -> m i') -> Workspace i l a -> m (Workspace i' l a)
-_tag f wrkspc@Workspace{ tag = x } =
-    (\ x' -> wrkspc{ tag = x' }) <$> f x
-_layout f wrkspc@Workspace{ layout = x } =
-    (\ x' -> wrkspc{ layout = x' }) <$> f x
-_stack f wrkspc@Workspace{ stack = x } =
-    (\ x' -> wrkspc{ stack = x' }) <$> f x
 
 -- | A structure for window geometries
 data RationalRect = RationalRect !Rational !Rational !Rational !Rational
@@ -209,15 +181,21 @@ data Stack a = Stack { focus  :: !a        -- focused thing in this set
                      , down   :: [a] }     -- jokers to the right
     deriving (Show, Read, Eq)
 
-_focus :: Functor m => (a -> m a) -> Stack a -> m (Stack a)
-_focus f stack@Stack{ focus = x } =
-    (\ x' -> stack{ focus = x' }) <$> f x
-_up :: Functor m => ([a] -> m [a]) -> Stack a -> m (Stack a)
-_up f stack@Stack{ up = xs } =
-   (\ xs' -> stack{ up = xs'  }) <$> f xs
-_down :: Functor m => ([a] -> m [a]) -> Stack a -> m (Stack a)
-_down f stack@Stack{ down = xs } =
-    (\ xs' -> stack{ down = xs' }) <$> f xs
+
+instance Traversable Stack where
+    traverse f (Stack x xu xd) =
+        flip Stack <$> fmap reverse (traverse f (reverse xu)) <*> f x <*> traverse f xd
+
+instance Foldable Stack where
+    toList (Stack x l r) = reverse l <> (x : r)
+    foldr f z = foldr f z . toList
+
+instance Functor Stack where
+    fmap = fmapDefault
+
+instance Semigroup (Stack a) where
+    Stack x xu xd <> s =
+        Stack x xu (xd <> integrate s)
 
 -- | this function indicates to catch that an error is expected
 abort :: String -> a
@@ -265,7 +243,7 @@ view i s
 
     | otherwise = s -- not a member of the stackset
 
-  where equating f = \x y -> f x == f y
+  where equating f x y = f x == f y
 
     -- 'Catch'ing this might be hard. Relies on monotonically increasing
     -- workspace tags defined in 'new'
@@ -335,7 +313,7 @@ peek = with Nothing (pure . focus)
 -- /O(n)/. Flatten a 'Stack' into a list.
 --
 integrate :: Stack a -> [a]
-integrate (Stack x l r) = reverse l <> (x : r)
+integrate = toList
 
 -- |
 -- /O(n)/ Flatten a possibly empty stack into a list.
