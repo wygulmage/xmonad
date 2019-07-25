@@ -26,34 +26,53 @@
 --
 -----------------------------------------------------------------------------
 
-module XMonad.Core (
-    X, WindowSet, WindowSpace, WorkspaceId,
-    ScreenId(..), ScreenDetail(..), XState(..),
-    XConf(..), XConfig(..), LayoutClass(..),
-    Layout(..), readsLayout, Typeable, Message,
-    SomeMessage(..), fromMessage, LayoutMessages(..),
-    StateExtension(..), ExtensionClass(..),
-    runX, catchX, userCode, userCodeDef, io, catchIO, installSignalHandlers, uninstallSignalHandlers,
-    withDisplay, withWindowSet, isRoot, runOnWorkspaces,
-    getAtom, spawn, spawnPID, xfork, recompile, trace, whenJust, whenX,
-    getXMonadDir, getXMonadCacheDir, getXMonadDataDir, stateFileName,
-    atom_WM_STATE, atom_WM_PROTOCOLS, atom_WM_DELETE_WINDOW, atom_WM_TAKE_FOCUS, withWindowAttributes,
-    ManageHook, Query(..), runQuery, Directories(..), Dirs, getDirs
-  ) where
+module XMonad.Core
+-- X Monad:
+    ( X, runX, catchX, whenX, userCode, userCodeDef
+-- Layouts, Workspaces and Configurations:
+    , XConf(..), XConfig(..)
+    , LayoutClass(..)
+    , Layout(..), readsLayout, Typeable, Message
+    , ScreenId(..), ScreenDetail(..), XState(..)
+    , SomeMessage(..), fromMessage, LayoutMessages(..)
+    , StateExtension(..), ExtensionClass(..)
+    , ManageHook, Query(..), runQuery
+    , WindowSet, WindowSpace, WorkspaceId
+    , withDisplay, withWindowSet, isRoot, runOnWorkspaces, withWindowAttributes
+-- Directories:
+    , Directories(..), Dirs, getDirs
+    , getXMonadDir, getXMonadCacheDir, getXMonadDataDir, stateFileName
+-- IO and Utilities:
+    , io, catchIO, installSignalHandlers, uninstallSignalHandlers
+    , spawn, spawnPID, xfork, recompile, trace
+    , getAtom, atom_WM_STATE, atom_WM_PROTOCOLS, atom_WM_DELETE_WINDOW, atom_WM_TAKE_FOCUS
+    , whenJust
+-- Lenses
+    -- XState
+    , _windowset, _mapped, _waitingUnmap, _dragging, _numberlockMask, _extensibleState
+    -- XConf
+    , _display, _config, _theRoot, _normalBorder, _focusedBorder, _keyActions, _buttonActions, _mouseFocused, _mousePosition, _currentEvent
+    -- XConfig
+    , _borderWidth, _normalBorderColor, _focusedBorderColor, _terminal
+    , _layoutHook, _manageHook, _handleEventHook, _logHook, _startupHook
+    , _workspaceNames, _modMask, _keys, _mouseBindings, _focusFollowsMouse, _clickJustFocuses, _clientMask, _rootMask, _handleExtraArgs
+    ) where
 
-import XMonad.StackSet hiding (modify)
+import XMonad.StackSet hiding (modify, workspaces)
 import XMonad.Optic
 
 import Prelude
 import Control.Exception (fromException, try, bracket, throw, finally, SomeException(..))
 import qualified Control.Exception as E
-import Control.Applicative(Applicative, pure, liftA2, (<*>), (<|>), empty)
+
+import Control.Applicative (Applicative, pure, liftA2, (<*>), (<|>), empty)
 import Control.Monad.Fail
 import Control.Monad.State
 import Control.Monad.Reader
 import Data.Semigroup
 import Data.Traversable (for)
 import Data.Foldable (Foldable, foldMap, fold, traverse_, for_)
+import Data.Functor (($>))
 import Data.Default
 import System.FilePath
 import System.IO
@@ -68,14 +87,13 @@ import System.Directory
 import System.Exit
 import Graphics.X11.Xlib
 import Graphics.X11.Xlib.Extras (getWindowAttributes, WindowAttributes, Event)
-import Data.Typeable
 import Data.List ((\\))
-import Data.Maybe (isJust,fromMaybe)
-
 import Data.Map (Map)
-import qualified Data.Map as M
+import Data.Maybe (isJust,fromMaybe)
 import Data.Set (Set)
-import qualified Data.Set as S
+import Data.Typeable
+import System.Environment (lookupEnv)
+
 
 -- | XState, the (mutable) window manager state.
 data XState = XState
@@ -205,6 +223,21 @@ data XConfig l = XConfig
                                                  -- ^ Modify the configuration, complain about extra arguments etc. with arguments that are not handled by default
     }
 
+_borderWidth :: MonoLens (XConfig l) Dimension
+_borderWidth f xconfig@XConfig{ borderWidth = x } =
+    (\ x' -> xconfig{ borderWidth = x' }) <$> f x
+
+_normalBorderColor, _focusedBorderColor, _terminal :: MonoLens (XConfig l) String
+
+_normalBorderColor f xconfig@XConfig{ normalBorderColor = x } = 
+    (\ x' -> xconfig{ normalBorderColor = x' }) <$> f x
+
+_focusedBorderColor f xconfig@XConfig{ focusedBorderColor = x } =
+    (\ x' -> xconfig{ focusedBorderColor = x' }) <$> f x
+
+_terminal f xconfig@XConfig{ terminal = x } =
+    (\ x' -> xconfig{ terminal = x' }) <$> f x
+
 _layoutHook :: Lens (XConfig l) (XConfig l') (l Window) (l' Window)
 _layoutHook f xconfig@XConfig{ layoutHook = x } =
     (\ y -> xconfig{ layoutHook = y }) <$> f x
@@ -212,6 +245,54 @@ _layoutHook f xconfig@XConfig{ layoutHook = x } =
 _manageHook :: MonoLens (XConfig l) ManageHook
 _manageHook f xconfig@XConfig{ manageHook = x } =
     (\ x' -> xconfig{ manageHook = x' }) <$> f x
+
+_handleEventHook :: MonoLens (XConfig l) (Event -> X All)
+_handleEventHook f xconfig@XConfig{ handleEventHook = x } =
+    (\ x' -> xconfig{ handleEventHook = x' }) <$> f x
+
+_logHook :: MonoLens (XConfig l) (X ())
+_logHook f xconfig@XConfig{ logHook = x } =
+    (\ x' -> xconfig{ logHook = x' }) <$> f x
+
+_startupHook :: MonoLens (XConfig l) (X ())
+_startupHook f xconfig@XConfig{ startupHook = x } =
+    (\ x' -> xconfig{ startupHook = x' }) <$> f x
+
+_workspaceNames :: MonoLens (XConfig l) [String]
+_workspaceNames f xconfig@XConfig{ workspaces = x } =
+    (\ x' -> xconfig{ workspaces = x' }) <$> f x
+
+_modMask :: MonoLens (XConfig l) KeyMask
+_modMask f xconfig@XConfig{ modMask = x } =
+    (\ x' -> xconfig{ modMask = x' }) <$> f x
+
+_keys :: MonoLens (XConfig l) (XConfig Layout -> Map (ButtonMask, KeySym) (X ()))
+_keys f xconfig@XConfig{ keys = x } =
+    (\ x' -> xconfig{ keys = x' }) <$> f x
+
+_mouseBindings :: MonoLens (XConfig l) (XConfig Layout -> Map (ButtonMask, Button) (Window -> X ()))
+_mouseBindings f xconfig@XConfig{ mouseBindings = x } =
+    (\ x' -> xconfig{ mouseBindings = x' }) <$> f x
+
+_focusFollowsMouse, _clickJustFocuses :: MonoLens (XConfig l) Bool
+
+_focusFollowsMouse f xconfig@XConfig{ focusFollowsMouse = x } =
+    (\ x' -> xconfig{ focusFollowsMouse = x' }) <$> f x
+
+_clickJustFocuses f xconfig@XConfig{ clickJustFocuses  = x } =
+    (\ x' -> xconfig{ clickJustFocuses = x' }) <$> f x
+
+_clientMask :: MonoLens (XConfig l) EventMask
+_clientMask f xconfig@XConfig{ clientMask  = x } =
+    (\ x' -> xconfig{ clientMask = x' }) <$> f x
+
+_rootMask :: MonoLens (XConfig l) EventMask
+_rootMask f xconfig@XConfig{ rootMask  = x } =
+    (\ x' -> xconfig{ rootMask = x' }) <$> f x
+
+_handleExtraArgs :: MonoLens (XConfig l) ([String] -> XConfig Layout -> IO (XConfig Layout))
+_handleExtraArgs f xconfig@XConfig{ handleExtraArgs = x } =
+    (\ x' -> xconfig{ handleExtraArgs = x' }) <$> f x
 
 
 
@@ -778,7 +859,7 @@ installSignalHandlers = io $ do
     pure ()
 
 uninstallSignalHandlers :: MonadIO m => m ()
-uninstallSignalHandlers = io $ do
-    installHandler openEndedPipe Default Nothing
-    installHandler sigCHLD Default Nothing
-    pure ()
+uninstallSignalHandlers = io
+    $  installHandler openEndedPipe Default Nothing
+    *> installHandler sigCHLD Default Nothing
+    $> ()

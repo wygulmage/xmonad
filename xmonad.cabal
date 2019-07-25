@@ -79,7 +79,6 @@ library
                  , data-default
                  , directory
                  , filepath
-                 , lens-family
                  , mtl
                  , process
                  , setlocale

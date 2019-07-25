@@ -28,7 +28,7 @@ module XMonad.StackSet (
         -- ** Master and Focus
         -- $focus
 
-        StackSet(..), _current, _visible, _hidden, _floating,
+        StackSet(..), _current, _visible, _hidden, _floating, _screens,
         Workspace(..), _tag, _layout, _stack,
         Screen(..), _workspace, _screen, _screenDetail,
         Stack(..), RationalRect(..),
@@ -184,6 +184,15 @@ mapWorkspace = over _workspaces
 -- | Map a function on all the layouts in the 'StackSet'.
 mapLayout :: (l -> l') -> StackSet i l a s sd -> StackSet i l' a s sd
 mapLayout = over (_workspaces . _layout)
+--
+-- | Get a list of all screens in the 'StackSet'.
+screens :: StackSet i l a s sd -> [Screen i l a s sd]
+-- screens s = current s : visible s
+screens = views _screens (:[])
+
+_screens :: Applicative m => (Screen i l a sid sd -> m (Screen i l a sid' sd')) -> StackSet i l a sid sd -> m (StackSet i l a sid' sd')
+_screens f (StackSet cur vis hid flo) = StackSet <$> f cur <*> traverse f vis <*> pure hid <*> pure flo
+
 
 
 -- | Visible workspaces, and their Xinerama screens.
@@ -290,6 +299,8 @@ _stack f ws@Workspace{ stack = x } =
     (\ x' -> ws{ stack = x' }) <$> f x
 
 -- | A structure for window geometries
+-- RationalRect x y width height
+-- Not sure which corner x and y are.
 data RationalRect = RationalRect !Rational !Rational !Rational !Rational
     deriving (Show, Read, Eq)
 
@@ -496,10 +507,6 @@ focusWindow w s | Just w == peek s = s
                 | otherwise        = fromMaybe s $ do
                     n <- findTag w s
                     pure $ until ((Just w ==) . peek) focusUp (view n s)
-
--- | Get a list of all screens in the 'StackSet'.
-screens :: StackSet i l a s sd -> [Screen i l a s sd]
-screens s = current s : visible s
 
 -- | Get a list of all workspaces in the 'StackSet'.
 workspaces :: StackSet i l a s sd -> [Workspace i l a]
