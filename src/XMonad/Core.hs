@@ -91,7 +91,7 @@ data XState = XState
     -- provides additional information and a simple interface for using this.
     }
 
-_windowset :: MonoLens XState WindowSet 
+_windowset :: MonoLens XState WindowSet
 _windowset f xstate@XState{ windowset = x } =
     (\ x' -> xstate{ windowset = x' }) <$> f x
 
@@ -111,7 +111,7 @@ _numberlockMask :: MonoLens XState KeyMask
 _numberlockMask f xstate@XState{ numberlockMask = x } =
     (\ x' -> xstate{ numberlockMask = x' }) <$> f x
 
-_extensibleState :: MonoLens XState (Map String (Either String StateExtension)) 
+_extensibleState :: MonoLens XState (Map String (Either String StateExtension))
 _extensibleState f xstate@XState{ extensibleState = x } =
     (\ x' -> xstate{ extensibleState = x' }) <$> f x
 
@@ -782,4 +782,3 @@ uninstallSignalHandlers = io $ do
     installHandler openEndedPipe Default Nothing
     installHandler sigCHLD Default Nothing
     pure ()
-

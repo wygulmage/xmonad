@@ -152,12 +152,12 @@ data StackSet i l a sid sd =
              , floating :: Map a RationalRect      -- ^ floating windows
              } deriving (Show, Read, Eq)
 
-_current :: MonoLens 
+_current :: MonoLens
     (StackSet i l a sid sd) (Screen i l a sid sd)
 _current f ss@StackSet{ current = x } =
     (\ x' -> ss{ current = x' }) <$> f x
 
-_visible :: MonoLens 
+_visible :: MonoLens
     (StackSet i l a sid sd) [Screen i l a sid sd]
 _visible f ss@StackSet{ visible = x } =
     (\ x' -> ss{ visible = x' }) <$> f x
@@ -167,7 +167,7 @@ _hidden :: MonoLens
 _hidden f ss@StackSet{ hidden = x } =
     (\ x' -> ss{ hidden = x' }) <$> f x
 
-_floating :: MonoLens 
+_floating :: MonoLens
     (StackSet i l a sid sd) (Map a RationalRect)
 _floating f ss@StackSet{ floating = x } =
     (\ x' -> ss{ floating = x' }) <$> f x
@@ -179,7 +179,7 @@ _workspaces f (StackSet cur vis hid flo) =
 
 -- | Map a function on all the workspaces in the 'StackSet'.
 mapWorkspace :: (Workspace i l a -> Workspace i' l' a) -> StackSet i l a s sd -> StackSet i' l' a s sd
-mapWorkspace f = over _workspaces f
+mapWorkspace = over _workspaces
 
 -- | Map a function on all the layouts in the 'StackSet'.
 mapLayout :: (l -> l') -> StackSet i l a s sd -> StackSet i l' a s sd
@@ -187,10 +187,10 @@ mapLayout = over (_workspaces . _layout)
 
 
 -- | Visible workspaces, and their Xinerama screens.
-data Screen i l a sid sd = Screen 
+data Screen i l a sid sd = Screen
     { workspace :: !(Workspace i l a)
     , screen :: !sid
-    , screenDetail :: !sd 
+    , screenDetail :: !sd
     }
     deriving (Show, Read, Eq)
 
@@ -200,12 +200,12 @@ _workspace :: Lens
 _workspace f scrn@Screen{ workspace = x } =
     (\ y -> scrn{ workspace = y }) <$> f x
 
-_screen :: Lens 
+_screen :: Lens
     (Screen i l a sid sd) (Screen i l a sid' sd) sid sid'
 _screen f scrn@Screen{ screen = x } =
     (\ y -> scrn{ screen = y }) <$> f x
 
-_screenDetail :: Lens 
+_screenDetail :: Lens
     (Screen i l a sid sd) (Screen i l a sid sd') sd sd'
 _screenDetail f scrn@Screen{ screenDetail = x } =
     (\ y -> scrn{ screenDetail = y }) <$> f x
@@ -226,13 +226,13 @@ new :: (Integral s) =>
    [i] ->  -- workspace ? IDs ?
    [sd] -> -- screen dimensions (i.e. a list of unnamed screens)
    StackSet i l a s sd
-new l wids m 
+new l wids m
     | not (null wids) && length m <= length wids && not (null m)
         = StackSet cur visi unseen Map.empty
-    where 
+    where
     (seen, unseen) =
         L.splitAt (length m) $ fmap (\i -> Workspace i l Nothing) wids
-    (cur : visi) = 
+    (cur : visi) =
         [ Screen i s sd | (i, s, sd) <- zip3 seen [0..] m ]
                 -- now zip up visibles with their screen id
 new _ _ _ = abort "non-positive argument to StackSet.new"
@@ -245,7 +245,7 @@ new _ _ _ = abort "non-positive argument to StackSet.new"
 -- becomes the current screen. If it is in the visible list, it becomes
 -- current.
 
-view :: (Eq s, Eq i) => 
+view :: (Eq s, Eq i) =>
     i -> StackSet i l a s sd -> StackSet i l a s sd
 view i s
     | i == currentTag s = s  -- current
@@ -311,10 +311,10 @@ data RationalRect = RationalRect !Rational !Rational !Rational !Rational
 -- structures, it is the differentiation of a [a], and integrating it
 -- back has a natural implementation used in 'index'.
 --
-data Stack a = Stack 
+data Stack a = Stack
     { focus  :: !a
     , up     :: [a] -- reversed
-    , down   :: [a] 
+    , down   :: [a]
     }
     deriving (Show, Read, Eq)
 
@@ -323,9 +323,9 @@ _focus f s@Stack{ focus = x } =
     (\ x' -> s{ focus = x' }) <$> f x
 _master f s@Stack{ up = xu } =
     case reverse xu of
-    x : xu' -> 
+    x : xu' ->
         (\ x' -> s{ up = reverse (x' : xu')}) <$> f x
-    _ -> 
+    _ ->
         _focus f s
 
 _up, _down :: MonoLens (Stack a) [a]
