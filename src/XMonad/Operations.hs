@@ -243,8 +243,6 @@ hide w = whenX (gets (S.member w . mapped)) $ withDisplay $ \d -> do
     setWMState w iconicState
     -- this part is key: we increment the waitingUnmap counter to distinguish
     -- between client and xmonad initiated unmaps.
-    -- modify (\s -> s { waitingUnmap = M.insertWith (+) w 1 (waitingUnmap s)
-    --                 , mapped       = S.delete w (mapped s) })
     modify (over _mapped (S.delete w) . over _waitingUnmap (M.insertWith (+) w 1))
 
 -- | reveal. Show a window by mapping it and setting Normal
@@ -253,16 +251,13 @@ reveal :: Window -> X ()
 reveal w = withDisplay $ \d -> do
     setWMState w normalState
     io $ mapWindow d w
-    -- whenX (isClient w) $ modify (\s -> s { mapped = S.insert w (mapped s) })
     whenX (isClient w) $ modify (over _mapped (S.insert w))
 
 -- | Set some properties when we initially gain control of a window
 setInitialProperties :: Window -> X ()
 setInitialProperties w = asks normalBorder >>= \nb -> withDisplay $ \d -> do
     setWMState w iconicState
-    -- asks (clientMask . config) >>= io . selectInput d w
     (asks . view $ _config . _clientMask)  >>= io . selectInput d w
-    -- bw <- asks (borderWidth . config)
     bw <- asks . view $ _config . _borderWidth
     io $ setWindowBorderWidth d w bw
     -- we must initially set the color of new windows, to maintain invariants
@@ -317,7 +312,7 @@ nubScreens xs = nub . filter (\x -> not $ any (x `containedIn`) xs) $ xs
 -- | Cleans the list of screens according to the rules documented for
 -- nubScreens.
 getCleanedScreenInfo :: MonadIO m => Display -> m [Rectangle]
-getCleanedScreenInfo = io .  fmap nubScreens . getScreenInfo
+getCleanedScreenInfo = io . fmap nubScreens . getScreenInfo
 
 -- | rescreen.  The screen configuration may have changed (due to
 -- xrandr), update the state and refresh the screen, and reset the gap.
@@ -326,7 +321,7 @@ rescreen = do
     xinesc <- withDisplay getCleanedScreenInfo
 
     windows $ \ws@W.StackSet { W.current = v, W.visible = vs, W.hidden = hs } ->
-        let (xs, ys) = splitAt (length xinesc) $ fmap W.workspace (v:vs) <> hs
+        let (xs, ys) = splitAt (length xinesc) $ fmap (view W._workspace) (v:vs) <> hs
             (a:as)   = zipWith3 W.Screen xs [0..] $ fmap SD xinesc
         in set W._current a . set W._visible as . set W._hidden ys $ ws
 
@@ -411,41 +406,38 @@ setFocusX w = withWindowSet $ \ws -> do
 -- layout the windows, in which case changes are handled through a refresh.
 sendMessage :: Message a => a -> X ()
 sendMessage a = windowBracket_ $ do
-    -- w <- W.workspace . W.current <$> gets windowset
     w <- view (W._current . W._workspace) <$> gets windowset
-    ml' <- handleMessage (W.layout w) (SomeMessage a) `catchX` pure Nothing
-    whenJust ml' $ \l' ->
-        modifyWindowSet (set (W._current . W._workspace . W._layout) l')
-        -- modifyWindowSet $ \ws -> ws { W.current = (W.current ws)
-        --                                { W.workspace = (W.workspace $ W.current ws)
-        --                                  { W.layout = l' }}}
+    ml' <- handleMessage (view W._layout w) (SomeMessage a) `catchX` pure Nothing
+    whenJust ml' $
+        modifyWindowSet . set (W._current . W._workspace . W._layout)
     pure (Any $ isJust ml')
 
 -- | Send a message to all layouts, without refreshing.
 broadcastMessage :: Message a => a -> X ()
 broadcastMessage a = withWindowSet $ \ws -> do
-   let c = W.workspace . W.current $ ws
-       v = fmap W.workspace . W.visible $ ws
-       h = W.hidden ws
+   -- let c = W.workspace . W.current $ ws
+   let c = view (W._current . W._workspace) ws
+       v = fmap (view W._workspace) . view W._visible $ ws
+       h = view W._hidden ws
    traverse_ (sendMessageWithNoRefresh a) (c : v <> h)
 
 -- | Send a message to a layout, without refreshing.
 sendMessageWithNoRefresh :: Message a => a -> W.Workspace WorkspaceId (Layout Window) Window -> X ()
 sendMessageWithNoRefresh a w =
-    handleMessage (W.layout w) (SomeMessage a) `catchX` pure Nothing >>=
-    updateLayout  (W.tag w)
+    handleMessage (view W._layout w) (SomeMessage a) `catchX` pure Nothing >>=
+    updateLayout  (view W._tag w)
 
 -- | Update the layout field of a workspace
 updateLayout :: WorkspaceId -> Maybe (Layout Window) -> X ()
 updateLayout i ml = whenJust ml $ \l ->
-    runOnWorkspaces $ \ww -> pure $ if W.tag ww == i then ww { W.layout = l} else ww
+    runOnWorkspaces $ \ww -> pure $ if view W._tag ww == i then set W._layout l ww else ww
 
 -- | Set the layout of the currently viewed workspace
 setLayout :: Layout Window -> X ()
 setLayout l = do
-    ss@W.StackSet { W.current = c@W.Screen { W.workspace = ws }} <- gets windowset
-    handleMessage (W.layout ws) (SomeMessage ReleaseResources)
-    windows $ const $ ss {W.current = c { W.workspace = ws { W.layout = l } } }
+    ss <- gets windowset
+    handleMessage (view (W._current . W._workspace . W._layout) ss) (SomeMessage ReleaseResources)
+    windows $ const $ set (W._current . W._workspace . W._layout) l ss
 
 ------------------------------------------------------------------------
 -- Utilities
@@ -489,6 +481,15 @@ data StateFile = StateFile
   , sfExt  :: [(String, String)]
   } deriving (Show, Read)
 
+_sfWins :: MonoLens StateFile (W.StackSet  WorkspaceId String Window ScreenId ScreenDetail)
+_sfWins f stateFile@StateFile{ sfWins = x } =
+    (\ x' -> stateFile{ sfWins = x'}) <$> f x
+
+_sfExt :: MonoLens StateFile [(String, String)]
+_sfExt f stateFile@StateFile{ sfExt = x } =
+    (\ x' -> stateFile{ sfExt = x' }) <$> f x
+
+
 -- | Write the current window state (and extensible state) to a file
 -- so that xmonad can resume with that state intact.
 writeStateToFile :: X ()
@@ -521,18 +522,18 @@ readStateFile xmc = do
     pure $ do
       sf <- join sf'
 
-      let winset = W.ensureTags layout (workspaces xmc) $ W.mapLayout (fromMaybe layout . maybeRead lreads) (sfWins sf)
-          extState = M.fromList . fmap (second Left) $ sfExt sf
+      let winset = W.ensureTags layout (workspaces xmc) $ W.mapLayout (fromMaybe layout . maybeRead lreads) $ view _sfWins sf
+          extState = M.fromList . fmap (second Left) $ view _sfExt sf
 
       pure XState { windowset       = winset
-                    , numberlockMask  = 0
-                    , mapped          = S.empty
-                    , waitingUnmap    = M.empty
-                    , dragging        = Nothing
-                    , extensibleState = extState
-                    }
+                  , numberlockMask  = 0
+                  , mapped          = S.empty
+                  , waitingUnmap    = M.empty
+                  , dragging        = Nothing
+                  , extensibleState = extState
+                  }
   where
-    layout = Layout (layoutHook xmc)
+    layout = Layout (view _layoutHook xmc)
     lreads = readsLayout layout
     maybeRead reads' s = case reads' s of
                            [(x, "")] -> Just x
@@ -575,7 +576,7 @@ floatLocation w =
     catchX go $ do
       -- Fallback solution if `go' fails.  Which it might, since it
       -- calls `getWindowAttributes'.
-      sc <- W.current <$> gets windowset
+      sc <- W.current <$> gets (view _windowset)
       pure (W.screen sc, W.RationalRect 0 0 1 1)
 
   where fi x = fromIntegral x
@@ -643,7 +644,8 @@ mouseDrag f done = do
             XConf { theRoot = root, display = d } <- ask
             io $ grabPointer d root False (buttonReleaseMask .|. pointerMotionMask)
                     grabModeAsync grabModeAsync none none currentTime
-            modify $ \s -> s { dragging = Just (motion, cleanup) }
+            -- modify $ \s -> s { dragging = Just (motion, cleanup) }
+            modify (set _dragging (Just (motion, cleanup)))
  where
     cleanup = do
         withDisplay $ io . flip ungrabPointer currentTime
@@ -659,14 +661,15 @@ mouseMoveWindow w = whenX (isClient w) $ withDisplay $ \d -> do
     io $ raiseWindow d w
     wa <- io $ getWindowAttributes d w
     (_, _, _, ox', oy', _, _, _) <- io $ queryPointer d w
-    let ox = fromIntegral ox'
-        oy = fromIntegral oy'
-    mouseDrag (\ex ey -> do
-                  io $ moveWindow d w (fromIntegral (fromIntegral (wa_x wa) + (ex - ox)))
-                                      (fromIntegral (fromIntegral (wa_y wa) + (ey - oy)))
-                  float w
-              )
+    let ox = fi ox'
+        oy = fi oy'
+    mouseDrag (\ex ey -> 
+                  (io $ moveWindow d w (fi (fi (wa_x wa) + (ex - ox)))
+                                       (fi (fi (wa_y wa) + (ey - oy))))
+                  *> float w)
               (float w)
+        where
+        fi x = fromIntegral x
 
 -- | resize the window under the cursor with the mouse while it is dragged
 mouseResizeWindow :: Window -> X ()
