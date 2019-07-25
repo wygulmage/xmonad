@@ -56,6 +56,7 @@ module XMonad.Core
     , _borderWidth, _normalBorderColor, _focusedBorderColor, _terminal
     , _layoutHook, _manageHook, _handleEventHook, _logHook, _startupHook
     , _workspaceNames, _modMask, _keys, _mouseBindings, _focusFollowsMouse, _clickJustFocuses, _clientMask, _rootMask, _handleExtraArgs
+    , _screenRect
     ) where
 
 import XMonad.StackSet hiding (modify, workspaces)
@@ -308,6 +309,10 @@ newtype ScreenId = S Int deriving (Eq,Ord,Show,Read,Enum,Num,Integral,Real)
 -- | The 'Rectangle' with screen dimensions
 newtype ScreenDetail = SD { screenRect :: Rectangle }
     deriving (Eq,Show, Read)
+
+_screenRect :: MonoLens ScreenDetail Rectangle
+_screenRect f sd@SD{ screenRect = x } =
+    (\ x' -> sd{ screenRect = x' }) <$> f x
 
 ------------------------------------------------------------------------
 
