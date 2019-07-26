@@ -158,7 +158,7 @@ windows f = do
         -- let m   = W.floating ws
         let m   = view W._floating ws
             flt = [(fw, scaleRationalRect viewrect r)
-                    | fw <- filter (flip M.member m) (W.index this)
+                    | fw <- filter (`M.member` m) (W.index this)
                     , Just r <- [M.lookup fw m]]
             vs = flt <> rs
 
@@ -184,7 +184,7 @@ windows f = do
     -- all windows that are no longer in the windowset are marked as
     -- withdrawn, it is important to do this after the above, otherwise 'hide'
     -- will overwrite withdrawnState with iconicState
-    traverse_ (flip setWMState withdrawnState) (W.allWindows old \\ W.allWindows ws)
+    traverse_ (`setWMState` withdrawnState) (W.allWindows old \\ W.allWindows ws)
 
     isMouseFocused <- asks mouseFocused
     unless isMouseFocused $ clearEvents enterWindowMask
@@ -388,10 +388,10 @@ setFocusX w = withWindowSet $ \ws -> do
     when ((inputHintSet && wmh_input hints) || not inputHintSet) $
       io $ setInputFocus dpy w revertToPointerRoot 0
     when (wmtf `elem` protocols) $
-      io $ allocaXEvent $ \ev -> do
+      io . allocaXEvent $ \ev ->
         setEventType ev clientMessage
-        setClientMessageEvent ev w wmprot 32 wmtf $ maybe currentTime event_time currevt
-        sendEvent dpy w False noEventMask ev
+        *> setClientMessageEvent ev w wmprot 32 wmtf (maybe currentTime event_time currevt)
+        *> sendEvent dpy w False noEventMask ev
         where event_time ev =
                 if ev_event_type ev `elem` timedEvents then
                   ev_time ev
@@ -415,7 +415,6 @@ sendMessage a = windowBracket_ $ do
 -- | Send a message to all layouts, without refreshing.
 broadcastMessage :: Message a => a -> X ()
 broadcastMessage a = withWindowSet $ \ws -> do
-   -- let c = W.workspace . W.current $ ws
    let c = view (W._current . W._workspace) ws
        v = fmap (view W._workspace) . view W._visible $ ws
        h = view W._hidden ws
@@ -448,7 +447,7 @@ screenWorkspace sc = withWindowSet $ pure . W.lookupWorkspace sc
 
 -- | Apply an 'X' operation to the currently focused window, if there is one.
 withFocused :: (Window -> X ()) -> X ()
-withFocused f = withWindowSet $ \w -> whenJust (W.peek w) f
+withFocused f = withWindowSet $ \w -> (whenJust . W.peek) w f
 
 -- | 'True' if window is under management by us
 isClient :: Window -> X Bool
@@ -470,7 +469,7 @@ cleanMask km = do
 -- | Get the 'Pixel' value for a named color
 initColor :: Display -> String -> IO (Maybe Pixel)
 initColor dpy c = C.handle (\(C.SomeException _) -> pure Nothing) $
-    (Just . color_pixel . fst) <$> allocNamedColor dpy colormap c
+    Just . color_pixel . fst <$> allocNamedColor dpy colormap c
     where colormap = defaultColormap dpy (defaultScreen dpy)
 
 ------------------------------------------------------------------------
@@ -560,11 +559,11 @@ migrateState Dirs{ dataDir } ws xs = do
 -- @name@.  If @resume@ is 'True', restart with the current window state.
 -- When executing another window manager, @resume@ should be 'False'.
 restart :: String -> Bool -> X ()
-restart prog resume = do
+restart prog resume =
     broadcastMessage ReleaseResources
-    io . flush =<< asks display
-    when resume writeStateToFile
-    catchIO (executeFile prog True [] Nothing)
+    *> (io . flush =<< asks display)
+    *> when resume writeStateToFile
+    *> catchIO (executeFile prog True [] Nothing)
 
 ------------------------------------------------------------------------
 -- | Floating layer support
@@ -579,8 +578,11 @@ floatLocation w =
       sc <- W.current <$> gets (view _windowset)
       pure (W.screen sc, W.RationalRect 0 0 1 1)
 
-  where fi x = fromIntegral x
-        go = withDisplay $ \d -> do
+  where
+  fi :: (Integral a, Num b) => a -> b
+  fi = fromIntegral
+  go :: X (ScreenId, W.RationalRect)
+  go = withDisplay $ \d -> do
           ws <- gets windowset
           wa <- io $ getWindowAttributes d w
           let bw = (fromIntegral . wa_border_width) wa
@@ -610,7 +612,8 @@ floatLocation w =
 pointScreen :: Position -> Position
             -> X (Maybe (W.Screen WorkspaceId (Layout Window) Window ScreenId ScreenDetail))
 pointScreen x y = withWindowSet $ pure . find p . W.screens
-  where p = pointWithin x y . screenRect . W.screenDetail
+  -- where p = pointWithin x y . screenRect . W.screenDetail
+  where p = views  (W._screenDetail . _screenRect) (pointWithin x y)
 
 -- | @pointWithin x y r@ returns 'True' if the @(x, y)@ co-ordinate is within
 -- @r@.
@@ -626,7 +629,8 @@ float w = do
     (sc, rr) <- floatLocation w
     windows $ \ws -> W.float w rr . fromMaybe ws $ do
         i  <- W.findTag w ws
-        guard $ i `elem` fmap (W.tag . W.workspace) (W.screens ws)
+        -- guard $ i `elem` fmap (W.tag . W.workspace) (W.screens ws)
+        guard $ i `elem` fmap (view $ W._workspace . W._tag) (W.screens ws)
         f  <- W.peek ws
         sw <- W.lookupWorkspace sc ws
         pure (W.focusWindow f . W.shiftWin sw w $ ws)
@@ -644,12 +648,12 @@ mouseDrag f done = do
             XConf { theRoot = root, display = d } <- ask
             io $ grabPointer d root False (buttonReleaseMask .|. pointerMotionMask)
                     grabModeAsync grabModeAsync none none currentTime
-            -- modify $ \s -> s { dragging = Just (motion, cleanup) }
-            modify (set _dragging (Just (motion, cleanup)))
+            modify . set _dragging $ Just (motion, cleanup)
  where
     cleanup = do
         withDisplay $ io . flip ungrabPointer currentTime
-        modify $ \s -> s { dragging = Nothing }
+        -- modify $ \s -> s { dragging = Nothing }
+        modify . set _dragging $ Nothing
         done
     motion x y = do z <- f x y
                     clearEvents pointerMotionMask
@@ -663,13 +667,14 @@ mouseMoveWindow w = whenX (isClient w) $ withDisplay $ \d -> do
     (_, _, _, ox', oy', _, _, _) <- io $ queryPointer d w
     let ox = fi ox'
         oy = fi oy'
-    mouseDrag (\ex ey -> 
-                  (io $ moveWindow d w (fi (fi (wa_x wa) + (ex - ox)))
-                                       (fi (fi (wa_y wa) + (ey - oy))))
+    mouseDrag (\ex ey ->
+                  io (moveWindow d w (fi (fi (wa_x wa) + (ex - ox)))
+                                     (fi (fi (wa_y wa) + (ey - oy))))
                   *> float w)
               (float w)
         where
-        fi x = fromIntegral x
+        fi :: (Integral a, Num b) => a -> b
+        fi = fromIntegral
 
 -- | resize the window under the cursor with the mouse while it is dragged
 mouseResizeWindow :: Window -> X ()
@@ -695,13 +700,19 @@ type D = (Dimension, Dimension)
 -- dimensions according to the window's border width and size hints.
 mkAdjust :: Window -> X (D -> D)
 mkAdjust w = withDisplay $ \d -> liftIO $ do
-    sh <- getWMNormalHints d w
     wa <- C.try $ getWindowAttributes d w
     case wa of
          Left  (_ :: C.SomeException) -> pure id
          Right wa' ->
             let bw = fromIntegral $ wa_border_width wa'
-            in  pure $ applySizeHints bw sh
+            in  applySizeHints bw <$> getWMNormalHints d w
+    -- sh <- getWMNormalHints d w
+    -- wa <- C.try $ getWindowAttributes d w
+    -- case wa of
+    --      Left  (_ :: C.SomeException) -> pure id
+    --      Right wa' ->
+    --         let bw = fromIntegral $ wa_border_width wa'
+    --         in  pure $ applySizeHints bw sh
 
 -- | Reduce the dimensions if needed to comply to the given SizeHints, taking
 -- window borders into account.

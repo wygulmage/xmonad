@@ -117,7 +117,7 @@ usage = do
 buildLaunch :: Dirs -> IO ()
 buildLaunch dirs@Dirs{ dataDir } = do
     whoami <- getProgName
-    let compiledConfig = "xmonad-"++arch++"-"++os
+    let compiledConfig = "xmonad-" <> arch <> "-" <> os
     unless (whoami == compiledConfig) $ do
       trace $ fold
         [ "XMonad is recompiling and replacing itself with another XMonad process because the current process is called "
@@ -134,10 +134,10 @@ sendRestart = do
     dpy <- openDisplay ""
     rw <- rootWindow dpy $ defaultScreen dpy
     xmonad_restart <- internAtom dpy "XMONAD_RESTART" False
-    allocaXEvent $ \e -> do
+    allocaXEvent $ \e ->
         setEventType e clientMessage
-        setClientMessageEvent e rw xmonad_restart 32 0 currentTime
-        sendEvent dpy rw False structureNotifyMask e
+        *> setClientMessageEvent e rw xmonad_restart 32 0 currentTime
+        *> sendEvent dpy rw False structureNotifyMask e
     sync dpy False
 
 -- | a wrapper for 'replace'
@@ -206,7 +206,7 @@ launch initxmc drs = do
 
     let layout = layoutHook xmc
         initialWinset = let padToLen n xs = take (max n (length xs)) $ xs <> repeat ""
-            in new layout (padToLen (length xinesc) (workspaces xmc)) $ map SD xinesc
+            in new layout (padToLen (length xinesc) (workspaces xmc)) $ fmap SD xinesc
 
         cf = XConf
             { display       = dpy
@@ -476,7 +476,7 @@ grabKeys = do
     -- build a map from keysyms to lists of keysyms (doing what
     -- XGetKeyboardMapping would do if the X11 package bound it)
     syms <- for allCodes $ \code -> io (keycodeToKeysym dpy code 0)
-    let keysymMap = M.fromListWith (++) (zip syms [[code] | code <- allCodes])
+    let keysymMap = M.fromListWith (<>) (zip syms [[code] | code <- allCodes])
         keysymToKeycodes sym = M.findWithDefault [] sym keysymMap
     for_ (M.keys ks) $ \(mask,sym) ->
          for_ (keysymToKeycodes sym) $ \kc ->
@@ -525,4 +525,3 @@ replace dpy dflt rootw = do
                 get_EventType event
 
             when (evt /= destroyNotify) again
-
