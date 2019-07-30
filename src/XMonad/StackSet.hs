@@ -62,12 +62,15 @@ import Prelude hiding (filter)
 import Data.Traversable
 import Data.Foldable
 import Data.Maybe   (listToMaybe,isJust,fromMaybe)
+import Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.List as L (deleteBy,find,splitAt,filter,nub)
 import Data.List ( (\\) )
 import Data.Map (Map)
 import qualified Data.Map  as Map (insert, delete, empty)
-import XMonad.Optic (Lens, MonoLens, views, over, set)
-import qualified XMonad.Optic as Lens (view)
+-- import XMonad.Optic (Lens, Lens', views, over, set)
+-- import qualified XMonad.Optic as Lens (view)
+import Control.Lens hiding (index, modify, nothing, view)
+import qualified Control.Lens as Lens
 
 
 
@@ -152,22 +155,22 @@ data StackSet i l a sid sd =
              , floating :: Map a RationalRect      -- ^ floating windows
              } deriving (Show, Read, Eq)
 
-_current :: MonoLens
+_current :: Lens'
     (StackSet i l a sid sd) (Screen i l a sid sd)
 _current f ss@StackSet{ current = x } =
     (\ x' -> ss{ current = x' }) <$> f x
 
-_visible :: MonoLens
+_visible :: Lens'
     (StackSet i l a sid sd) [Screen i l a sid sd]
 _visible f ss@StackSet{ visible = x } =
     (\ x' -> ss{ visible = x' }) <$> f x
 
-_hidden :: MonoLens
+_hidden :: Lens'
     (StackSet i l a sid sd) [Workspace i l a]
 _hidden f ss@StackSet{ hidden = x } =
     (\ x' -> ss{ hidden = x' }) <$> f x
 
-_floating :: MonoLens
+_floating :: Lens'
     (StackSet i l a sid sd) (Map a RationalRect)
 _floating f ss@StackSet{ floating = x } =
     (\ x' -> ss{ floating = x' }) <$> f x
@@ -329,7 +332,7 @@ data Stack a = Stack
     }
     deriving (Show, Read, Eq)
 
-_focus, _master :: MonoLens (Stack a) a
+_focus, _master :: Lens' (Stack a) a
 _focus f s@Stack{ focus = x } =
     (\ x' -> s{ focus = x' }) <$> f x
 _master f s@Stack{ up = xu } =
@@ -339,7 +342,7 @@ _master f s@Stack{ up = xu } =
     _ ->
         _focus f s
 
-_up, _down :: MonoLens (Stack a) [a]
+_up, _down :: Lens' (Stack a) [a]
 _up f s@Stack{ up = xs } =
     (\ xs' -> s{ up = xs'  }) <$> f xs
 _down f s@Stack{ down = xs } =
@@ -408,8 +411,9 @@ with dflt f = maybe dflt f . stack . workspace . current
 -- Apply a function, and a default value for 'Nothing', to modify the current stack.
 --
 modify :: Maybe (Stack a) -> (Stack a -> Maybe (Stack a)) -> StackSet i l a s sd -> StackSet i l a s sd
-modify d f s = s { current = (current s)
-                        { workspace = (workspace (current s)) { stack = with d f s }}}
+-- modify d f s = s { current = (current s)
+                        -- { workspace = (workspace (current s)) { stack = with d f s }}}
+modify d f s = set (_current . _workspace . _stack)  (with d f s) s
 
 -- |
 -- Apply a function to modify the current stack if it isn't empty, and we don't
@@ -443,6 +447,14 @@ integrate' = maybe [] integrate
 differentiate :: [a] -> Maybe (Stack a)
 differentiate []     = Nothing
 differentiate (x:xs) = Just $ Stack x [] xs
+
+toNonEmpty :: Stack a -> NonEmpty a
+-- toNonEmpty (Stack x (x' : xu) xd) = toNonEmpty (Stack x' xu (x : xd)) -- focusUp
+-- toNonEmpty (Stack x [] xd) = x :| xd
+toNonEmpty (Stack x xu xd) = case reverse xu <> (x : xd) of (x' : xs) -> x :| xs
+
+fromNonEmpty :: NonEmpty a -> Stack a
+fromNonEmpty (x :| xs) = Stack x [] xs
 
 -- |
 -- /O(n)/. 'filter p s' returns the elements of 's' such that 'p' evaluates to

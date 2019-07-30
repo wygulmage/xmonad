@@ -132,7 +132,8 @@ windows f = do
       nbs <- asks . view $ _config . _normalBorderColor
       setWindowBorderWithFallback d otherw nbs nbc
 
-    modify (set _windowset ws) -- (\s -> s { windowset = ws })
+    -- modify (set _windowset ws)
+    _windowset .= ws
 
     -- notify non visibility
     let tags_oldvisible = view (W._workspace . W._tag) <$> (W.current old : W.visible old)
@@ -194,7 +195,8 @@ windows f = do
 
 -- | Modify the @WindowSet@ in state with no special handling.
 modifyWindowSet :: (WindowSet -> WindowSet) -> X ()
-modifyWindowSet = modify . over _windowset
+-- modifyWindowSet = modify . over _windowset
+modifyWindowSet = (_windowset %=)
 
 -- | Perform an @X@ action and check its return value against a predicate p.
 -- If p holds, unwind changes to the @WindowSet@ and replay them using @windows@.
@@ -202,7 +204,8 @@ windowBracket :: (a -> Bool) -> X a -> X a
 windowBracket p action = withWindowSet $ \old -> do
   a <- action
   when (p a) . withWindowSet $ \new ->
-      modifyWindowSet (const old) *> windows (const new)
+      -- modifyWindowSet (const old) *> windows (const new)
+      (_windowset .= old) *> windows (const new) -- (_windows .~ new)
   pure a
 
 -- | A version of @windowBracket@ that discards the return value, and handles an
@@ -410,6 +413,7 @@ sendMessage a = windowBracket_ $ do
     w <- view (W._current . W._workspace) <$> gets windowset
     ml' <- handleMessage (view W._layout w) (SomeMessage a) `catchX` pure Nothing
     whenJust ml' $
+        -- ((W._current . W._workspace . W._layout) .=)
         modifyWindowSet . set (W._current . W._workspace . W._layout)
     pure (Any $ isJust ml')
 
