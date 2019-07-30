@@ -515,7 +515,7 @@ workspaces = views _workspaces (:[])
 
 -- | Get a list of all windows in the 'StackSet' in no particular order
 allWindows :: Eq a => StackSet i l a s sd -> [a]
-allWindows = L.nub . concatMap (integrate' . stack) . workspaces
+allWindows = L.nub . foldMap (integrate' . stack) . workspaces
 
 -- | Get the tag of the currently focused workspace.
 currentTag :: StackSet i l a s sd -> i

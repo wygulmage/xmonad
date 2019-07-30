@@ -71,7 +71,6 @@ library
                    XMonad.Operations
                    XMonad.StackSet
                    XMonad.Optic
-                   XMonad.Optic.Functor
   other-modules:   Paths_xmonad
   hs-source-dirs:  src
   build-depends:   base                  >= 4.9 && < 5
@@ -80,6 +79,7 @@ library
                  , data-default
                  , directory
                  , filepath
+                 , lens
                  , mtl
                  , process
                  , setlocale

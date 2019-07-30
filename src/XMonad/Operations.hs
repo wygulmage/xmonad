@@ -27,7 +27,8 @@ module XMonad.Operations where
 import XMonad.Core
 import XMonad.Layout (Full(..))
 import qualified XMonad.StackSet as W
-import XMonad.Optic
+
+import Control.Lens hiding (mapped, none)
 
 import Data.Foldable
 import Data.Traversable
@@ -480,11 +481,11 @@ data StateFile = StateFile
   , sfExt  :: [(String, String)]
   } deriving (Show, Read)
 
-_sfWins :: MonoLens StateFile (W.StackSet  WorkspaceId String Window ScreenId ScreenDetail)
+_sfWins :: Lens' StateFile (W.StackSet  WorkspaceId String Window ScreenId ScreenDetail)
 _sfWins f stateFile@StateFile{ sfWins = x } =
     (\ x' -> stateFile{ sfWins = x'}) <$> f x
 
-_sfExt :: MonoLens StateFile [(String, String)]
+_sfExt :: Lens' StateFile [(String, String)]
 _sfExt f stateFile@StateFile{ sfExt = x } =
     (\ x' -> stateFile{ sfExt = x' }) <$> f x
 

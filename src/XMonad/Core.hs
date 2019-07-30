@@ -9,6 +9,7 @@
            , NamedFieldPuns
            , DeriveTraversable
            , ScopedTypeVariables
+           , TemplateHaskell
   #-}
 
 -----------------------------------------------------------------------------
@@ -60,7 +61,8 @@ module XMonad.Core
     ) where
 
 import XMonad.StackSet hiding (modify, workspaces)
-import XMonad.Optic
+-- import XMonad.Optic
+import Control.Lens hiding (mapped)
 
 import Prelude
 import Control.Exception (fromException, try, bracket, throw, finally, SomeException(..))
@@ -110,27 +112,27 @@ data XState = XState
     -- provides additional information and a simple interface for using this.
     }
 
-_windowset :: MonoLens XState WindowSet
+_windowset :: Lens' XState WindowSet
 _windowset f xstate@XState{ windowset = x } =
     (\ x' -> xstate{ windowset = x' }) <$> f x
 
-_mapped :: MonoLens XState (Set Window)
+_mapped :: Lens' XState (Set Window)
 _mapped f xstate@XState{ mapped = x } =
     (\ x' -> xstate{ mapped = x' }) <$> f x
 
-_waitingUnmap :: MonoLens XState (Map Window Int)
+_waitingUnmap :: Lens' XState (Map Window Int)
 _waitingUnmap f xstate@XState{ waitingUnmap = x } =
     (\ x' -> xstate{ waitingUnmap = x' }) <$> f x
 
-_dragging :: MonoLens XState (Maybe (Position -> Position -> X (), X ()))
+_dragging :: Lens' XState (Maybe (Position -> Position -> X (), X ()))
 _dragging f xstate@XState{ dragging = x } =
     (\ x' -> xstate{ dragging = x' }) <$> f x
 
-_numberlockMask :: MonoLens XState KeyMask
+_numberlockMask :: Lens' XState KeyMask
 _numberlockMask f xstate@XState{ numberlockMask = x } =
     (\ x' -> xstate{ numberlockMask = x' }) <$> f x
 
-_extensibleState :: MonoLens XState (Map String (Either String StateExtension))
+_extensibleState :: Lens' XState (Map String (Either String StateExtension))
 _extensibleState f xstate@XState{ extensibleState = x } =
     (\ x' -> xstate{ extensibleState = x' }) <$> f x
 
@@ -155,43 +157,43 @@ data XConf = XConf
     , dirs         :: !Dirs           -- ^ directories to use
     }
 
-_display :: MonoLens XConf Display
+_display :: Lens' XConf Display
 _display f xconf@XConf{ display = x } =
     (\ x' -> xconf{ display = x' }) <$> f x
 
-_config :: MonoLens XConf (XConfig Layout)
+_config :: Lens' XConf (XConfig Layout)
 _config f xconf@XConf{ config = x } =
     (\ x' -> xconf{ config = x' }) <$> f x
 
-_theRoot :: MonoLens XConf Window
+_theRoot :: Lens' XConf Window
 _theRoot f xconf@XConf{ theRoot = x } =
     (\ x' -> xconf{ theRoot = x' }) <$> f x
 
-_normalBorder :: MonoLens XConf Pixel
+_normalBorder :: Lens' XConf Pixel
 _normalBorder f xconf@XConf{ normalBorder = x } =
     (\ x' -> xconf{ normalBorder = x' }) <$> f x
 
-_focusedBorder :: MonoLens XConf Pixel
+_focusedBorder :: Lens' XConf Pixel
 _focusedBorder f xconf@XConf{ focusedBorder = x } =
     (\ x' -> xconf{ focusedBorder = x' }) <$> f x
 
-_keyActions :: MonoLens XConf (Map (KeyMask, KeySym) (X ()))
+_keyActions :: Lens' XConf (Map (KeyMask, KeySym) (X ()))
 _keyActions f xconf@XConf{ keyActions = x } =
     (\ x' -> xconf{ keyActions = x' }) <$> f x
 
-_buttonActions :: MonoLens XConf (Map (KeyMask, Button) (Window -> X ()))
+_buttonActions :: Lens' XConf (Map (KeyMask, Button) (Window -> X ()))
 _buttonActions f xconf@XConf{ buttonActions = x } =
     (\ x' -> xconf{ buttonActions = x' }) <$> f x
 
-_mouseFocused :: MonoLens XConf Bool
+_mouseFocused :: Lens' XConf Bool
 _mouseFocused f xconf@XConf{ mouseFocused = x } =
     (\ x' -> xconf{ mouseFocused = x' }) <$> f x
 
-_mousePosition :: MonoLens XConf (Maybe (Position, Position))
+_mousePosition :: Lens' XConf (Maybe (Position, Position))
 _mousePosition f xconf@XConf{ mousePosition = x } =
     (\ x' -> xconf{ mousePosition = x' }) <$> f x
 
-_currentEvent :: MonoLens XConf (Maybe Event)
+_currentEvent :: Lens' XConf (Maybe Event)
 _currentEvent f xconf@XConf{ currentEvent = x } =
     (\ x' -> xconf{ currentEvent = x' }) <$> f x
 
@@ -224,13 +226,14 @@ data XConfig l = XConfig
                                                  -- ^ Modify the configuration, complain about extra arguments etc. with arguments that are not handled by default
     }
 
-_borderWidth :: MonoLens (XConfig l) Dimension
+
+_borderWidth :: Lens' (XConfig l) Dimension
 _borderWidth f xconfig@XConfig{ borderWidth = x } =
     (\ x' -> xconfig{ borderWidth = x' }) <$> f x
 
-_normalBorderColor, _focusedBorderColor, _terminal :: MonoLens (XConfig l) String
+_normalBorderColor, _focusedBorderColor, _terminal :: Lens' (XConfig l) String
 
-_normalBorderColor f xconfig@XConfig{ normalBorderColor = x } = 
+_normalBorderColor f xconfig@XConfig{ normalBorderColor = x } =
     (\ x' -> xconfig{ normalBorderColor = x' }) <$> f x
 
 _focusedBorderColor f xconfig@XConfig{ focusedBorderColor = x } =
@@ -243,39 +246,39 @@ _layoutHook :: Lens (XConfig l) (XConfig l') (l Window) (l' Window)
 _layoutHook f xconfig@XConfig{ layoutHook = x } =
     (\ y -> xconfig{ layoutHook = y }) <$> f x
 
-_manageHook :: MonoLens (XConfig l) ManageHook
+_manageHook :: Lens' (XConfig l) ManageHook
 _manageHook f xconfig@XConfig{ manageHook = x } =
     (\ x' -> xconfig{ manageHook = x' }) <$> f x
 
-_handleEventHook :: MonoLens (XConfig l) (Event -> X All)
+_handleEventHook :: Lens' (XConfig l) (Event -> X All)
 _handleEventHook f xconfig@XConfig{ handleEventHook = x } =
     (\ x' -> xconfig{ handleEventHook = x' }) <$> f x
 
-_logHook :: MonoLens (XConfig l) (X ())
+_logHook :: Lens' (XConfig l) (X ())
 _logHook f xconfig@XConfig{ logHook = x } =
     (\ x' -> xconfig{ logHook = x' }) <$> f x
 
-_startupHook :: MonoLens (XConfig l) (X ())
+_startupHook :: Lens' (XConfig l) (X ())
 _startupHook f xconfig@XConfig{ startupHook = x } =
     (\ x' -> xconfig{ startupHook = x' }) <$> f x
 
-_workspaceNames :: MonoLens (XConfig l) [String]
+_workspaceNames :: Lens' (XConfig l) [String]
 _workspaceNames f xconfig@XConfig{ workspaces = x } =
     (\ x' -> xconfig{ workspaces = x' }) <$> f x
 
-_modMask :: MonoLens (XConfig l) KeyMask
+_modMask :: Lens' (XConfig l) KeyMask
 _modMask f xconfig@XConfig{ modMask = x } =
     (\ x' -> xconfig{ modMask = x' }) <$> f x
 
-_keys :: MonoLens (XConfig l) (XConfig Layout -> Map (ButtonMask, KeySym) (X ()))
+_keys :: Lens' (XConfig l) (XConfig Layout -> Map (ButtonMask, KeySym) (X ()))
 _keys f xconfig@XConfig{ keys = x } =
     (\ x' -> xconfig{ keys = x' }) <$> f x
 
-_mouseBindings :: MonoLens (XConfig l) (XConfig Layout -> Map (ButtonMask, Button) (Window -> X ()))
+_mouseBindings :: Lens' (XConfig l) (XConfig Layout -> Map (ButtonMask, Button) (Window -> X ()))
 _mouseBindings f xconfig@XConfig{ mouseBindings = x } =
     (\ x' -> xconfig{ mouseBindings = x' }) <$> f x
 
-_focusFollowsMouse, _clickJustFocuses :: MonoLens (XConfig l) Bool
+_focusFollowsMouse, _clickJustFocuses :: Lens' (XConfig l) Bool
 
 _focusFollowsMouse f xconfig@XConfig{ focusFollowsMouse = x } =
     (\ x' -> xconfig{ focusFollowsMouse = x' }) <$> f x
@@ -283,15 +286,15 @@ _focusFollowsMouse f xconfig@XConfig{ focusFollowsMouse = x } =
 _clickJustFocuses f xconfig@XConfig{ clickJustFocuses  = x } =
     (\ x' -> xconfig{ clickJustFocuses = x' }) <$> f x
 
-_clientMask :: MonoLens (XConfig l) EventMask
+_clientMask :: Lens' (XConfig l) EventMask
 _clientMask f xconfig@XConfig{ clientMask  = x } =
     (\ x' -> xconfig{ clientMask = x' }) <$> f x
 
-_rootMask :: MonoLens (XConfig l) EventMask
+_rootMask :: Lens' (XConfig l) EventMask
 _rootMask f xconfig@XConfig{ rootMask  = x } =
     (\ x' -> xconfig{ rootMask = x' }) <$> f x
 
-_handleExtraArgs :: MonoLens (XConfig l) ([String] -> XConfig Layout -> IO (XConfig Layout))
+_handleExtraArgs :: Lens' (XConfig l) ([String] -> XConfig Layout -> IO (XConfig Layout))
 _handleExtraArgs f xconfig@XConfig{ handleExtraArgs = x } =
     (\ x' -> xconfig{ handleExtraArgs = x' }) <$> f x
 
@@ -310,7 +313,7 @@ newtype ScreenId = S Int deriving (Eq,Ord,Show,Read,Enum,Num,Integral,Real)
 newtype ScreenDetail = SD { screenRect :: Rectangle }
     deriving (Eq,Show, Read)
 
-_screenRect :: MonoLens ScreenDetail Rectangle
+_screenRect :: Lens' ScreenDetail Rectangle
 _screenRect f sd@SD{ screenRect = x } =
     (\ x' -> sd{ screenRect = x' }) <$> f x
 
