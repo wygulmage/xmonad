@@ -228,76 +228,53 @@ data XConfig l = XConfig
 
 
 _borderWidth :: Lens' (XConfig l) Dimension
-_borderWidth f xconfig@XConfig{ borderWidth = x } =
-    (\ x' -> xconfig{ borderWidth = x' }) <$> f x
+_borderWidth = lens borderWidth (\ s x -> s{ borderWidth = x })
 
 _normalBorderColor, _focusedBorderColor, _terminal :: Lens' (XConfig l) String
-
-_normalBorderColor f xconfig@XConfig{ normalBorderColor = x } =
-    (\ x' -> xconfig{ normalBorderColor = x' }) <$> f x
-
-_focusedBorderColor f xconfig@XConfig{ focusedBorderColor = x } =
-    (\ x' -> xconfig{ focusedBorderColor = x' }) <$> f x
-
-_terminal f xconfig@XConfig{ terminal = x } =
-    (\ x' -> xconfig{ terminal = x' }) <$> f x
+_normalBorderColor = lens normalBorderColor (\ s x -> s{ normalBorderColor = x })
+_focusedBorderColor = lens focusedBorderColor (\ s x ->s { focusedBorderColor = x })
+_terminal = lens terminal (\ s x -> s{ terminal = x })
 
 _layoutHook :: Lens (XConfig l) (XConfig l') (l Window) (l' Window)
-_layoutHook f xconfig@XConfig{ layoutHook = x } =
-    (\ y -> xconfig{ layoutHook = y }) <$> f x
+_layoutHook = lens layoutHook (\ s x -> s{ layoutHook = x })
 
 _manageHook :: Lens' (XConfig l) ManageHook
-_manageHook f xconfig@XConfig{ manageHook = x } =
-    (\ x' -> xconfig{ manageHook = x' }) <$> f x
+_manageHook = lens manageHook (\ s  x -> s{ manageHook = x })
 
 _handleEventHook :: Lens' (XConfig l) (Event -> X All)
-_handleEventHook f xconfig@XConfig{ handleEventHook = x } =
-    (\ x' -> xconfig{ handleEventHook = x' }) <$> f x
+_handleEventHook = lens handleEventHook (\ s x -> s{ handleEventHook = x })
 
 _logHook :: Lens' (XConfig l) (X ())
-_logHook f xconfig@XConfig{ logHook = x } =
-    (\ x' -> xconfig{ logHook = x' }) <$> f x
+_logHook = lens logHook (\ s x -> s{ logHook = x })
 
 _startupHook :: Lens' (XConfig l) (X ())
-_startupHook f xconfig@XConfig{ startupHook = x } =
-    (\ x' -> xconfig{ startupHook = x' }) <$> f x
+_startupHook = lens startupHook (\ s x -> s{ startupHook = x })
 
 _workspaceNames :: Lens' (XConfig l) [String]
 _workspaceNames f xconfig@XConfig{ workspaces = x } =
     (\ x' -> xconfig{ workspaces = x' }) <$> f x
 
 _modMask :: Lens' (XConfig l) KeyMask
-_modMask f xconfig@XConfig{ modMask = x } =
-    (\ x' -> xconfig{ modMask = x' }) <$> f x
+_modMask = lens modMask (\ s x -> s{ modMask = x })
 
 _keys :: Lens' (XConfig l) (XConfig Layout -> Map (ButtonMask, KeySym) (X ()))
-_keys f xconfig@XConfig{ keys = x } =
-    (\ x' -> xconfig{ keys = x' }) <$> f x
+_keys = lens keys (\ s x -> s{ keys = x })
 
 _mouseBindings :: Lens' (XConfig l) (XConfig Layout -> Map (ButtonMask, Button) (Window -> X ()))
-_mouseBindings f xconfig@XConfig{ mouseBindings = x } =
-    (\ x' -> xconfig{ mouseBindings = x' }) <$> f x
+_mouseBindings = lens mouseBindings (\ s x -> s{ mouseBindings = x })
 
 _focusFollowsMouse, _clickJustFocuses :: Lens' (XConfig l) Bool
-
-_focusFollowsMouse f xconfig@XConfig{ focusFollowsMouse = x } =
-    (\ x' -> xconfig{ focusFollowsMouse = x' }) <$> f x
-
-_clickJustFocuses f xconfig@XConfig{ clickJustFocuses  = x } =
-    (\ x' -> xconfig{ clickJustFocuses = x' }) <$> f x
+_focusFollowsMouse = lens focusFollowsMouse (\ s x -> s{ focusFollowsMouse = x })
+_clickJustFocuses = lens clickJustFocuses (\ s x -> s{ clickJustFocuses = x })
 
 _clientMask :: Lens' (XConfig l) EventMask
-_clientMask f xconfig@XConfig{ clientMask  = x } =
-    (\ x' -> xconfig{ clientMask = x' }) <$> f x
+_clientMask = lens clientMask (\ s x -> s{ clientMask = x })
 
 _rootMask :: Lens' (XConfig l) EventMask
-_rootMask f xconfig@XConfig{ rootMask  = x } =
-    (\ x' -> xconfig{ rootMask = x' }) <$> f x
+_rootMask = lens rootMask (\ s x -> s{ rootMask = x })
 
 _handleExtraArgs :: Lens' (XConfig l) ([String] -> XConfig Layout -> IO (XConfig Layout))
-_handleExtraArgs f xconfig@XConfig{ handleExtraArgs = x } =
-    (\ x' -> xconfig{ handleExtraArgs = x' }) <$> f x
-
+_handleExtraArgs = lens handleExtraArgs (\ s x -> s{ handleExtraArgs = x })
 
 
 type WindowSet = StackSet  WorkspaceId (Layout Window) Window ScreenId ScreenDetail
@@ -314,8 +291,7 @@ newtype ScreenDetail = SD { screenRect :: Rectangle }
     deriving (Eq,Show, Read)
 
 _screenRect :: Lens' ScreenDetail Rectangle
-_screenRect f sd@SD{ screenRect = x } =
-    (\ x' -> sd{ screenRect = x' }) <$> f x
+_screenRect = lens screenRect (\ s x -> s{ screenRect = x })
 
 ------------------------------------------------------------------------
 
@@ -624,9 +600,7 @@ runOnWorkspaces :: (WindowSpace -> X WindowSpace) -> X ()
 runOnWorkspaces job = do
     ws <- gets windowset
     h <- traverse job $ hidden ws
-    -- c:v <- traverse _workspace job $ current ws : visible ws
-    c:v <- traverse (\s -> (\w -> s { workspace = w}) <$> job (workspace s))
-             $ current ws : visible ws
+    c : v <- traverse (_workspace job) $ current ws : visible ws
     modify $ \s -> s { windowset = ws { current = c, visible = v, hidden = h } }
 
 -- | All the directories that xmonad will use.  They will be used for

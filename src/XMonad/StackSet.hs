@@ -32,6 +32,7 @@ module XMonad.StackSet (
         Workspace(..), _tag, _layout, _stack,
         Screen(..), _workspace, _screen, _screenDetail,
         Stack(..), RationalRect(..),
+        _workspaces,
         -- *  Construction
         -- $construction
         new, view, greedyView,
@@ -405,7 +406,8 @@ lookupWorkspace sc w = listToMaybe [ tag i | Screen i s _ <- current w : visible
 -- returning the result. It is like 'maybe' for the focused workspace.
 --
 with :: b -> (Stack a -> b) -> StackSet i l a s sd -> b
-with dflt f = maybe dflt f . stack . workspace . current
+-- with dflt f = maybe dflt f . stack . workspace . current
+with dflt f = views (_current . _workspace . _stack) (maybe dflt f)
 
 -- |
 -- Apply a function, and a default value for 'Nothing', to modify the current stack.
@@ -413,7 +415,7 @@ with dflt f = maybe dflt f . stack . workspace . current
 modify :: Maybe (Stack a) -> (Stack a -> Maybe (Stack a)) -> StackSet i l a s sd -> StackSet i l a s sd
 -- modify d f s = s { current = (current s)
                         -- { workspace = (workspace (current s)) { stack = with d f s }}}
-modify d f s = set (_current . _workspace . _stack)  (with d f s) s
+modify d f = over (_current . _workspace . _stack)  (maybe d f)
 
 -- |
 -- Apply a function to modify the current stack if it isn't empty, and we don't
@@ -449,9 +451,8 @@ differentiate []     = Nothing
 differentiate (x:xs) = Just $ Stack x [] xs
 
 toNonEmpty :: Stack a -> NonEmpty a
--- toNonEmpty (Stack x (x' : xu) xd) = toNonEmpty (Stack x' xu (x : xd)) -- focusUp
--- toNonEmpty (Stack x [] xd) = x :| xd
-toNonEmpty (Stack x xu xd) = case reverse xu <> (x : xd) of (x' : xs) -> x :| xs
+toNonEmpty (Stack x (x' : xu) xd) = toNonEmpty (Stack x' xu (x : xd)) -- focusUp'
+toNonEmpty (Stack x [] xd) = x :| xd
 
 fromNonEmpty :: NonEmpty a -> Stack a
 fromNonEmpty (x :| xs) = Stack x [] xs
@@ -531,7 +532,10 @@ allWindows = L.nub . foldMap (integrate' . stack) . workspaces
 
 -- | Get the tag of the currently focused workspace.
 currentTag :: StackSet i l a s sd -> i
-currentTag = tag . workspace . current
+currentTag = Lens.view _currentTag
+
+_currentTag :: Lens' (StackSet i l a s sd) i
+_currentTag = _current . _workspace . _tag
 
 -- | Is the given tag present in the 'StackSet'?
 tagMember :: Eq i => i -> StackSet i l a s sd -> Bool
@@ -561,9 +565,10 @@ member a s = isJust (findTag a s)
 -- if the window is not in the 'StackSet'.
 findTag :: Eq a => a -> StackSet i l a s sd -> Maybe i
 findTag a s = listToMaybe
-    [ tag w | w <- workspaces s, has a (stack w) ]
-    where has _ Nothing         = False
-          has x (Just (Stack t l r)) = x `elem` (t : (l <> r))
+    [ tag w | w <- workspaces s, has_a (stack w) ]
+    where
+    has_a (Just (Stack t l r)) = a `elem` (t : (l <> r))
+    has_a _         = False
 
 -- ---------------------------------------------------------------------
 -- $modifyStackset
@@ -681,7 +686,7 @@ shiftWin :: (Ord a, Eq s, Eq i) => i -> a -> StackSet i l a s sd -> StackSet i l
 shiftWin n w s = case findTag w s of
                     Just from | n `tagMember` s && n /= from -> go from s
                     _                                        -> s
- where go from = onWorkspace n (insertUp w) . onWorkspace from (delete' w)
+  where go from = onWorkspace n (insertUp w) . onWorkspace from (delete' w)
 
 onWorkspace :: (Eq i, Eq s) => i -> (StackSet i l a s sd -> StackSet i l a s sd)
             -> (StackSet i l a s sd -> StackSet i l a s sd)
