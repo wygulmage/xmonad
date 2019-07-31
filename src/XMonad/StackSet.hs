@@ -70,7 +70,7 @@ import Data.Map (Map)
 import qualified Data.Map  as Map (insert, delete, empty)
 -- import XMonad.Optic (Lens, Lens', views, over, set)
 -- import qualified XMonad.Optic as Lens (view)
-import Control.Lens hiding (index, view)
+import Control.Lens hiding (from, index, view)
 import qualified Control.Lens as Lens
 
 
@@ -158,26 +158,23 @@ data StackSet i l a sid sd =
 
 _current :: Lens'
     (StackSet i l a sid sd) (Screen i l a sid sd)
-_current f ss@StackSet{ current = x } =
-    (\ x' -> ss{ current = x' }) <$> f x
+_current = lens current (\ s x -> s{ current = x })
 
 _visible :: Lens'
     (StackSet i l a sid sd) [Screen i l a sid sd]
-_visible f ss@StackSet{ visible = x } =
-    (\ x' -> ss{ visible = x' }) <$> f x
+_visible = lens visible (\ s x -> s{ visible = x })
 
 _hidden :: Lens'
     (StackSet i l a sid sd) [Workspace i l a]
-_hidden f ss@StackSet{ hidden = x } =
-    (\ x' -> ss{ hidden = x' }) <$> f x
+_hidden = lens hidden (\ s x -> s{ hidden = x })
 
 _floating :: Lens'
     (StackSet i l a sid sd) (Map a RationalRect)
-_floating f ss@StackSet{ floating = x } =
-    (\ x' -> ss{ floating = x' }) <$> f x
+_floating = lens floating (\ s x -> s{ floating = x })
 
 _workspaces :: Applicative m =>
-    (Workspace i l a -> m (Workspace i' l' a)) -> StackSet i l a sid sd -> m (StackSet i' l' a sid sd)
+    (Workspace i l a -> m (Workspace i' l' a)) ->
+    StackSet i l a sid sd -> m (StackSet i' l' a sid sd)
 _workspaces f (StackSet cur vis hid flo) =
     StackSet <$> _workspace f cur <*> (traverse . _workspace) f vis <*> traverse f hid <*> pure flo
 
@@ -561,8 +558,9 @@ tagMember t = elem t . fmap tag . workspaces
 
 -- | Rename a given tag if present in the 'StackSet'.
 renameTag :: Eq i => i -> i -> StackSet i l a s sd -> StackSet i l a s sd
-renameTag o n = mapWorkspace rename
-    where rename w = if tag w == o then w { tag = n } else w
+-- renameTag o n = over _workspaces rename
+renameTag o n = over (_workspaces._tag) (\ tg -> if tg == o then n else tg)
+    -- where rename w = if tag w == o then w { tag = n } else w
 
 -- | Ensure that a given set of workspace tags is present by renaming
 -- existing workspaces and\/or creating new hidden workspaces as
