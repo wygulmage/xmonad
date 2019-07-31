@@ -51,6 +51,8 @@ import Data.Version (showVersion)
 
 import Graphics.X11.Xinerama (compiledWithXinerama)
 
+import Control.Lens hiding (mapped, none)
+
 ------------------------------------------------------------------------
 
 
@@ -64,9 +66,9 @@ xmonad conf = do
     dirs <- getDirs
     let launch' args = do
               catchIO (buildLaunch dirs)
-              conf'@XConfig { layoutHook = Layout l }
-                  <- handleExtraArgs conf args conf{ layoutHook = Layout (layoutHook conf) }
-              withArgs [] $ launch (conf' { layoutHook = l }) dirs
+              conf' @ XConfig { layoutHook = Layout l }
+                  <- handleExtraArgs conf args (over _layoutHook Layout conf)
+              withArgs [] $ launch (set _layoutHook l conf') dirs
 
     args <- getArgs
     case args of
@@ -175,7 +177,8 @@ launch initxmc drs = do
     -- ignore SIGPIPE and SIGCHLD
     installSignalHandlers
     -- First, wrap the layout in an existential, to keep things pretty:
-    let xmc = initxmc { layoutHook = Layout $ layoutHook initxmc }
+    -- let xmc = initxmc { layoutHook = Layout $ layoutHook initxmc }
+    let xmc = over _layoutHook Layout initxmc
     dpy   <- openDisplay ""
     let dflt = defaultScreen dpy
 
@@ -241,7 +244,8 @@ launch initxmc drs = do
 
             -- restore extensibleState if we read it from a file.
             let extst = maybe M.empty extensibleState serializedSt
-            modify (\s -> s {extensibleState = extst})
+            -- modify (\s -> s {extensibleState = extst})
+            modify (set _extensibleState extst)
 
             setNumlockMask
             grabKeys
@@ -272,8 +276,9 @@ launch initxmc drs = do
         -- if the event gives us the position of the pointer, set mousePosition
         prehandle e = let mouse = do guard (ev_event_type e `elem` evs)
                                      pure (fromIntegral (ev_x_root e)
-                                            ,fromIntegral (ev_y_root e))
-                      in local (\c -> c { mousePosition = mouse, currentEvent = Just e }) (handleWithHook e)
+                                          ,fromIntegral (ev_y_root e))
+                      -- in local (\c -> c { mousePosition = mouse, currentEvent = Just e }) (handleWithHook e)
+                      in local (set _mousePosition mouse . (_currentEvent ?~ e)) (handleWithHook e)
         evs = [ keyPress, keyRelease, enterNotify, leaveNotify
               , buttonPress, buttonRelease]
 
@@ -282,7 +287,8 @@ launch initxmc drs = do
 -- function if it returned True.
 handleWithHook :: Event -> X ()
 handleWithHook e = do
-  evHook <- asks (handleEventHook . config)
+  -- evHook <- asks (handleEventHook . config)
+  evHook <- view (_config . _handleEventHook)
   whenX (userCodeDef True $ getAll `fmap` evHook e) (handle e)
 
 -- ---------------------------------------------------------------------
@@ -325,7 +331,8 @@ handle UnmapEvent{ ev_window = w, ev_send_event = synthetic} = whenX (isClient w
     e <- gets (fromMaybe 0 . M.lookup w . waitingUnmap)
     if synthetic || e == 0
         then unmanage w
-        else modify (\s -> s { waitingUnmap = M.update mpred w (waitingUnmap s) })
+        -- else modify (\s -> s { waitingUnmap = M.update mpred w (waitingUnmap s) })
+        else modify (over _waitingUnmap (M.update mpred w))
  where mpred 1 = Nothing
        mpred n = Just $ pred n
 
@@ -339,15 +346,18 @@ handle e@MappingNotifyEvent{} = do
 -- handle button release, which may finish dragging.
 handle e@ButtonEvent{ ev_event_type = t }
     | t == buttonRelease = do
-    drag <- gets dragging
+    -- drag <- gets dragging
+    drag <- use _dragging
     case drag of
         -- we're done dragging and have released the mouse:
-        Just (_,f) -> modify (\s -> s { dragging = Nothing }) *> f
+        -- Just (_,f) -> modify (\s -> s { dragging = Nothing }) *> f
+        Just (_,f) -> modify (set _dragging Nothing) *> f
         Nothing    -> broadcastMessage e
 
 -- handle motionNotify event, which may mean we are dragging.
 handle e@MotionEvent{ ev_event_type = _t, ev_x = x, ev_y = y } = do
-    drag <- gets dragging
+    -- drag <- gets dragging
+    drag <- use _dragging
     case drag of
         Just (d,_) -> d (fromIntegral x) (fromIntegral y) -- we're dragging
         Nothing -> broadcastMessage e
@@ -357,7 +367,8 @@ handle e@ButtonEvent{ ev_window = w,ev_event_type = t,ev_button = b }
     | t == buttonPress = do
     -- If it's the root window, then it's something we
     -- grabbed in grabButtons. Otherwise, it's click-to-focus.
-    dpy <- asks display
+    -- dpy <- asks display
+    dpy <- view _display
     isr <- isRoot w
     m <- cleanMask $ ev_state e
     mact <- asks (M.lookup (m, b) . buttonActions)
@@ -373,9 +384,12 @@ handle e@ButtonEvent{ ev_window = w,ev_event_type = t,ev_button = b }
 -- True in the user's config.
 handle e@CrossingEvent{ ev_window = w, ev_event_type = t }
     | t == enterNotify && ev_mode   e == notifyNormal
-    = whenX (asks $ focusFollowsMouse . config) $ do
-        dpy <- asks display
-        root <- asks theRoot
+    -- = whenX (asks $ focusFollowsMouse . config) $ do
+    = whenX (view (_config . _focusFollowsMouse)) $ do
+        -- dpy <- asks display
+        dpy <- view _display
+        -- root <- asks theRoot
+        root <- view _theRoot
         (_, _, w', _, _, _, _, _) <- io $ queryPointer dpy root
         -- when Xlib cannot find a child that contains the pointer,
         -- it returns None(0)
@@ -389,12 +403,15 @@ handle e@CrossingEvent{ ev_event_type = t }
 
 -- configure a window
 handle e@ConfigureRequestEvent{ ev_window = w } = withDisplay $ \dpy -> do
-    ws <- gets windowset
-    bw <- asks (borderWidth . config)
+    -- ws <- gets windowset
+    ws <- use _windowset
+    -- bw <- asks (borderWidth . config)
+    bw <- view (_config._borderWidth)
 
-    if M.member w (floating ws)
+    -- if M.member w (floating ws)
+    if views W._floating (M.member w) ws
         || not (member w ws)
-        then do io $ configureWindow dpy w (ev_value_mask e) $ WindowChanges
+        then do io . configureWindow dpy w (ev_value_mask e) $ WindowChanges
                     { wc_x            = ev_x e
                     , wc_y            = ev_y e
                     , wc_width        = ev_width e
@@ -416,7 +433,7 @@ handle ConfigureEvent{ ev_window = w } = whenX (isRoot w) rescreen
 
 -- property notify
 handle event@PropertyEvent{ ev_event_type = t, ev_atom = a }
-    | t == propertyNotify && a == wM_NAME = (asks (logHook . config) >>= userCodeDef ()) *>
+    | t == propertyNotify && a == wM_NAME = (view (_config._logHook) >>= userCodeDef ()) *>
                                          broadcastMessage event
 
 handle e@ClientMessageEvent{ ev_message_type = mt } = do
@@ -462,7 +479,8 @@ setNumlockMask = do
                             then pure (setBit 0 (fromIntegral m))
                             else pure (0 :: KeyMask)
                         | (m, kcs) <- ms, kc <- kcs, kc /= 0]
-    modify (\s -> s { numberlockMask = foldr (.|.) 0 xs })
+    -- modify (\s -> s { numberlockMask = foldr (.|.) 0 xs })
+    modify $ set _numberlockMask (foldr (.|.) 0 xs)
 
 -- | Grab the keys back
 grabKeys :: X ()
@@ -472,7 +490,8 @@ grabKeys = do
         (minCode, maxCode) = displayKeycodes dpy
         allCodes = [fromIntegral minCode .. fromIntegral maxCode]
     io $ ungrabKey dpy anyKey anyModifier rootw
-    ks <- asks keyActions
+    -- ks <- asks keyActions
+    ks <- view _keyActions
     -- build a map from keysyms to lists of keysyms (doing what
     -- XGetKeyboardMapping would do if the X11 package bound it)
     syms <- for allCodes $ \code -> io (keycodeToKeysym dpy code 0)

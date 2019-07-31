@@ -82,7 +82,7 @@ manage w = whenX (not <$> isClient w) . withDisplay $ \d -> do
              | otherwise                  = W.insertUp w ws
             where i = view (W._current . W._workspace . W._tag) ws -- I'm tryna use lenses, OK?
 
-    mh <- asks . view $ _config . _manageHook
+    mh <- view $ _config . _manageHook
     g <- appEndo <$> userCodeDef (Endo id) (runQuery mh w)
     windows (g . f)
 
@@ -129,7 +129,7 @@ windows f = do
     traverse_ setInitialProperties newwindows
 
     whenJust (W.peek old) $ \otherw -> do
-      nbs <- asks . view $ _config . _normalBorderColor
+      nbs <- view $ _config . _normalBorderColor
       setWindowBorderWithFallback d otherw nbs nbc
 
     -- modify (set _windowset ws)
@@ -174,7 +174,6 @@ windows f = do
 
     whenJust (W.peek ws) $ \w -> do
       -- fbs <- asks (focusedBorderColor . config)
-      -- fbs <- (asks . view) (_config . _focusedBorderColor)
       fbs <- view (_config . _focusedBorderColor)
       setWindowBorderWithFallback d w fbs fbc
 
@@ -190,14 +189,14 @@ windows f = do
     -- will overwrite withdrawnState with iconicState
     traverse_ (`setWMState` withdrawnState) (W.allWindows old \\ W.allWindows ws)
 
-    isMouseFocused <- asks mouseFocused
+    -- isMouseFocused <- asks mouseFocused
+    isMouseFocused <- view _mouseFocused
     unless isMouseFocused $ clearEvents enterWindowMask
     -- asks (logHook . config) >>= userCodeDef ()
-    (asks . view) (_config . _logHook) >>= userCodeDef ()
+    view (_config . _logHook) >>= userCodeDef ()
 
 -- | Modify the @WindowSet@ in state with no special handling.
 modifyWindowSet :: (WindowSet -> WindowSet) -> X ()
--- modifyWindowSet = modify . over _windowset
 modifyWindowSet = (_windowset %=)
 
 -- | Perform an @X@ action and check its return value against a predicate p.
@@ -241,7 +240,7 @@ setWindowBorderWithFallback dpy w color basic = io . C.handle fallback $ do
 -- | hide. Hide a window by unmapping it, and setting Iconified.
 hide :: Window -> X ()
 hide w = whenX (gets (S.member w . mapped)) . withDisplay $ \d -> do
-    cMask <- asks . view $ _config . _clientMask
+    cMask <- view $ _config . _clientMask
     io $ selectInput d w (cMask .&. complement structureNotifyMask)
          *> unmapWindow d w
          *> selectInput d w cMask
@@ -260,10 +259,10 @@ reveal w = withDisplay $ \d -> do
 
 -- | Set some properties when we initially gain control of a window
 setInitialProperties :: Window -> X ()
-setInitialProperties w = asks normalBorder >>= \nb -> withDisplay $ \d -> do
+setInitialProperties w = view _normalBorder >>= \nb -> withDisplay $ \d -> do
     setWMState w iconicState
-    (asks . view $ _config . _clientMask)  >>= io . selectInput d w
-    bw <- asks . view $ _config . _borderWidth
+    view (_config . _clientMask)  >>= io . selectInput d w
+    bw <- view $ _config . _borderWidth
     io $ setWindowBorderWidth d w bw
     -- we must initially set the color of new windows, to maintain invariants
     -- required by the border setting in 'windows'
@@ -336,9 +335,11 @@ rescreen = do
 -- | setButtonGrab. Tell whether or not to intercept clicks on a given window
 setButtonGrab :: Bool -> Window -> X ()
 setButtonGrab grab w = do
-    pointerMode <- asks $ \c -> if clickJustFocuses (config c)
-                                    then grabModeAsync
-                                    else grabModeSync
+    -- pointerMode <- asks $ \c -> if clickJustFocuses (config c)
+    -- pointerMode <- asks $ \c -> if c^._config._clickJustFocuses
+                                    -- then grabModeAsync
+                                    -- else grabModeSync
+    pointerMode <- views (_config._clickJustFocuses) (\b -> if b then grabModeAsync else grabModeSync)
     withDisplay $ \d -> io $ if grab
         then for_ [button1, button2, button3] $ \b ->
             grabButton d b anyModifier w False buttonPressMask
@@ -350,7 +351,7 @@ setButtonGrab grab w = do
 
 -- | Set the focus to the window on top of the stack, or root
 setTopFocus :: X ()
-setTopFocus = withWindowSet $ maybe (setFocusX =<< asks theRoot) setFocusX . W.peek
+setTopFocus = withWindowSet $ maybe (setFocusX =<< view _theRoot) setFocusX . W.peek
 
 -- | Set focus explicitly to window 'w' if it is managed by us, or root.
 -- This happens if X notices we've moved the mouse (and perhaps moved
@@ -362,8 +363,9 @@ focus w = local (set _mouseFocused True) . withWindowSet $ \s -> do
     let stag = view (W._workspace . W._tag)
         curr = view (W._current . W._workspace . W._tag) s
     mnew <- maybe (pure Nothing) (fmap (fmap stag) . uncurry pointScreen)
-            =<< asks mousePosition
-    root <- asks . view $ _theRoot
+            -- =<< asks mousePosition
+            =<< view _mousePosition
+    root <- view _theRoot
     case () of
         _ | W.member w s && W.peek s /= Just w -> windows (W.focusWindow w)
           | Just new <- mnew, w == root && curr /= new
@@ -373,7 +375,8 @@ focus w = local (set _mouseFocused True) . withWindowSet $ \s -> do
 -- | Call X to set the keyboard focus details.
 setFocusX :: Window -> X ()
 setFocusX w = withWindowSet $ \ws -> do
-    dpy <- asks display
+    -- dpy <- asks display
+    dpy <- view _display
 
     -- clear mouse button grab and border on other windows
     for_ (view W._current ws : view W._visible ws) $ \wk ->
@@ -387,7 +390,8 @@ setFocusX w = withWindowSet $ \ws -> do
     protocols <- io $ getWMProtocols dpy w
     wmprot <- atom_WM_PROTOCOLS
     wmtf <- atom_WM_TAKE_FOCUS
-    currevt <- asks currentEvent
+    -- currevt <- asks currentEvent
+    currevt <- view _currentEvent
     let inputHintSet = wmh_flags hints `testBit` inputHintBit
 
     when ((inputHintSet && wmh_input hints) || not inputHintSet) . io $ setInputFocus dpy w revertToPointerRoot 0
@@ -565,7 +569,8 @@ migrateState Dirs{ dataDir } ws xs = do
 restart :: String -> Bool -> X ()
 restart prog resume =
     broadcastMessage ReleaseResources
-    *> (io . flush =<< asks display)
+    -- *> (io . flush =<< asks display)
+    *> (io . flush =<< view _display)
     *> when resume writeStateToFile
     *> catchIO (executeFile prog True [] Nothing)
 

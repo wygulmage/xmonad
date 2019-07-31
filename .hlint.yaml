@@ -50,7 +50,11 @@
 - error: {lhs: Control.Lens.sets (Control.Lens.over l), rhs: l}
 - error: {lhs: Control.Lens.over (Control.Lens.sets l), rhs: l}
 - error: {lhs: "x & (Control.Lens.mapped .~ y)", rhs: "x $> y"}
+- error: {lhs: "ask . Control.Lens.view", rhs: "Control.Lens.view"}
 - error: {lhs: "asks . Control.Lens.view", rhs: "Control.Lens.view"}
+- error: {lhs: "ask . Control.Lens.views", rhs: "Control.Lens.views"}
+- error: {lhs: "ask . Control.Lens.views l", rhs: "Control.Lens.views l"}
+- error: {lhs: "asks . Control.Lens.views l", rhs: "Control.Lens.views l"}
 
 - warn: {lhs: Control.Lens.over l f . Control.Lens.over l g, rhs: Control.Lens.over l (f . g)}
 - warn: {lhs: Control.Lens.to f . Control.Lens.to g, rhs: Control.Lens.to (f . g)}

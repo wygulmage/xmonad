@@ -29,6 +29,7 @@ class Inpair m where
     -- An instance of Inpair MUST be an instance of Functor or Contravariant.
     inpair :: m a -> m b -> m (a, b)
 
+
 class Inpair m => Point m where
     -- ^ The 'pure' half of Applicative and Monad, for Inpair. Note that to define 'point' for a Contravariant m, it may be easiest to factor through unitPoint.
     point :: a -> m a

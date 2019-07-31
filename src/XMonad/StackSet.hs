@@ -214,18 +214,15 @@ data Screen i l a sid sd = Screen
 _workspace :: Lens
     (Screen    i l a sid sd) (Screen    i' l' a' sid sd)
     (Workspace i l a)        (Workspace i' l' a')
-_workspace f scrn@Screen{ workspace = x } =
-    (\ y -> scrn{ workspace = y }) <$> f x
+_workspace = lens workspace (\ s x -> s{ workspace = x })
 
 _screen :: Lens
     (Screen i l a sid sd) (Screen i l a sid' sd) sid sid'
-_screen f scrn@Screen{ screen = x } =
-    (\ y -> scrn{ screen = y }) <$> f x
+_screen = lens screen (\ s x -> s{ screen = x })
 
 _screenDetail :: Lens
     (Screen i l a sid sd) (Screen i l a sid sd') sd sd'
-_screenDetail f scrn@Screen{ screenDetail = x } =
-    (\ y -> scrn{ screenDetail = y }) <$> f x
+_screenDetail = lens screenDetail (\ s x -> s{ screenDetail = x })
 
 
 -- $construction
@@ -272,7 +269,8 @@ view i s
     -- if it is visible, it is just raised
     = s { current = x, visible = current s : L.deleteBy (equating screen) x (visible s) }
 
-    | Just x <- L.find ((i==).tag)           (hidden  s) -- must be hidden then
+    -- | Just x <- L.find ((i==).tag)           (hidden  s) -- must be hidden then
+    | Just x <- L.find (views _tag (i==))           (hidden  s) -- must be hidden then
     -- if it was hidden, it is raised on the xine screen currently used
     = s { current = (current s) { workspace = x }
         , hidden = workspace (current s) : L.deleteBy (equating tag) x (hidden s) }
@@ -544,7 +542,7 @@ focusWindow w s | Just w == peek s = s
 -- | Get a list of all workspaces in the 'StackSet'.
 workspaces :: StackSet i l a s sd -> [Workspace i l a]
 -- workspaces s = workspace (current s) : (fmap workspace (visible s) <> hidden s)
-workspaces = views _workspaces (:[])
+workspaces = (^.._workspaces)
 
 -- | Get a list of all windows in the 'StackSet' in no particular order
 allWindows :: Eq a => StackSet i l a s sd -> [a]
@@ -570,7 +568,8 @@ renameTag o n = mapWorkspace rename
 -- existing workspaces and\/or creating new hidden workspaces as
 -- necessary.
 ensureTags :: Eq i => l -> [i] -> StackSet i l a s sd -> StackSet i l a s sd
-ensureTags l allt st = et allt (fmap tag (workspaces st) \\ allt) st
+-- ensureTags l allt st = et allt (fmap tag (workspaces st) \\ allt) st
+ensureTags l allt st = et allt (fmap tag ((^.._workspaces) st) \\ allt) st
     where et [] _ s = s
           et (i:is) rn s | i `tagMember` s = et is rn s
           -- et (i:is) [] s = et is [] (s { hidden = Workspace i l Nothing : hidden s })
@@ -638,11 +637,13 @@ delete w = sink w . delete' w
 -- | Only temporarily remove the window from the stack, thereby not destroying special
 -- information saved in the 'Stackset'
 delete' :: (Eq a) => a -> StackSet i l a s sd -> StackSet i l a s sd
-delete' w s = s { current = removeFromScreen        (current s)
-                , visible = fmap removeFromScreen    (visible s)
-                , hidden  = fmap removeFromWorkspace (hidden  s) }
+-- delete' w s = s { current = removeFromScreen        (current s)
+                -- , visible = fmap removeFromScreen    (visible s)
+                -- , hidden  = fmap removeFromWorkspace (hidden  s) }
     -- where removeFromWorkspace ws = ws { stack = stack ws >>= filter (/=w) }
     --       removeFromScreen scr = scr { workspace = removeFromWorkspace (workspace scr) }
+delete' w = over _current removeFromScreen . over _visible (fmap removeFromScreen) . over _hidden (fmap removeFromWorkspace)
+-- delete' w = over _workspaces  (>>= filter (/= w))
     where
     removeFromWorkspace = over _stack (>>= filter (/= w))
     removeFromScreen = over _workspace removeFromWorkspace
