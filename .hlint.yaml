@@ -4,6 +4,13 @@
 - fixity: "infixl 4 *>"
 - fixity: "infixl 4 <*"
 
+- group: {name: teaching, enabled: true}
+- group: {name: dollar, enabled: true}
+- group: {name: generalise, enabled: true}
+- group: {name: generalise-for-conciseness, enabled: true}
+- group: {name: lens, enabled: true}
+- group: {name: use-lens, enabled: true}
+
 - ignore: {name: Use camelCase}
 - ignore: {name: Use list literal}
 - ignore: {name: Use void}
@@ -31,3 +38,22 @@
 
 - error: {lhs: x ++ y, rhs: x <> y}
 - error: {lhs: mappend, rhs: (<>)}
+
+# Lens
+- error: {lhs: Control.Lens.view l (Control.Lens.set l v s), rhs: v}
+- error: {lhs: Control.Lens.set l (Control.Lens.view l s) s, rhs: s}
+- error: {lhs: Control.Lens.set l v' (Control.Lens.set l v s), rhs: set l v' s}
+- error: {lhs: "l <%@~ const f", rhs: "l <%~ f"}
+- error: {lhs: Control.Lens.preview l (Control.Lens.review l b), rhs: Just b}
+- error: {lhs: "mx ^? _Just", rhs: mx}
+- error: {lhs: "x ^. Control.Lens.to f", rhs: f x}
+- error: {lhs: Control.Lens.sets (Control.Lens.over l), rhs: l}
+- error: {lhs: Control.Lens.over (Control.Lens.sets l), rhs: l}
+- error: {lhs: "x & (Control.Lens.mapped .~ y)", rhs: "x $> y"}
+- error: {lhs: "asks . Control.Lens.view", rhs: "Control.Lens.view"}
+
+- warn: {lhs: Control.Lens.over l f . Control.Lens.over l g, rhs: Control.Lens.over l (f . g)}
+- warn: {lhs: Control.Lens.to f . Control.Lens.to g, rhs: Control.Lens.to (f . g)}
+- warn: {lhs: Control.Lens.set l (Just x), rhs: "l ?~ x"}
+
+

@@ -66,7 +66,7 @@ import Graphics.X11.Xlib.Extras
 -- border set, and its event mask set.
 --
 manage :: Window -> X ()
-manage w = whenX (not <$> isClient w) $ withDisplay $ \d -> do
+manage w = whenX (not <$> isClient w) . withDisplay $ \d -> do
     sh <- io $ getWMNormalHints d w
 
     let isFixedSize = isJust (sh_min_size sh) && sh_min_size sh == sh_max_size sh
@@ -143,7 +143,7 @@ windows f = do
     -- for each workspace, layout the currently visible workspaces
     let allscreens     = views W._screens pure ws -- W.screens ws
         summed_visible = scanl (<>) [] $ fmap (W.integrate' . view (W._workspace . W._stack)) allscreens
-    rects <- fmap fold $ for (zip allscreens summed_visible) $ \ (w, vis) -> do
+    rects <- fmap fold . for (zip allscreens summed_visible) $ \ (w, vis) -> do
         let wsp   = view W._workspace w
             this  = W.view n ws
             n     = view W._tag wsp
@@ -173,7 +173,9 @@ windows f = do
     traverse_ (uncurry tileWindow) rects
 
     whenJust (W.peek ws) $ \w -> do
-      fbs <- asks (focusedBorderColor . config)
+      -- fbs <- asks (focusedBorderColor . config)
+      -- fbs <- (asks . view) (_config . _focusedBorderColor)
+      fbs <- view (_config . _focusedBorderColor)
       setWindowBorderWithFallback d w fbs fbc
 
     traverse_ reveal visible
@@ -228,8 +230,7 @@ setWMState w v = withDisplay $ \dpy -> do
 -- | Set the border color using the window's color map, if possible,
 -- otherwise fallback to the color in @Pixel@.
 setWindowBorderWithFallback :: Display -> Window -> String -> Pixel -> X ()
-setWindowBorderWithFallback dpy w color basic = io $
-    C.handle fallback $ do
+setWindowBorderWithFallback dpy w color basic = io . C.handle fallback $ do
       wa <- getWindowAttributes dpy w
       pixel <- color_pixel . fst <$> allocNamedColor dpy (wa_colormap wa) color
       setWindowBorder dpy w pixel
@@ -239,7 +240,7 @@ setWindowBorderWithFallback dpy w color basic = io $
 
 -- | hide. Hide a window by unmapping it, and setting Iconified.
 hide :: Window -> X ()
-hide w = whenX (gets (S.member w . mapped)) $ withDisplay $ \d -> do
+hide w = whenX (gets (S.member w . mapped)) . withDisplay $ \d -> do
     cMask <- asks . view $ _config . _clientMask
     io $ selectInput d w (cMask .&. complement structureNotifyMask)
          *> unmapWindow d w
@@ -356,7 +357,7 @@ setTopFocus = withWindowSet $ maybe (setFocusX =<< asks theRoot) setFocusX . W.p
 -- the mouse to a new screen).
 focus :: Window -> X ()
 -- focus w = local (\c -> c { mouseFocused = True }) $ withWindowSet $ \s -> do
-focus w = local (set _mouseFocused True) $ withWindowSet $ \s -> do
+focus w = local (set _mouseFocused True) . withWindowSet $ \s -> do
     -- let stag = W.tag . W.workspace
     let stag = view (W._workspace . W._tag)
         curr = view (W._current . W._workspace . W._tag) s
@@ -389,10 +390,8 @@ setFocusX w = withWindowSet $ \ws -> do
     currevt <- asks currentEvent
     let inputHintSet = wmh_flags hints `testBit` inputHintBit
 
-    when ((inputHintSet && wmh_input hints) || not inputHintSet) $
-      io $ setInputFocus dpy w revertToPointerRoot 0
-    when (wmtf `elem` protocols) $
-      io . allocaXEvent $ \ev ->
+    when ((inputHintSet && wmh_input hints) || not inputHintSet) . io $ setInputFocus dpy w revertToPointerRoot 0
+    when (wmtf `elem` protocols) . io . allocaXEvent $ \ev ->
         setEventType ev clientMessage
         *> setClientMessageEvent ev w wmprot 32 wmtf (maybe currentTime event_time currevt)
         *> sendEvent dpy w False noEventMask ev
@@ -441,7 +440,7 @@ setLayout :: Layout Window -> X ()
 setLayout l = do
     ss <- gets windowset
     handleMessage (view (W._current . W._workspace . W._layout) ss) (SomeMessage ReleaseResources)
-    windows $ const $ set (W._current . W._workspace . W._layout) l ss
+    windows . const $ set (W._current . W._workspace . W._layout) l ss
 
 ------------------------------------------------------------------------
 -- Utilities
@@ -526,7 +525,7 @@ readStateFile xmc = do
     pure $ do
       sf <- join sf'
 
-      let winset = W.ensureTags layout (workspaces xmc) $ W.mapLayout (fromMaybe layout . maybeRead lreads) $ view _sfWins sf
+      let winset = W.ensureTags layout (workspaces xmc) . W.mapLayout (fromMaybe layout . maybeRead lreads) $ view _sfWins sf
           extState = M.fromList . fmap (second Left) $ view _sfExt sf
 
       pure XState { windowset       = winset
@@ -666,7 +665,7 @@ mouseDrag f done = do
 
 -- | drag the window under the cursor with the mouse while it is dragged
 mouseMoveWindow :: Window -> X ()
-mouseMoveWindow w = whenX (isClient w) $ withDisplay $ \d -> do
+mouseMoveWindow w = whenX (isClient w) . withDisplay $ \d -> do
     io $ raiseWindow d w
     wa <- io $ getWindowAttributes d w
     (_, _, _, ox', oy', _, _, _) <- io $ queryPointer d w
@@ -683,7 +682,7 @@ mouseMoveWindow w = whenX (isClient w) $ withDisplay $ \d -> do
 
 -- | resize the window under the cursor with the mouse while it is dragged
 mouseResizeWindow :: Window -> X ()
-mouseResizeWindow w = whenX (isClient w) $ withDisplay $ \d -> do
+mouseResizeWindow w = whenX (isClient w) . withDisplay $ \d -> do
     io $ raiseWindow d w
     wa <- io $ getWindowAttributes d w
     sh <- io $ getWMNormalHints d w
