@@ -15,41 +15,74 @@
 
 module XMonad.Main (xmonad, launch) where
 
-import System.Locale.SetLocale
+import System.Locale.SetLocale (Category (LC_ALL), setLocale)
 import qualified Control.Exception as E
-import Data.Bits
+import Data.Bits ((.|.), setBit)
+import Data.Function (fix)
 import Data.List ((\\))
-import Data.Function
-import qualified Data.Map as M
+import qualified Data.Map as Map
 import qualified Data.Set as S
-import Control.Monad.Reader
-import Control.Monad.State
-import Data.Foldable
-import Data.Traversable
+import Control.Monad (filterM, forever, guard, unless, when)
+import Control.Monad.Reader (ask, local)
+import Control.Monad.State (gets, modify)
+import Data.Foldable (fold, for_, traverse_)
+import Data.Traversable (for)
 import Data.Maybe (fromMaybe)
 import Data.Monoid (getAll)
 
-import Graphics.X11.Xlib hiding (refreshKeyboardMapping)
+import Graphics.X11.Xlib
+-- Dislpay:
+    ( Display, openDisplay, sync
+-- Screen:
+    , ScreenNumber, defaultScreen, defaultScreenOfDisplay, defaultVisualOfScreen
+-- Window:
+    , Window, allocaSetWindowAttributes, createWindow, rootWindow
+-- Keyboard:
+    , KeyMask, displayKeycodes, grabKey, keyPress, keyRelease, keycodeToKeysym, mappingKeyboard, ungrabKey, xK_Num_Lock
+-- Mouse:
+    , buttonPress, buttonPressMask, buttonRelease, buttonRelease, grabButton, grabModeAsync, grabModeSync, queryPointer, replayPointer, ungrabButton
+-- Events:
+    , allocaXEvent, allowEvents, clientMessage, configureNotify, cWEventMask, destroyNotify, enterNotify, get_EventType, leaveNotify, nextEvent, notifyNormal, propertyNotify, sendEvent, structureNotifyMask, windowEvent
+-- Misc/Unk:
+    , anyModifier, cWOverrideRedirect, copyFromParent, internAtom, mappingModifier, propertyChangeMask, selectInput, set_event_mask, set_override_redirect, wM_NAME
+    )
 import Graphics.X11.Xlib.Extras
+    ( Event (..), getEvent, setEventType
+    , WindowAttributes (..), waIsViewable, getWindowAttributes
+    , WindowChanges (..)
+    , anyButton
+    , anyKey
+    , configureWindow
+    , currentTime
+    , getModifierMapping
+    , getWindowProperty32
+    , none
+    , queryTree
+    , refreshKeyboardMapping
+    , setClientMessageEvent
+    , setConfigureEvent
+    , xGetSelectionOwner
+    , xSetErrorHandler
+    , xSetSelectionOwner
+    )
+import Graphics.X11.Xinerama (compiledWithXinerama)
 
 import XMonad.Core
 import qualified XMonad.Config as Default
-import XMonad.StackSet (new, floating, member)
+import XMonad.StackSet (new, member)
 import qualified XMonad.StackSet as W
 import XMonad.Operations
 
-import System.IO
-import System.Directory
-import System.Info
+import System.IO (BufferMode (NoBuffering), hSetBuffering, stdout)
+import System.Directory (doesFileExist)
+import System.Info (arch, compilerName, compilerVersion, os)
 import System.Environment (getArgs, getProgName, withArgs)
 import System.Posix.Process (executeFile)
 import System.Exit (exitFailure)
-import System.FilePath
+import System.FilePath ((</>))
 
 import Paths_xmonad (version)
 import Data.Version (showVersion)
-
-import Graphics.X11.Xinerama (compiledWithXinerama)
 
 import Control.Lens hiding (mapped, none)
 
@@ -229,9 +262,9 @@ launch initxmc drs = do
             { windowset       = initialWinset
             , numberlockMask  = 0
             , mapped          = S.empty
-            , waitingUnmap    = M.empty
+            , waitingUnmap    = Map.empty
             , dragging        = Nothing
-            , extensibleState = M.empty
+            , extensibleState = Map.empty
             }
 
     allocaXEvent $ \e ->
@@ -243,7 +276,7 @@ launch initxmc drs = do
                 if exists then readStateFile initxmc else pure Nothing
 
             -- restore extensibleState if we read it from a file.
-            let extst = maybe M.empty extensibleState serializedSt
+            let extst = maybe Map.empty extensibleState serializedSt
             -- modify (\s -> s {extensibleState = extst})
             modify (set _extensibleState extst)
 
@@ -308,8 +341,9 @@ handle KeyEvent{ ev_event_type = t, ev_state = m, ev_keycode = code }
     | t == keyPress = withDisplay $ \dpy -> do
         s  <- io $ keycodeToKeysym dpy code 0
         mClean <- cleanMask m
-        ks <- asks keyActions
-        userCodeDef () $ whenJust (M.lookup (mClean, s) ks) id
+        -- ks <- asks keyActions
+        ks <- view _keyActions
+        userCodeDef () $ whenJust (Map.lookup (mClean, s) ks) id
 
 -- manage a new window
 handle MapRequestEvent{ ev_window = w } = withDisplay $ \dpy ->
@@ -323,16 +357,16 @@ handle MapRequestEvent{ ev_window = w } = withDisplay $ \dpy ->
 handle DestroyWindowEvent{ ev_window = w } = whenX (isClient w) $ do
     unmanage w
     modify (\s -> s { mapped       = S.delete w (mapped s)
-                    , waitingUnmap = M.delete w (waitingUnmap s)})
+                    , waitingUnmap = Map.delete w (waitingUnmap s)})
 
 -- We track expected unmap events in waitingUnmap.  We ignore this event unless
 -- it is synthetic or we are not expecting an unmap notification from a window.
 handle UnmapEvent{ ev_window = w, ev_send_event = synthetic} = whenX (isClient w) $ do
-    e <- gets (fromMaybe 0 . M.lookup w . waitingUnmap)
+    e <- gets (fromMaybe 0 . Map.lookup w . waitingUnmap)
     if synthetic || e == 0
         then unmanage w
-        -- else modify (\s -> s { waitingUnmap = M.update mpred w (waitingUnmap s) })
-        else modify (over _waitingUnmap (M.update mpred w))
+        -- else modify (\s -> s { waitingUnmap = Map.update mpred w (waitingUnmap s) })
+        else modify (over _waitingUnmap (Map.update mpred w))
  where mpred 1 = Nothing
        mpred n = Just $ pred n
 
@@ -371,12 +405,14 @@ handle e@ButtonEvent{ ev_window = w,ev_event_type = t,ev_button = b }
     dpy <- view _display
     isr <- isRoot w
     m <- cleanMask $ ev_state e
-    mact <- asks (M.lookup (m, b) . buttonActions)
+    -- mact <- asks (Map.lookup (m, b) . buttonActions)
+    mact <- views _buttonActions (Map.lookup (m, b))
     case mact of
         Just act | isr -> act $ ev_subwindow e
         _              -> do
             focus w
-            ctf <- asks (clickJustFocuses . config)
+            -- ctf <- asks (clickJustFocuses . config)
+            ctf <- view (_config . _clickJustFocuses)
             unless ctf $ io (allowEvents dpy replayPointer currentTime)
     broadcastMessage e -- Always send button events.
 
@@ -398,7 +434,8 @@ handle e@CrossingEvent{ ev_window = w, ev_event_type = t }
 -- left a window, check if we need to focus root
 handle e@CrossingEvent{ ev_event_type = t }
     | t == leaveNotify
-    = do rootw <- asks theRoot
+    -- = do rootw <- asks theRoot
+    = do rootw <- view _theRoot
          when (ev_window e == rootw && not (ev_same_screen e)) $ setFocusX rootw
 
 -- configure a window
@@ -408,8 +445,8 @@ handle e@ConfigureRequestEvent{ ev_window = w } = withDisplay $ \dpy -> do
     -- bw <- asks (borderWidth . config)
     bw <- view (_config._borderWidth)
 
-    -- if M.member w (floating ws)
-    if views W._floating (M.member w) ws
+    -- if Map.member w (floating ws)
+    if views W._floating (Map.member w) ws
         || not (member w ws)
         then do io . configureWindow dpy w (ev_value_mask e) $ WindowChanges
                     { wc_x            = ev_x e
@@ -420,7 +457,7 @@ handle e@ConfigureRequestEvent{ ev_window = w } = withDisplay $ \dpy -> do
                     , wc_sibling      = ev_above e
                     , wc_stack_mode   = ev_detail e }
                 when (member w ws) (float w)
-        else withWindowAttributes dpy w $ \wa -> io $ allocaXEvent $ \ev -> do
+        else withWindowAttributes dpy w $ \wa -> io . allocaXEvent $ \ev -> do
                  setEventType ev configureNotify
                  setConfigureEvent ev w w
                      (wa_x wa) (wa_y wa) (wa_width wa)
@@ -471,7 +508,8 @@ scan dpy rootw = do
 
 setNumlockMask :: X ()
 setNumlockMask = do
-    dpy <- asks display
+    -- dpy <- asks display
+    dpy <- view _display
     ms <- io $ getModifierMapping dpy
     xs <- sequence [ do
                         ks <- io $ keycodeToKeysym dpy kc 0
@@ -495,9 +533,9 @@ grabKeys = do
     -- build a map from keysyms to lists of keysyms (doing what
     -- XGetKeyboardMapping would do if the X11 package bound it)
     syms <- for allCodes $ \code -> io (keycodeToKeysym dpy code 0)
-    let keysymMap = M.fromListWith (<>) (zip syms [[code] | code <- allCodes])
-        keysymToKeycodes sym = M.findWithDefault [] sym keysymMap
-    for_ (M.keys ks) $ \(mask,sym) ->
+    let keysymMap = Map.fromListWith (<>) (zip syms [[code] | code <- allCodes])
+        keysymToKeycodes sym = Map.findWithDefault [] sym keysymMap
+    for_ (Map.keys ks) $ \(mask,sym) ->
          for_ (keysymToKeycodes sym) $ \kc ->
               traverse_ (grab kc . (mask .|.)) =<< extraModifiers
 
@@ -509,8 +547,9 @@ grabButtons = do
                                            grabModeAsync grabModeSync none none
     io $ ungrabButton dpy anyButton anyModifier rootw
     ems <- extraModifiers
-    ba <- asks buttonActions
-    traverse_ (\(m,b) -> traverse_ (grab b . (m .|.)) ems) (M.keys ba)
+    -- ba <- asks buttonActions
+    ba <- view _buttonActions
+    traverse_ (\(m,b) -> traverse_ (grab b . (m .|.)) ems) (Map.keys ba)
 
 -- | @replace@ to signals compliant window managers to exit.
 replace :: Display -> ScreenNumber -> Window -> IO ()
