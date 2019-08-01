@@ -43,6 +43,7 @@ module XMonad.StackSet (
         -- *  Operations on the current stack
         -- $stackOperations
         peek, index, integrate, integrate', differentiate,
+        toList, toUnorderedList, toNonEmpty, fromNonEmpty,
         focusUp, focusDown, focusUp', focusDown', focusMaster, focusWindow,
         tagMember, renameTag, ensureTags, member, findTag, mapWorkspace, mapLayout,
         -- * Modifying the stackset
@@ -64,7 +65,7 @@ import Data.Traversable
 import Data.Foldable
 import Data.Maybe   (listToMaybe,isJust,fromMaybe)
 import Data.List.NonEmpty (NonEmpty ((:|)))
-import qualified Data.List as L (deleteBy,find,splitAt,filter,nub)
+import qualified Data.List as List (deleteBy,find,splitAt,filter,nub)
 import Data.List ( (\\) )
 import Data.Map (Map)
 import qualified Data.Map  as Map (insert, delete, empty)
@@ -242,7 +243,7 @@ new l wids m
         = StackSet cur visi unseen Map.empty
     where
     (seen, unseen) =
-        L.splitAt (length m) $ fmap (\i -> Workspace i l Nothing) wids
+        List.splitAt (length m) $ fmap (\i -> Workspace i l Nothing) wids
     (cur : visi) =
         [ Screen i s sd | (i, s, sd) <- zip3 seen [0..] m ]
                 -- now zip up visibles with their screen id
@@ -261,16 +262,15 @@ view :: (Eq s, Eq i) =>
 view i s
     | i == currentTag s = s  -- current
 
-    | Just x <- L.find (views (_workspace._tag) (== i)) (s^._visible)
-    -- | Just x <- L.find ((i==).tag.workspace) (visible s)
+    | Just x <- List.find (views (_workspace._tag) (== i)) (s^._visible)
     -- if it is visible, it is just raised
-    = s { current = x, visible = current s : L.deleteBy (equating screen) x (visible s) }
+    = s { current = x, visible = current s : List.deleteBy (equating screen) x (visible s) }
 
-    -- | Just x <- L.find ((i==).tag)           (hidden  s) -- must be hidden then
-    | Just x <- L.find (views _tag (i==))           (hidden  s) -- must be hidden then
+    -- | Just x <- List.find (views _tag (i==)) (hidden s) -- must be hidden then
+    | Just x <- List.find (views _tag (i==)) (s^._hidden) -- must be hidden then
     -- if it was hidden, it is raised on the xine screen currently used
     = s { current = (current s) { workspace = x }
-        , hidden = workspace (current s) : L.deleteBy (equating tag) x (hidden s) }
+        , hidden = workspace (current s) : List.deleteBy (equating tag) x (hidden s) }
 
     | otherwise = s -- not a member of the stackset
 
@@ -378,10 +378,10 @@ abort x = error $ "xmonad: StackSet: " <> x
 greedyView :: (Eq s, Eq i) => i -> StackSet i l a s sd -> StackSet i l a s sd
 greedyView w ws
      | any wTag (hidden ws) = view w ws
-     | (Just s) <- L.find (wTag . workspace) (visible ws)
+     | (Just s) <- List.find (wTag . workspace) (visible ws)
                             = ws { current = (current ws) { workspace = workspace s }
                                  , visible = s { workspace = workspace (current ws) }
-                                           : L.filter (not . wTag . workspace) (visible ws) }
+                                           : List.filter (not . wTag . workspace) (visible ws) }
      | otherwise = ws
    -- where wTag = (w == ) . tag
    where
@@ -422,7 +422,7 @@ modify d f = over _currentStack (maybe d f)
 --
 modify' :: (Stack a -> Stack a) -> StackSet i l a s sd -> StackSet i l a s sd
 -- modify' f = modify Nothing (Just . f)
-modify' = over (_currentStack . _Just)
+modify' = over (_currentStack._Just)
 
 -- |
 -- /O(1)/. Extract the focused element of the current stack.
@@ -430,7 +430,7 @@ modify' = over (_currentStack . _Just)
 --
 peek :: StackSet i l a s sd -> Maybe a
 -- peek = with Nothing (pure . focus)
-peek = preview (_currentStack . _Just . _focus)
+peek = preview (_currentStack._Just._focus)
 
 -- |
 -- /O(n)/. Flatten a 'Stack' into a list.
@@ -467,9 +467,9 @@ fromNonEmpty (x :| xs) = Stack x [] xs
 -- 'True'.  Order is preserved, and focus moves as described for 'delete'.
 --
 filter :: (a -> Bool) -> Stack a -> Maybe (Stack a)
--- filter p (Stack f ls rs) = case L.filter p (f:rs) of
---       f':rs' -> Just $ Stack f' (L.filter p ls) rs'    -- maybe move focus down
---       []     -> case L.filter p ls of                  -- filter back up
+-- filter p (Stack f ls rs) = case List.filter p (f:rs) of
+--       f':rs' -> Just $ Stack f' (List.filter p ls) rs'    -- maybe move focus down
+--       []     -> case List.filter p ls of                  -- filter back up
 --                     f':ls' -> Just $ Stack f' ls' [] -- else up
 --                     [] -> Nothing
 filter p (Stack x xu xd) =
@@ -480,8 +480,8 @@ filter p (Stack x xu xd) =
         x' : xu'' -> Just (Stack x' xu'' [])
         _ -> Nothing
     where
-    xxd' = L.filter p (x : xd)
-    xu' = L.filter p xu
+    xxd' = List.filter p (x : xd)
+    xu' = List.filter p xu
 
 -- |
 -- /O(s)/. Extract the stack on the current workspace, as a list.
@@ -543,31 +543,33 @@ workspaces = (^.._workspaces)
 
 -- | Get a list of all windows in the 'StackSet' in no particular order
 allWindows :: Eq a => StackSet i l a s sd -> [a]
-allWindows = L.nub . foldMap (integrate' . stack) . workspaces
+-- allWindows = List.nub . foldMap (integrate' . stack) . workspaces
+allWindows = List.nub . views (_workspaces._stack) integrate'
 
 -- | Get the tag of the currently focused workspace.
 currentTag :: StackSet i l a s sd -> i
 currentTag = Lens.view _currentTag
 
 _currentTag :: Lens' (StackSet i l a s sd) i
-_currentTag = _current . _workspace . _tag
+_currentTag = _current._workspace._tag
 
 -- | Is the given tag present in the 'StackSet'?
 tagMember :: Eq i => i -> StackSet i l a s sd -> Bool
-tagMember t = elem t . fmap tag . workspaces
+-- tagMember t = elem t . fmap tag . workspaces
+tagMember t = elem t . (^.._workspaces._tag)
 
 -- | Rename a given tag if present in the 'StackSet'.
 renameTag :: Eq i => i -> i -> StackSet i l a s sd -> StackSet i l a s sd
 -- renameTag o n = over _workspaces rename
-renameTag o n = over (_workspaces._tag) (\ tg -> if tg == o then n else tg)
     -- where rename w = if tag w == o then w { tag = n } else w
+renameTag o n = over (_workspaces._tag) (\ tg -> if tg == o then n else tg)
 
 -- | Ensure that a given set of workspace tags is present by renaming
 -- existing workspaces and\/or creating new hidden workspaces as
 -- necessary.
 ensureTags :: Eq i => l -> [i] -> StackSet i l a s sd -> StackSet i l a s sd
 -- ensureTags l allt st = et allt (fmap tag (workspaces st) \\ allt) st
-ensureTags l allt st = et allt (fmap tag ((^.._workspaces) st) \\ allt) st
+ensureTags l allt st = et allt (st^.._workspaces._tag \\ allt) st
     where et [] _ s = s
           et (i:is) rn s | i `tagMember` s = et is rn s
           -- et (i:is) [] s = et is [] (s { hidden = Workspace i l Nothing : hidden s })

@@ -64,11 +64,11 @@ q =? x = fmap (== x) q
 infixr 3 <&&>, <||>
 
 -- | '&&' lifted to a 'Monad'.
-(<&&>) :: Monad m => m Bool -> m Bool -> m Bool
+(<&&>) :: Applicative m => m Bool -> m Bool -> m Bool
 (<&&>) = liftA2 (&&)
 
 -- | '||' lifted to a 'Monad'.
-(<||>) :: Monad m => m Bool -> m Bool -> m Bool
+(<||>) :: Applicative m => m Bool -> m Bool -> m Bool
 (<||>) = liftA2 (||)
 
 -- | Return the window title.
@@ -85,7 +85,8 @@ title = ask >>= \w -> liftX $ do
 
 -- | Return the application name.
 appName :: Query String
-appName = ask >>= (\w -> liftX . withDisplay $ \d -> fmap resName . io $ getClassHint d w)
+-- appName = ask >>= (\w -> liftX . withDisplay $ \d -> fmap resName . io $ getClassHint d w)
+appName = ask >>= \w -> liftX . withDisplay $ fmap resName . io . flip getClassHint w
 
 -- | Backwards compatible alias for 'appName'.
 resource :: Query String
@@ -93,7 +94,7 @@ resource = appName
 
 -- | Return the resource class.
 className :: Query String
-className = ask >>= (\w -> liftX . withDisplay $ \d -> fmap resClass . io $ getClassHint d w)
+className = ask >>= \w -> liftX . withDisplay $ \d -> fmap resClass . io $ getClassHint d w
 
 -- | A query that can return an arbitrary X property of type 'String',
 --   identified by name.

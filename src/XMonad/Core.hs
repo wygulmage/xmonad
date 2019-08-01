@@ -62,7 +62,8 @@ module XMonad.Core
 
 import XMonad.StackSet hiding (modify, workspaces)
 -- import XMonad.Optic
-import Control.Lens hiding (mapped)
+import Control.Lens hiding (mapped, view)
+import qualified Control.Lens as Lens
 
 import Prelude
 import Control.Exception (fromException, try, bracket, throw, finally, SomeException(..))
@@ -375,7 +376,8 @@ withDisplay f = asks display >>= f
 
 -- | Run a monadic action with the current stack set
 withWindowSet :: (WindowSet -> X a) -> X a
-withWindowSet f = gets windowset >>= f
+-- withWindowSet f = gets windowset >>= f
+withWindowSet f = use _windowset >>= f
 
 -- | Safely access window attributes.
 withWindowAttributes :: Display -> Window -> (WindowAttributes -> X ()) -> X ()
@@ -598,7 +600,8 @@ xfork x = io . forkProcess . finally nullStdin $ uninstallSignalHandlers *> crea
 -- each workspace with the output of that function being the modified workspace.
 runOnWorkspaces :: (WindowSpace -> X WindowSpace) -> X ()
 runOnWorkspaces job = do
-    ws <- gets windowset
+    -- ws <- gets windowset
+    ws <- use _windowset
     h <- traverse job $ hidden ws
     c : v <- traverse (_workspace job) $ current ws : visible ws
     modify $ \s -> s { windowset = ws { current = c, visible = v, hidden = h } }
@@ -835,7 +838,7 @@ installSignalHandlers = io $ do
     installHandler openEndedPipe Ignore Nothing
     installHandler sigCHLD Ignore Nothing
     (try :: IO a -> IO (Either SomeException a))
-      $ fix $ \more -> do
+      . fix $ \more -> do
         x <- getAnyProcessStatus False False
         when (isJust x) more
     pure ()

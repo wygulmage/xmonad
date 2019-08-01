@@ -62,7 +62,7 @@ data Tall a = Tall { tallNMaster :: !Int               -- ^ The default number o
 -- a nice pure layout, lots of properties for the layout, and its messages, in Properties.hs
 instance LayoutClass Tall a where
     pureLayout (Tall nmaster _ frac) r s = zip ws rs
-      where ws = W.integrate s
+      where ws = W.toList s
             rs = tile frac r nmaster (length ws)
 
     pureMessage (Tall nmaster delta frac) m =
