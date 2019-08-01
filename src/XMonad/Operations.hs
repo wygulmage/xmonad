@@ -33,14 +33,15 @@ import Control.Lens hiding (mapped, none)
 import Data.Foldable
 import Data.Traversable
 import Data.Functor
+import Data.Bifunctor (bimap)
 import Data.Maybe
 import Data.Monoid          (Endo(..),Any(..))
 import Data.List            (nub, (\\), find)
 import Data.Bits            ((.|.), (.&.), complement, testBit)
 import Data.Function        (on)
 import Data.Ratio
-import qualified Data.Map as M
-import qualified Data.Set as S
+import qualified Data.Map as Map
+import qualified Data.Set as Set
 
 import Control.Applicative ((<$>), (<*>))
 import Control.Arrow (second)
@@ -148,7 +149,7 @@ windows f = do
             this  = W.view n ws
             n     = view W._tag wsp
             tiled = view (W._current . W._workspace . W._stack) this
-                    >>= W.filter (\x -> x `M.notMember` W.floating ws && x `notElem` vis)
+                    >>= W.filter (\x -> x `Map.notMember` W.floating ws && x `notElem` vis)
             viewrect = screenRect $ W.screenDetail w
 
         -- just the tiled windows:
@@ -160,8 +161,8 @@ windows f = do
         -- let m   = W.floating ws
         let m   = view W._floating ws
             flt = [(fw, scaleRationalRect viewrect r)
-                    | fw <- filter (`M.member` m) (W.index this)
-                    , Just r <- [M.lookup fw m]]
+                    | fw <- filter (`Map.member` m) (W.index this)
+                    , Just r <- [Map.lookup fw m]]
             vs = flt <> rs
 
         io $ restackWindows d (fmap fst vs)
@@ -239,7 +240,7 @@ setWindowBorderWithFallback dpy w color basic = io . C.handle fallback $ do
 
 -- | hide. Hide a window by unmapping it, and setting Iconified.
 hide :: Window -> X ()
-hide w = whenX (gets (S.member w . mapped)) . withDisplay $ \d -> do
+hide w = whenX (gets (Set.member w . mapped)) . withDisplay $ \d -> do
     cMask <- view $ _config . _clientMask
     io $ selectInput d w (cMask .&. complement structureNotifyMask)
          *> unmapWindow d w
@@ -247,7 +248,7 @@ hide w = whenX (gets (S.member w . mapped)) . withDisplay $ \d -> do
     setWMState w iconicState
     -- this part is key: we increment the waitingUnmap counter to distinguish
     -- between client and xmonad initiated unmaps.
-    modify (over _mapped (S.delete w) . over _waitingUnmap (M.insertWith (+) w 1))
+    modify (over _mapped (Set.delete w) . over _waitingUnmap (Map.insertWith (+) w 1))
 
 -- | reveal. Show a window by mapping it and setting Normal
 -- this is harmless if the window was already visible
@@ -255,7 +256,7 @@ reveal :: Window -> X ()
 reveal w = withDisplay $ \d -> do
     setWMState w normalState
     io $ mapWindow d w
-    whenX (isClient w) $ modify (over _mapped (S.insert w))
+    whenX (isClient w) $ modify (over _mapped (Set.insert w))
 
 -- | Set some properties when we initially gain control of a window
 setInitialProperties :: Window -> X ()
@@ -335,11 +336,10 @@ rescreen = do
 -- | setButtonGrab. Tell whether or not to intercept clicks on a given window
 setButtonGrab :: Bool -> Window -> X ()
 setButtonGrab grab w = do
-    -- pointerMode <- asks $ \c -> if clickJustFocuses (config c)
-    -- pointerMode <- asks $ \c -> if c^._config._clickJustFocuses
-                                    -- then grabModeAsync
-                                    -- else grabModeSync
-    pointerMode <- views (_config._clickJustFocuses) (\b -> if b then grabModeAsync else grabModeSync)
+    pointerMode <- views (_config._clickJustFocuses)
+                         (\b -> if b
+                                then grabModeAsync
+                                else grabModeSync)
     withDisplay $ \d -> io $ if grab
         then for_ [button1, button2, button3] $ \b ->
             grabButton d b anyModifier w False buttonPressMask
@@ -359,23 +359,22 @@ setTopFocus = withWindowSet $ maybe (setFocusX =<< view _theRoot) setFocusX . W.
 focus :: Window -> X ()
 -- focus w = local (\c -> c { mouseFocused = True }) $ withWindowSet $ \s -> do
 focus w = local (set _mouseFocused True) . withWindowSet $ \s -> do
-    -- let stag = W.tag . W.workspace
     let stag = view (W._workspace . W._tag)
         curr = view (W._current . W._workspace . W._tag) s
     mnew <- maybe (pure Nothing) (fmap (fmap stag) . uncurry pointScreen)
-            -- =<< asks mousePosition
             =<< view _mousePosition
     root <- view _theRoot
     case () of
-        _ | W.member w s && W.peek s /= Just w -> windows (W.focusWindow w)
+        _ | W.member w s && W.peek s /= Just w
+            -> windows (W.focusWindow w)
           | Just new <- mnew, w == root && curr /= new
-                                               -> windows (W.view new)
-          | otherwise                          -> pure ()
+            -> windows (W.view new)
+          | otherwise
+            -> pure ()
 
 -- | Call X to set the keyboard focus details.
 setFocusX :: Window -> X ()
 setFocusX w = withWindowSet $ \ws -> do
-    -- dpy <- asks display
     dpy <- view _display
 
     -- clear mouse button grab and border on other windows
@@ -390,7 +389,6 @@ setFocusX w = withWindowSet $ \ws -> do
     protocols <- io $ getWMProtocols dpy w
     wmprot <- atom_WM_PROTOCOLS
     wmtf <- atom_WM_TAKE_FOCUS
-    -- currevt <- asks currentEvent
     currevt <- view _currentEvent
     let inputHintSet = wmh_flags hints `testBit` inputHintBit
 
@@ -442,7 +440,8 @@ updateLayout i ml = whenJust ml $ \l ->
 -- | Set the layout of the currently viewed workspace
 setLayout :: Layout Window -> X ()
 setLayout l = do
-    ss <- gets windowset
+    -- ss <- gets windowset
+    ss <- use _windowset
     handleMessage (view (W._current . W._workspace . W._layout) ss) (SomeMessage ReleaseResources)
     windows . const $ set (W._current . W._workspace . W._layout) l ss
 
@@ -506,7 +505,7 @@ writeStateToFile = do
         maybeShow _ = Nothing
 
         wsData   = W.mapLayout show . windowset
-        extState = mapMaybe maybeShow . M.toList . extensibleState
+        extState = mapMaybe maybeShow . Map.toList . extensibleState
 
     path  <- stateFileName
     stateData <- gets (\s -> StateFile (wsData s) (extState s))
@@ -530,12 +529,12 @@ readStateFile xmc = do
       sf <- join sf'
 
       let winset = W.ensureTags layout (workspaces xmc) . W.mapLayout (fromMaybe layout . maybeRead lreads) $ view _sfWins sf
-          extState = M.fromList . fmap (second Left) $ view _sfExt sf
+          extState = Map.fromList . fmap (second Left) $ view _sfExt sf
 
       pure XState { windowset       = winset
                   , numberlockMask  = 0
-                  , mapped          = S.empty
-                  , waitingUnmap    = M.empty
+                  , mapped          = Set.empty
+                  , waitingUnmap    = Map.empty
                   , dragging        = Nothing
                   , extensibleState = extState
                   }
@@ -584,15 +583,15 @@ floatLocation w =
     catchX go $ do
       -- Fallback solution if `go' fails.  Which it might, since it
       -- calls `getWindowAttributes'.
-      sc <- W.current <$> gets (view _windowset)
-      pure (W.screen sc, W.RationalRect 0 0 1 1)
+      sc <- use (_windowset . W._current . W._screen)
+      pure (sc, W.RationalRect 0 0 1 1)
 
   where
   fi :: (Integral a, Num b) => a -> b
   fi = fromIntegral
   go :: X (ScreenId, W.RationalRect)
   go = withDisplay $ \d -> do
-          ws <- gets windowset
+          ws <- use _windowset
           wa <- io $ getWindowAttributes d w
           let bw = (fromIntegral . wa_border_width) wa
           point_sc <- pointScreen (fi $ wa_x wa) (fi $ wa_y wa)
@@ -621,7 +620,6 @@ floatLocation w =
 pointScreen :: Position -> Position
             -> X (Maybe (W.Screen WorkspaceId (Layout Window) Window ScreenId ScreenDetail))
 pointScreen x y = withWindowSet $ pure . find p . W.screens
-  -- where p = pointWithin x y . screenRect . W.screenDetail
   where p = views  (W._screenDetail . _screenRect) (pointWithin x y)
 
 -- | @pointWithin x y r@ returns 'True' if the @(x, y)@ co-ordinate is within
@@ -638,8 +636,7 @@ float w = do
     (sc, rr) <- floatLocation w
     windows $ \ws -> W.float w rr . fromMaybe ws $ do
         i  <- W.findTag w ws
-        -- guard $ i `elem` fmap (W.tag . W.workspace) (W.screens ws)
-        guard $ i `elem` fmap (view $ W._workspace . W._tag) (W.screens ws)
+        guard $ i `elem` ws ^.. W._screens . W._workspace . W._tag
         f  <- W.peek ws
         sw <- W.lookupWorkspace sc ws
         pure (W.focusWindow f . W.shiftWin sw w $ ws)
@@ -661,7 +658,6 @@ mouseDrag f done = do
  where
     cleanup = do
         withDisplay $ io . flip ungrabPointer currentTime
-        -- modify $ \s -> s { dragging = Nothing }
         modify . set _dragging $ Nothing
         done
     motion x y = do z <- f x y
@@ -715,50 +711,60 @@ mkAdjust w = withDisplay $ \d -> liftIO $ do
          Right wa' ->
             let bw = fromIntegral $ wa_border_width wa'
             in  applySizeHints bw <$> getWMNormalHints d w
-    -- sh <- getWMNormalHints d w
-    -- wa <- C.try $ getWindowAttributes d w
-    -- case wa of
-    --      Left  (_ :: C.SomeException) -> pure id
-    --      Right wa' ->
-    --         let bw = fromIntegral $ wa_border_width wa'
-    --         in  pure $ applySizeHints bw sh
 
 -- | Reduce the dimensions if needed to comply to the given SizeHints, taking
 -- window borders into account.
 applySizeHints :: Integral a => Dimension -> SizeHints -> (a, a) -> D
 applySizeHints bw sh =
-    tmap (+ 2 * bw) . applySizeHintsContents sh . tmap (subtract $ 2 * fromIntegral bw)
-    where
-    tmap f (x, y) = (f x, f y)
+    join bimap (+ 2 * bw)
+    . applySizeHintsContents sh
+    . join bimap (subtract $ 2 * fromIntegral bw)
 
 -- | Reduce the dimensions if needed to comply to the given SizeHints.
 applySizeHintsContents :: Integral a => SizeHints -> (a, a) -> D
-applySizeHintsContents sh (w, h) =
-    applySizeHints' sh (fromIntegral $ max 1 w, fromIntegral $ max 1 h)
+applySizeHintsContents sh = applySizeHints' sh . join bimap (fromIntegral . max 1)
 
 -- | XXX comment me
 applySizeHints' :: SizeHints -> D -> D
 applySizeHints' sh =
-      maybe id applyMaxSizeHint                   (sh_max_size   sh)
-    . maybe id (\(bw, bh) (w, h) -> (w+bw, h+bh)) (sh_base_size  sh)
-    . maybe id applyResizeIncHint                 (sh_resize_inc sh)
-    . maybe id applyAspectHint                    (sh_aspect     sh)
-    . maybe id (\(bw,bh) (w,h)   -> (w-bw, h-bh)) (sh_base_size  sh)
+      maybe id applyMaxSizeHint    (sh_max_size   sh)
+    . maybe id (withBoth (+))      (sh_base_size  sh)
+    . maybe id applyResizeIncHint  (sh_resize_inc sh)
+    . maybe id applyAspectHint     (sh_aspect     sh)
+    . maybe id (withBoth subtract) (sh_base_size  sh)
+  where
+  withBoth :: (Dimension -> Dimension -> Dimension) -> D -> D -> D
+  withBoth f = uncurry bimap . join bimap f
 
 -- | Reduce the dimensions so their aspect ratio falls between the two given aspect ratios.
 applyAspectHint :: (D, D) -> D -> D
 applyAspectHint ((minx, miny), (maxx, maxy)) x@(w,h)
-    | or [minx < 1, miny < 1, maxx < 1, maxy < 1] = x
-    | w * maxy > h * maxx                         = (h * maxx `div` maxy, h)
-    | w * miny < h * minx                         = (w, w * miny `div` minx)
-    | otherwise                                   = x
+    | w * yMax > h * xMax = (h * xMax `div` yMax, h)
+    | w * yMin < h * xMin = (w, w * yMin `div` xMin)
+    | otherwise         = x
+    where -- Should this ensure that, e.g. xMax ≥ xMin?
+    xMin = max 1 minx
+    yMin = max 1 miny
+    xMax = max 1 maxx
+    yMax = max 1 maxy
+
+-- applyAspectHint ((minx, miny), (maxx, maxy)) x@(w,h)
+--     | or [minx < 1, miny < 1, maxx < 1, maxy < 1] = x
+--     | w * maxy > h * maxx  = (h * maxx `div` maxy, h)
+--     | w * miny < h * minx  = (w, w * miny `div` minx)
+--     | otherwise            = x
 
 -- | Reduce the dimensions so they are a multiple of the size increments.
 applyResizeIncHint :: D -> D -> D
-applyResizeIncHint (iw,ih) x@(w,h) =
-    if iw > 0 && ih > 0 then (w - w `mod` iw, h - h `mod` ih) else x
+applyResizeIncHint (iw, ih)
+    | iw > 0 && ih > 0 = bimap (reduce iw) (reduce ih)
+    | otherwise        = id
+    where
+    reduce i x = x - x `mod` i
+
 
 -- | Reduce the dimensions if they exceed the given maximum dimensions.
 applyMaxSizeHint  :: D -> D -> D
-applyMaxSizeHint (mw,mh) x@(w,h) =
-    if mw > 0 && mh > 0 then (min w mw,min h mh) else x
+applyMaxSizeHint (mw, mh)
+    | mw > 0 && mh > 0 = bimap (min mw) (min mh)
+    | otherwise        = id
