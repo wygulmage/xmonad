@@ -69,8 +69,6 @@ import qualified Data.List as List (deleteBy,find,splitAt,filter,nub)
 import Data.List ( (\\) )
 import Data.Map (Map)
 import qualified Data.Map  as Map (insert, delete, empty)
--- import XMonad.Optic (Lens, Lens', views, over, set)
--- import qualified XMonad.Optic as Lens (view)
 import Control.Lens hiding (from, index, view)
 import qualified Control.Lens as Lens
 
@@ -266,7 +264,6 @@ view i s
     -- if it is visible, it is just raised
     = s { current = x, visible = current s : List.deleteBy (equating screen) x (visible s) }
 
-    -- | Just x <- List.find (views _tag (i==)) (hidden s) -- must be hidden then
     | Just x <- List.find (views _tag (i==)) (s^._hidden) -- must be hidden then
     -- if it was hidden, it is raised on the xine screen currently used
     = s { current = (current s) { workspace = x }
@@ -331,8 +328,7 @@ data Stack a = Stack
     deriving (Show, Read, Eq)
 
 _focus, _master :: Lens' (Stack a) a
-_focus f s@Stack{ focus = x } =
-    (\ x' -> s{ focus = x' }) <$> f x
+_focus = lens focus (\ s x -> s{ focus = x })
 _master f s@Stack{ up = xu } =
     case reverse xu of
     x : xu' ->
@@ -341,10 +337,8 @@ _master f s@Stack{ up = xu } =
         _focus f s
 
 _up, _down :: Lens' (Stack a) [a]
-_up f s@Stack{ up = xs } =
-    (\ xs' -> s{ up = xs'  }) <$> f xs
-_down f s@Stack{ down = xs } =
-    (\ xs' -> s{ down = xs' }) <$> f xs
+_up = lens up (\ s x -> s{ up = x })
+_down = lens down (\ s x -> s{ down = x })
 
 
 instance Traversable Stack where
@@ -377,15 +371,14 @@ abort x = error $ "xmonad: StackSet: " <> x
 
 greedyView :: (Eq s, Eq i) => i -> StackSet i l a s sd -> StackSet i l a s sd
 greedyView w ws
-     | any wTag (hidden ws) = view w ws
-     | (Just s) <- List.find (wTag . workspace) (visible ws)
-                            = ws { current = (current ws) { workspace = workspace s }
-                                 , visible = s { workspace = workspace (current ws) }
-                                           : List.filter (not . wTag . workspace) (visible ws) }
-     | otherwise = ws
-   -- where wTag = (w == ) . tag
-   where
-   wTag = views _tag (w ==)
+    | any wTag (hidden ws) = view w ws
+    | (Just s) <- List.find (wTag . workspace) (visible ws)
+        = ws { current = (current ws) { workspace = workspace s }
+             , visible = s { workspace = workspace (current ws) }
+                           : List.filter (not . wTag . workspace) (visible ws) }
+    | otherwise = ws
+    where
+    wTag = views _tag (w ==)
 
 -- ---------------------------------------------------------------------
 -- $xinerama
@@ -405,15 +398,12 @@ lookupWorkspace sc w = listToMaybe [ tag i | Screen i s _ <- current w : visible
 -- returning the result. It is like 'maybe' for the focused workspace.
 --
 with :: b -> (Stack a -> b) -> StackSet i l a s sd -> b
--- with dflt f = maybe dflt f . stack . workspace . current
 with dflt f = views _currentStack (maybe dflt f)
 
 -- |
 -- Apply a function, and a default value for 'Nothing', to modify the current stack.
 --
 modify :: Maybe (Stack a) -> (Stack a -> Maybe (Stack a)) -> StackSet i l a s sd -> StackSet i l a s sd
--- modify d f s = s { current = (current s)
-                        -- { workspace = (workspace (current s)) { stack = with d f s }}}
 modify d f = over _currentStack (maybe d f)
 
 -- |
@@ -429,7 +419,6 @@ modify' = over (_currentStack._Just)
 -- Return 'Just' that element, or 'Nothing' for an empty stack.
 --
 peek :: StackSet i l a s sd -> Maybe a
--- peek = with Nothing (pure . focus)
 peek = preview (_currentStack._Just._focus)
 
 -- |
@@ -467,20 +456,14 @@ fromNonEmpty (x :| xs) = Stack x [] xs
 -- 'True'.  Order is preserved, and focus moves as described for 'delete'.
 --
 filter :: (a -> Bool) -> Stack a -> Maybe (Stack a)
--- filter p (Stack f ls rs) = case List.filter p (f:rs) of
---       f':rs' -> Just $ Stack f' (List.filter p ls) rs'    -- maybe move focus down
---       []     -> case List.filter p ls of                  -- filter back up
---                     f':ls' -> Just $ Stack f' ls' [] -- else up
---                     [] -> Nothing
 filter p (Stack x xu xd) =
-    case xxd' of
-    x' : xd' -> Just (Stack x' xu' xd')
+    case List.filter p (x : xd) of
+    x' : xd' -> Just (Stack x' xu' xd') -- Maybe move focus down.
     _ ->
         case xu' of
-        x' : xu'' -> Just (Stack x' xu'' [])
-        _ -> Nothing
+        x' : xu'' -> Just (Stack x' xu'' []) -- Move focus up.
+        _ -> Nothing -- Nothing passed through the filter.
     where
-    xxd' = List.filter p (x : xd)
     xu' = List.filter p xu
 
 -- |
@@ -538,12 +521,10 @@ focusWindow w s | Just w == peek s = s
 
 -- | Get a list of all workspaces in the 'StackSet'.
 workspaces :: StackSet i l a s sd -> [Workspace i l a]
--- workspaces s = workspace (current s) : (fmap workspace (visible s) <> hidden s)
 workspaces = (^.._workspaces)
 
 -- | Get a list of all windows in the 'StackSet' in no particular order
 allWindows :: Eq a => StackSet i l a s sd -> [a]
--- allWindows = List.nub . foldMap (integrate' . stack) . workspaces
 allWindows = List.nub . views (_workspaces._stack) integrate'
 
 -- | Get the tag of the currently focused workspace.
@@ -555,24 +536,22 @@ _currentTag = _current._workspace._tag
 
 -- | Is the given tag present in the 'StackSet'?
 tagMember :: Eq i => i -> StackSet i l a s sd -> Bool
--- tagMember t = elem t . fmap tag . workspaces
 tagMember t = elem t . (^.._workspaces._tag)
 
 -- | Rename a given tag if present in the 'StackSet'.
 renameTag :: Eq i => i -> i -> StackSet i l a s sd -> StackSet i l a s sd
--- renameTag o n = over _workspaces rename
-    -- where rename w = if tag w == o then w { tag = n } else w
-renameTag o n = over (_workspaces._tag) (\ tg -> if tg == o then n else tg)
+renameTag o n =
+    over (_workspaces._tag) rename
+    where
+    rename tg = if tg == o then n else tg
 
 -- | Ensure that a given set of workspace tags is present by renaming
 -- existing workspaces and\/or creating new hidden workspaces as
 -- necessary.
 ensureTags :: Eq i => l -> [i] -> StackSet i l a s sd -> StackSet i l a s sd
--- ensureTags l allt st = et allt (fmap tag (workspaces st) \\ allt) st
 ensureTags l allt st = et allt (st^.._workspaces._tag \\ allt) st
     where et [] _ s = s
           et (i:is) rn s | i `tagMember` s = et is rn s
-          -- et (i:is) [] s = et is [] (s { hidden = Workspace i l Nothing : hidden s })
           et (i:is) [] s = et is [] $ over _hidden (Workspace i l Nothing :) s
           et (i:is) (r:rs) s = et is rs $ renameTag r i s
 
@@ -637,11 +616,6 @@ delete w = sink w . delete' w
 -- | Only temporarily remove the window from the stack, thereby not destroying special
 -- information saved in the 'Stackset'
 delete' :: (Eq a) => a -> StackSet i l a s sd -> StackSet i l a s sd
--- delete' w s = s { current = removeFromScreen        (current s)
-                -- , visible = fmap removeFromScreen    (visible s)
-                -- , hidden  = fmap removeFromWorkspace (hidden  s) }
-    -- where removeFromWorkspace ws = ws { stack = stack ws >>= filter (/=w) }
-    --       removeFromScreen scr = scr { workspace = removeFromWorkspace (workspace scr) }
 delete' w = over _current removeFromScreen . over _visible (fmap removeFromScreen) . over _hidden (fmap removeFromWorkspace)
 -- delete' w = over _workspaces  (>>= filter (/= w))
     where
@@ -653,12 +627,10 @@ delete' w = over _current removeFromScreen . over _visible (fmap removeFromScree
 -- | Given a window, and its preferred rectangle, set it as floating
 -- A floating window should already be managed by the 'StackSet'.
 float :: Ord a => a -> RationalRect -> StackSet i l a s sd -> StackSet i l a s sd
--- float w r s = s { floating = Map.insert w r (floating s) }
 float w r = over _floating (Map.insert w r)
 
 -- | Clear the floating status of a window
 sink :: Ord a => a -> StackSet i l a s sd -> StackSet i l a s sd
--- sink w s = s { floating = Map.delete w (floating s) }
 sink w = over _floating (Map.delete w)
 
 ------------------------------------------------------------------------
@@ -686,9 +658,6 @@ shiftMaster = modify' $ \c -> case c of
 -- | /O(s)/. Set focus to the master window.
 focusMaster :: StackSet i l a s sd -> StackSet i l a s sd
 focusMaster = modify' (fromNonEmpty . toNonEmpty)
--- focusMaster = modify' $ \c -> case c of
-    -- Stack _ [] _  -> c
-    -- Stack t ls rs -> Stack x [] (xs <> (t : rs)) where (x:xs) = reverse ls
 
 --
 -- ---------------------------------------------------------------------
