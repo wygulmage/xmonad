@@ -71,6 +71,7 @@ library
                    XMonad.Operations
                    XMonad.StackSet
                    XMonad.Optic
+                   XMonad.Optic.X11
   other-modules:   Paths_xmonad
   hs-source-dirs:  src
   build-depends:   base                  >= 4.9 && < 5

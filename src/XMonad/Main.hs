@@ -21,7 +21,7 @@ import Data.Bits ((.|.), setBit)
 import Data.Function (fix)
 import Data.List ((\\))
 import qualified Data.Map as Map
-import qualified Data.Set as S
+import qualified Data.Set as Set
 import Control.Monad (filterM, forever, guard, unless, when)
 import Control.Monad.Reader (ask, local)
 import Control.Monad.State (gets, modify)
@@ -261,7 +261,7 @@ launch initxmc drs = do
         st = XState
             { windowset       = initialWinset
             , numberlockMask  = 0
-            , mapped          = S.empty
+            , mapped          = Set.empty
             , waitingUnmap    = Map.empty
             , dragging        = Nothing
             , extensibleState = Map.empty
@@ -356,7 +356,7 @@ handle MapRequestEvent{ ev_window = w } = withDisplay $ \dpy ->
 -- window gone,      unmanage it
 handle DestroyWindowEvent{ ev_window = w } = whenX (isClient w) $ do
     unmanage w
-    modify (\s -> s { mapped       = S.delete w (mapped s)
+    modify (\s -> s { mapped       = Set.delete w (mapped s)
                     , waitingUnmap = Map.delete w (waitingUnmap s)})
 
 -- We track expected unmap events in waitingUnmap.  We ignore this event unless
