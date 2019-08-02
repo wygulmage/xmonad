@@ -307,21 +307,19 @@ launch initxmc drs = do
 
     pure ()
       where
-        -- if the event gives us the position of the pointer, set mousePosition
-      prehandle e = let mouse = do guard (ev_event_type e `elem` evs)
-                                   pure ( fromIntegral (ev_x_root e)
-                                        , fromIntegral (ev_y_root e))
-                      in local (set _mousePosition mouse . (_currentEvent ?~ e)) (handleWithHook e)
-      evs = [ keyPress, keyRelease, enterNotify, leaveNotify , buttonPress, buttonRelease]
+      -- if the event gives us the position of the pointer, set mousePosition
+      mouse :: X.Event -> XConf -> XConf
+      mouse e = set _mousePosition (e^? X._RootPosition . X._Position . X.position)
+      prehandle :: X.Event -> X ()
+      prehandle e = local (mouse e . (_currentEvent ?~ e)) (handleWithHook e)
 
 
 -- | Runs handleEventHook from the configuration and runs the default handler
 -- function if it returned True.
 handleWithHook :: Event -> X ()
 handleWithHook e = do
-  -- evHook <- asks (handleEventHook . config)
   evHook <- view (_config . _handleEventHook)
-  whenX (userCodeDef True $ getAll `fmap` evHook e) (handle e)
+  whenX (userCodeDef True $ getAll <$> evHook e) (handle e)
 
 -- ---------------------------------------------------------------------
 -- | Event handler. Map X events onto calls into Operations.hs, which
@@ -340,7 +338,6 @@ handle KeyEvent{ ev_event_type = t, ev_state = m, ev_keycode = code }
     | t == keyPress = withDisplay $ \dpy -> do
         s  <- io $ keycodeToKeysym dpy code 0
         mClean <- cleanMask m
-        -- ks <- asks keyActions
         ks <- view _keyActions
         userCodeDef () $ whenJust (Map.lookup (mClean, s) ks) id
 
@@ -469,8 +466,7 @@ handle ConfigureEvent{ ev_window = w } = whenX (isRoot w) rescreen
 
 -- property notify
 handle event@PropertyEvent{ ev_event_type = t, ev_atom = a }
-    | t == propertyNotify && a == wM_NAME = (view (_config._logHook) >>= userCodeDef ()) *>
-                                         broadcastMessage event
+    | t == propertyNotify && a == wM_NAME = (view (_config._logHook) >>= userCodeDef ()) *> broadcastMessage event
 
 handle e@ClientMessageEvent{ ev_message_type = mt } = do
     a <- getAtom "XMONAD_RESTART"
