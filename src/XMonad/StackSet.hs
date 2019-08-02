@@ -171,30 +171,38 @@ _floating :: Lens'
     (StackSet i l a sid sd) (Map a RationalRect)
 _floating = lens floating (\ s x -> s{ floating = x })
 
-_workspaces :: Applicative m =>
-    (Workspace i l a -> m (Workspace i' l' a)) ->
-    StackSet i l a sid sd -> m (StackSet i' l' a sid sd)
+_workspaces :: Traversal
+    (StackSet i l a sid sd) (StackSet i' l' a sid sd)
+    (Workspace i l a) (Workspace i' l' a)
 _workspaces f (StackSet cur vis hid flo) =
     StackSet <$> _workspace f cur <*> (traverse . _workspace) f vis <*> traverse f hid <*> pure flo
 
 -- | Map a function on all the workspaces in the 'StackSet'.
 mapWorkspace :: (Workspace i l a -> Workspace i' l' a) -> StackSet i l a s sd -> StackSet i' l' a s sd
 mapWorkspace = over _workspaces
+{-# DEPRECATED mapWorkspace "Use 'over _workspaces.'" #-}
+
+_layouts :: Traversal
+    (StackSet i l a sid sd) (StackSet i l' a sid sd) l l'
+_layouts = _workspaces._layout
 
 -- | Map a function on all the layouts in the 'StackSet'.
 mapLayout :: (l -> l') -> StackSet i l a s sd -> StackSet i l' a s sd
-mapLayout = over (_workspaces . _layout)
+mapLayout = over _layouts
+{-# DEPRECATED mapLayout "Use 'over _layouts'." #-}
+
 --
 -- | Get a list of all screens in the 'StackSet'.
 screens :: StackSet i l a s sd -> [Screen i l a s sd]
--- screens s = current s : visible s
-screens = views _screens (:[])
+screens = (^.._screens)
+{-# DEPRECATED screens "Use '^.._screens'." #-}
 
+-- | Traverse all screens in the 'StackSet'.
 _screens :: Applicative m => (Screen i l a sid sd -> m (Screen i l a sid' sd')) -> StackSet i l a sid sd -> m (StackSet i l a sid' sd')
-_screens f (StackSet cur vis hid flo) = StackSet <$> f cur <*> traverse f vis <*> pure hid <*> pure flo
+_screens f (StackSet cur vis hid flo) =
+    StackSet <$> f cur <*> traverse f vis <*> pure hid <*> pure flo
 
--- _currentStack :: Prism' (StackSet i l a sid sd) (Stack a))
--- _currentStack = (current . _workspace . _stack . _Just
+-- | Maybe access the current Stack.
 _currentStack :: Lens' (StackSet i l a sid sd) (Maybe (Stack a))
 _currentStack = _current._workspace._stack
 
@@ -282,8 +290,11 @@ view i s
 -- |
 -- A workspace is just a tag, a layout, and a stack.
 --
-data Workspace i l a = Workspace  { tag :: !i, layout :: l, stack :: Maybe (Stack a) }
-    deriving (Show, Read, Eq)
+data Workspace i l a = Workspace
+    { tag :: !i
+    , layout :: l
+    , stack :: Maybe (Stack a)
+    } deriving (Show, Read, Eq)
 
 _tag :: Lens (Workspace i l a) (Workspace i' l a) i i'
 _tag = lens tag (\ s x -> s{ tag = x })
@@ -398,20 +409,27 @@ lookupWorkspace sc w = listToMaybe [ tag i | Screen i s _ <- current w : visible
 -- returning the result. It is like 'maybe' for the focused workspace.
 --
 with :: b -> (Stack a -> b) -> StackSet i l a s sd -> b
-with dflt f = views _currentStack (maybe dflt f)
+-- with dflt f = views _currentStack (maybe dflt f)
+with = _with views
+
+-- Using the identity 'views l f ≡ view (l . to f)':
+_with :: Functor m =>
+    ((LensLike' m (StackSet i l a sid sd) (Maybe (Stack a))) ->
+    (Maybe c -> b) -> t) -> b -> (c -> b) -> t
+_with fo dflt df = fo _currentStack (maybe dflt df)
 
 -- |
 -- Apply a function, and a default value for 'Nothing', to modify the current stack.
 --
 modify :: Maybe (Stack a) -> (Stack a -> Maybe (Stack a)) -> StackSet i l a s sd -> StackSet i l a s sd
-modify d f = over _currentStack (maybe d f)
+-- modify d f = over _currentStack (maybe d f)
+modify = _with over
 
 -- |
 -- Apply a function to modify the current stack if it isn't empty, and we don't
 --  want to empty it.
 --
 modify' :: (Stack a -> Stack a) -> StackSet i l a s sd -> StackSet i l a s sd
--- modify' f = modify Nothing (Just . f)
 modify' = over (_currentStack._Just)
 
 -- |
@@ -419,7 +437,10 @@ modify' = over (_currentStack._Just)
 -- Return 'Just' that element, or 'Nothing' for an empty stack.
 --
 peek :: StackSet i l a s sd -> Maybe a
-peek = preview (_currentStack._Just._focus)
+peek = preview _currentFocus
+
+_currentFocus :: Traversal' (StackSet i l a s d) a
+_currentFocus = _currentStack._Just._focus
 
 -- |
 -- /O(n)/. Flatten a 'Stack' into a list.
@@ -441,8 +462,8 @@ integrate' = maybe [] toList
 -- the first element of the list is focus, and the rest of the list
 -- is down.
 differentiate :: [a] -> Maybe (Stack a)
-differentiate []     = Nothing
 differentiate (x:xs) = Just $ Stack x [] xs
+differentiate _      = Nothing
 
 toNonEmpty :: Stack a -> NonEmpty a
 toNonEmpty (Stack x (x' : xu) xd) = toNonEmpty (Stack x' xu (x : xd)) -- focusUp'
@@ -522,6 +543,7 @@ focusWindow w s | Just w == peek s = s
 -- | Get a list of all workspaces in the 'StackSet'.
 workspaces :: StackSet i l a s sd -> [Workspace i l a]
 workspaces = (^.._workspaces)
+{-# DEPRECATED workspaces "Use '^.._workspaces'." #-}
 
 -- | Get a list of all windows in the 'StackSet' in no particular order
 allWindows :: Eq a => StackSet i l a s sd -> [a]
@@ -530,18 +552,22 @@ allWindows = List.nub . views (_workspaces._stack) integrate'
 -- | Get the tag of the currently focused workspace.
 currentTag :: StackSet i l a s sd -> i
 currentTag = Lens.view _currentTag
+{-# DEPRECATED currentTag "Use 'Lens.view _currentTag'." #-}
 
 _currentTag :: Lens' (StackSet i l a s sd) i
 _currentTag = _current._workspace._tag
 
+_tags :: Traversal (StackSet i l a s sd) (StackSet i' l a s sd) i i'
+_tags = _workspaces._tag
+
 -- | Is the given tag present in the 'StackSet'?
 tagMember :: Eq i => i -> StackSet i l a s sd -> Bool
-tagMember t = elem t . (^.._workspaces._tag)
+tagMember t = elem t . (^.._tags)
 
 -- | Rename a given tag if present in the 'StackSet'.
 renameTag :: Eq i => i -> i -> StackSet i l a s sd -> StackSet i l a s sd
 renameTag o n =
-    over (_workspaces._tag) rename
+    over _tags rename
     where
     rename tg = if tg == o then n else tg
 
@@ -549,7 +575,7 @@ renameTag o n =
 -- existing workspaces and\/or creating new hidden workspaces as
 -- necessary.
 ensureTags :: Eq i => l -> [i] -> StackSet i l a s sd -> StackSet i l a s sd
-ensureTags l allt st = et allt (st^.._workspaces._tag \\ allt) st
+ensureTags l allt st = et allt (st^.._tags \\ allt) st
     where et [] _ s = s
           et (i:is) rn s | i `tagMember` s = et is rn s
           et (i:is) [] s = et is [] $ over _hidden (Workspace i l Nothing :) s
@@ -616,11 +642,7 @@ delete w = sink w . delete' w
 -- | Only temporarily remove the window from the stack, thereby not destroying special
 -- information saved in the 'Stackset'
 delete' :: (Eq a) => a -> StackSet i l a s sd -> StackSet i l a s sd
-delete' w = over _current removeFromScreen . over _visible (fmap removeFromScreen) . over _hidden (fmap removeFromWorkspace)
--- delete' w = over _workspaces  (>>= filter (/= w))
-    where
-    removeFromWorkspace = over _stack (>>= filter (/= w))
-    removeFromScreen = over _workspace removeFromWorkspace
+delete' w = over (_workspaces._stack)  (>>= filter (/= w))
 
 ------------------------------------------------------------------------
 
@@ -686,4 +708,4 @@ shiftWin n w s = case findTag w s of
 
 onWorkspace :: (Eq i, Eq s) => i -> (StackSet i l a s sd -> StackSet i l a s sd)
             -> (StackSet i l a s sd -> StackSet i l a s sd)
-onWorkspace n f s = view (currentTag s) . f . view n $ s
+onWorkspace n f s = view (s^._currentTag) . f . view n $ s
