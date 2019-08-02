@@ -85,6 +85,7 @@ import Paths_xmonad (version)
 import Data.Version (showVersion)
 
 import Control.Lens hiding (mapped, none)
+import qualified XMonad.Optic.X11 as X
 
 ------------------------------------------------------------------------
 
@@ -307,13 +308,11 @@ launch initxmc drs = do
     pure ()
       where
         -- if the event gives us the position of the pointer, set mousePosition
-        prehandle e = let mouse = do guard (ev_event_type e `elem` evs)
-                                     pure (fromIntegral (ev_x_root e)
-                                          ,fromIntegral (ev_y_root e))
-                      -- in local (\c -> c { mousePosition = mouse, currentEvent = Just e }) (handleWithHook e)
+      prehandle e = let mouse = do guard (ev_event_type e `elem` evs)
+                                   pure ( fromIntegral (ev_x_root e)
+                                        , fromIntegral (ev_y_root e))
                       in local (set _mousePosition mouse . (_currentEvent ?~ e)) (handleWithHook e)
-        evs = [ keyPress, keyRelease, enterNotify, leaveNotify
-              , buttonPress, buttonRelease]
+      evs = [ keyPress, keyRelease, enterNotify, leaveNotify , buttonPress, buttonRelease]
 
 
 -- | Runs handleEventHook from the configuration and runs the default handler
