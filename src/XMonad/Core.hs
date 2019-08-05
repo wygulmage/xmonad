@@ -114,24 +114,29 @@ data XState = XState
     }
 
 _windowset :: Lens' XState WindowSet
-_windowset f xstate@XState{ windowset = x } =
-    (\ x' -> xstate{ windowset = x' }) <$> f x
+-- _windowset f xstate@XState{ windowset = x } =
+    -- (\ x' -> xstate{ windowset = x' }) <$> f x
+_windowset = lens windowset (\ s x -> s{ windowset = x })
 
 _mapped :: Lens' XState (Set Window)
-_mapped f xstate@XState{ mapped = x } =
-    (\ x' -> xstate{ mapped = x' }) <$> f x
+-- _mapped f xstate@XState{ mapped = x } =
+    -- (\ x' -> xstate{ mapped = x' }) <$> f x
+_mapped = lens mapped (\ s x -> s{ mapped = x})
 
 _waitingUnmap :: Lens' XState (Map Window Int)
-_waitingUnmap f xstate@XState{ waitingUnmap = x } =
-    (\ x' -> xstate{ waitingUnmap = x' }) <$> f x
+-- _waitingUnmap f xstate@XState{ waitingUnmap = x } =
+    -- (\ x' -> xstate{ waitingUnmap = x' }) <$> f x
+_waitingUnmap = lens waitingUnmap (\ s x -> s{ waitingUnmap = x })
 
 _dragging :: Lens' XState (Maybe (Position -> Position -> X (), X ()))
-_dragging f xstate@XState{ dragging = x } =
-    (\ x' -> xstate{ dragging = x' }) <$> f x
+-- _dragging f xstate@XState{ dragging = x } =
+    -- (\ x' -> xstate{ dragging = x' }) <$> f x
+_dragging = lens dragging (\ s x -> s{ dragging = x })
 
 _numberlockMask :: Lens' XState KeyMask
-_numberlockMask f xstate@XState{ numberlockMask = x } =
-    (\ x' -> xstate{ numberlockMask = x' }) <$> f x
+-- _numberlockMask f xstate@XState{ numberlockMask = x } =
+    -- (\ x' -> xstate{ numberlockMask = x' }) <$> f x
+_numberlockMask = lens numberlockMask (\ s x -> s{ numberlockMask = x })
 
 _extensibleState :: Lens' XState (Map String (Either String StateExtension))
 _extensibleState f xstate@XState{ extensibleState = x } =
