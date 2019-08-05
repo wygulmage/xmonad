@@ -32,6 +32,8 @@ import Data.Monoid
 import qualified XMonad.StackSet as W
 import XMonad.Operations (floatLocation, reveal)
 
+import Control.Lens
+
 -- | Lift an 'X' action to a 'Query'.
 liftX :: X a -> Query a
 liftX = Query . lift

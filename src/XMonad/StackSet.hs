@@ -32,8 +32,8 @@ module XMonad.StackSet (
         Workspace(..), _tag, _layout, _stack,
         Screen(..), _workspace, _screen, _screenDetail,
         Stack(..), RationalRect(..),
-        _layouts, _workspaces,
-        _currentTag,
+        _layouts, _workspaces, _tags,
+        _currentTag, _currentStack, _currentLayout,
         -- *  Construction
         -- $construction
         new, view, greedyView,
@@ -208,6 +208,8 @@ _screens f (StackSet cur vis hid flo) =
 _currentStack :: Lens' (StackSet i l a sid sd) (Maybe (Stack a))
 _currentStack = _current._workspace._stack
 
+_currentLayout :: Lens' (StackSet i l a sid sd) l
+_currentLayout = _current._workspace._layout
 
 -- | Visible workspaces, and their Xinerama screens.
 data Screen i l a sid sd = Screen
@@ -575,7 +577,7 @@ _tags = _workspaces._tag
 
 -- | Is the given tag present in the 'StackSet'?
 tagMember :: Eq i => i -> StackSet i l a s sd -> Bool
-tagMember t = elem t . (^.._tags)
+tagMember = elemOf _tags
 
 -- | Rename a given tag if present in the 'StackSet'.
 renameTag :: Eq i => i -> i -> StackSet i l a s sd -> StackSet i l a s sd

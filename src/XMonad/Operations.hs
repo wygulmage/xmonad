@@ -363,8 +363,8 @@ focus w = local (set _mouseFocused True) . withWindowSet $ \s -> do
     -- let stag = view (W._workspace . W._tag)
         -- curr = view (W._current . W._workspace . W._tag) s
     let stag = W._workspace . W._tag
-        curr = view W._currentTag s
-    mnew <- maybe (pure Nothing) (fmap (fmap (view stag)) . uncurry pointScreen)
+        curr = s ^. W._currentTag
+    mnew <- maybe (pure Nothing) (fmap (fmap (^.stag)) . uncurry pointScreen)
             =<< view _mousePosition
     root <- view _theRoot
     case () of
@@ -383,8 +383,10 @@ setFocusX w = withWindowSet $ \ws -> do
     dpy <- view _display
 
     -- clear mouse button grab and border on other windows
-    for_ (view W._current ws : view W._visible ws) $ \wk ->
-        for_ (W.index (W.view (view (W._workspace . W._tag) wk) ws)) $
+    -- for_ (view W._current ws : view W._visible ws) $ \wk ->
+    for_ (ws ^. W._current : ws ^. W._visible) $ \wk ->
+        for_ (W.index (W.view (wk ^. W._workspace . W._tag) ws)) $
+        -- for_ (W.index (W.view (view (W._workspace . W._tag) wk) ws)) $
             setButtonGrab True
 
     -- If we ungrab buttons on the root window, we lose our mouse bindings.
@@ -416,7 +418,8 @@ setFocusX w = withWindowSet $ \ws -> do
 -- layout the windows, in which case changes are handled through a refresh.
 sendMessage :: Message a => a -> X ()
 sendMessage a = windowBracket_ $ do
-    w <- view (W._current . W._workspace) <$> gets windowset
+    -- w <- view (W._current . W._workspace) <$> use _windowset
+    w <- use $ _windowset . W._current . W._workspace
     ml' <- handleMessage (view W._layout w) (SomeMessage a) `catchX` pure Nothing
     whenJust ml' $
         -- ((W._current . W._workspace . W._layout) .=)
@@ -426,16 +429,17 @@ sendMessage a = windowBracket_ $ do
 -- | Send a message to all layouts, without refreshing.
 broadcastMessage :: Message a => a -> X ()
 broadcastMessage a = withWindowSet $ \ws -> do
-   let c = view (W._current . W._workspace) ws
-       v = fmap (view W._workspace) . view W._visible $ ws
-       h = view W._hidden ws
-   traverse_ (sendMessageWithNoRefresh a) (c : v <> h)
+   -- let c = ws ^. W._current . W._workspace
+       -- v = ws ^.. W._visible . traverse . W._workspace
+       -- h = ws ^. W._hidden
+   -- traverse_ (sendMessageWithNoRefresh a) (c : v <> h)
+   traverseOf_ W._workspaces (sendMessageWithNoRefresh a) ws
 
 -- | Send a message to a layout, without refreshing.
 sendMessageWithNoRefresh :: Message a => a -> W.Workspace WorkspaceId (Layout Window) Window -> X ()
 sendMessageWithNoRefresh a w =
-    handleMessage (view W._layout w) (SomeMessage a) `catchX` pure Nothing >>=
-    updateLayout  (view W._tag w)
+    handleMessage (w ^. W._layout) (SomeMessage a) `catchX` pure Nothing >>=
+    updateLayout  (w ^. W._tag)
 
 -- | Update the layout field of a workspace
 updateLayout :: WorkspaceId -> Maybe (Layout Window) -> X ()
@@ -446,8 +450,10 @@ updateLayout i ml = whenJust ml $ \l ->
 setLayout :: Layout Window -> X ()
 setLayout l = do
     ss <- use _windowset
-    handleMessage (view (W._current . W._workspace . W._layout) ss) (SomeMessage ReleaseResources)
-    windows . const $ set (W._current . W._workspace . W._layout) l ss
+    -- handleMessage (view (W._current . W._workspace . W._layout) ss) (SomeMessage ReleaseResources)
+    -- windows . const $ set (W._current . W._workspace . W._layout) l ss
+    handleMessage (ss ^. W._currentLayout) (SomeMessage ReleaseResources)
+    windows . const $ set W._currentLayout l ss
 
 ------------------------------------------------------------------------
 -- Utilities
@@ -492,12 +498,10 @@ data StateFile = StateFile
   } deriving (Show, Read)
 
 _sfWins :: Lens' StateFile (W.StackSet  WorkspaceId String Window ScreenId ScreenDetail)
-_sfWins f stateFile@StateFile{ sfWins = x } =
-    (\ x' -> stateFile{ sfWins = x'}) <$> f x
+_sfWins = lens sfWins (\ s x -> s{ sfWins = x })
 
 _sfExt :: Lens' StateFile [(String, String)]
-_sfExt f stateFile@StateFile{ sfExt = x } =
-    (\ x' -> stateFile{ sfExt = x' }) <$> f x
+_sfExt = lens sfExt (\ s x -> s{ sfExt = x })
 
 
 -- | Write the current window state (and extensible state) to a file
@@ -623,7 +627,7 @@ floatLocation w =
 -- | Given a point, determine the screen (if any) that contains it.
 pointScreen :: Position -> Position
             -> X (Maybe (W.Screen WorkspaceId (Layout Window) Window ScreenId ScreenDetail))
-pointScreen x y = withWindowSet $ pure . find p . (^..W._screens)
+pointScreen x y = withWindowSet $ pure . findOf W._screens p
   where p = views  (W._screenDetail . _screenRect) (pointWithin x y)
 
 -- | @pointWithin x y r@ returns 'True' if the @(x, y)@ co-ordinate is within
@@ -640,7 +644,8 @@ float w = do
     (sc, rr) <- floatLocation w
     windows $ \ws -> W.float w rr . fromMaybe ws $ do
         i  <- W.findTag w ws
-        guard $ i `elem` ws ^.. W._screens . W._workspace . W._tag
+        -- guard $ i `elem` ws ^.. W._screens . W._workspace . W._tag
+        guard $ elemOf (W._screens . W._workspace . W._tag) i ws -- _screens traverses only visible tags, unlike _tags.
         f  <- W.peek ws
         sw <- W.lookupWorkspace sc ws
         pure (W.focusWindow f . W.shiftWin sw w $ ws)
