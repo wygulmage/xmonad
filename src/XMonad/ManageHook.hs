@@ -76,7 +76,8 @@ infixr 3 <&&>, <||>
 -- | Return the window title.
 title :: Query String
 title = ask >>= \w -> liftX $ do
-    d <- asks display
+    d <- view _display
+    -- d <- asks display
     let
         getProp =
             (internAtom d "_NET_WM_NAME" False >>= getTextProperty d w)
