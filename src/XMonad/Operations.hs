@@ -325,10 +325,12 @@ rescreen :: X ()
 rescreen = do
     xinesc <- withDisplay getCleanedScreenInfo
 
-    windows $ \ws@W.StackSet { W.current = v, W.visible = vs, W.hidden = hs } ->
-        let (xs, ys) = splitAt (length xinesc) $ fmap (view W._workspace) (v:vs) <> hs
-            (a:as)   = zipWith3 W.Screen xs [0..] $ fmap SD xinesc
-        in set W._current a . set W._visible as . set W._hidden ys $ ws
+    windows $ \ ws ->
+        let
+            (current' : visible', hidden') = bimap enscreen id . splitVis $ ws
+            splitVis = splitAt (length xinesc) . (^.. W._workspaces)
+            enscreen xs = zipWith3 W.Screen xs [0..] $ fmap SD xinesc
+        in set W._current current' . set W._visible visible' . set W._hidden hidden' $ ws
 
 
 -- ---------------------------------------------------------------------
@@ -357,17 +359,20 @@ setTopFocus = withWindowSet $ maybe (setFocusX =<< view _theRoot) setFocusX . W.
 -- This happens if X notices we've moved the mouse (and perhaps moved
 -- the mouse to a new screen).
 focus :: Window -> X ()
--- focus w = local (\c -> c { mouseFocused = True }) $ withWindowSet $ \s -> do
 focus w = local (set _mouseFocused True) . withWindowSet $ \s -> do
-    let stag = view (W._workspace . W._tag)
-        curr = view (W._current . W._workspace . W._tag) s
-    mnew <- maybe (pure Nothing) (fmap (fmap stag) . uncurry pointScreen)
+    -- let stag = view (W._workspace . W._tag)
+        -- curr = view (W._current . W._workspace . W._tag) s
+    let stag = W._workspace . W._tag
+        curr = view W._currentTag s
+    mnew <- maybe (pure Nothing) (fmap (fmap (view stag)) . uncurry pointScreen)
             =<< view _mousePosition
     root <- view _theRoot
     case () of
-        _ | W.member w s && W.peek s /= Just w
+        _ | W.member w s
+          , W.peek s /= Just w
             -> windows (W.focusWindow w)
-          | Just new <- mnew, w == root && curr /= new
+          | Just new <- mnew
+          , w == root && curr /= new
             -> windows (W.view new)
           | otherwise
             -> pure ()

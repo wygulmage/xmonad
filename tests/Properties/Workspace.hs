@@ -9,6 +9,7 @@ import Utils
 import XMonad.StackSet hiding (filter)
 
 import Data.Maybe
+import qualified Control.Lens as Lens
 
 -- looking up the tag of the current workspace should always produce a tag.
 prop_lookup_current (x :: T) = lookupWorkspace scr x == Just tg
@@ -25,7 +26,7 @@ prop_lookup_visible = do
 
 
 prop_currentTag (x :: T) =
-    currentTag x == tag (workspace (current x))
+    Lens.view _currentTag x == tag (workspace (current x))
 
 -- Rename a given tag if present in the StackSet.
 prop_rename1 (x::T) = do

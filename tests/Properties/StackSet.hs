@@ -11,6 +11,9 @@ import XMonad.StackSet hiding (filter)
 import Data.Maybe
 
 import Data.List (nub)
+
+import qualified Control.Lens as Lens
+
 -- ---------------------------------------------------------------------
 -- QuickCheck properties for the StackSet
 
@@ -124,7 +127,7 @@ prop_empty (EmptyStackSet x) =
                                         : map workspace (visible x) ++ hidden x ]
 
 -- empty StackSets always have focus on first workspace
-prop_empty_current (EmptyStackSet x) = currentTag x == head (tags x)
+prop_empty_current (EmptyStackSet x) = Lens.view _currentTag x == head (tags x)
 
 -- no windows will be a member of an empty workspace
 prop_member_empty i (EmptyStackSet x) = member i x == False

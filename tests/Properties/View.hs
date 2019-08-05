@@ -10,6 +10,8 @@ import XMonad.StackSet hiding (filter)
 
 import Data.List (sortBy)
 
+import qualified Control.Lens as Lens
+
 -- ---------------------------------------------------------------------
 -- viewing workspaces
 
@@ -45,4 +47,4 @@ prop_view_reversible (x :: T) = do
     n <- arbitraryTag x
     return $ normal (view n' (view n x)) == normal x
   where
-    n' = currentTag x
+    n' = Lens.view _currentTag x

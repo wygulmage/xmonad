@@ -33,13 +33,14 @@ module XMonad.StackSet (
         Screen(..), _workspace, _screen, _screenDetail,
         Stack(..), RationalRect(..),
         _layouts, _workspaces,
+        _currentTag,
         -- *  Construction
         -- $construction
         new, view, greedyView,
         -- * Xinerama operations
         -- $xinerama
         lookupWorkspace,
-        screens, workspaces, allWindows, currentTag,
+        screens, workspaces, allWindows,
         -- *  Operations on the current stack
         -- $stackOperations
         peek, index, integrate, integrate', differentiate,

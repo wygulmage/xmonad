@@ -10,6 +10,8 @@ import XMonad.StackSet hiding (filter)
 
 import qualified Data.List as L
 
+import Control.Lens ((^.))
+
 -- ---------------------------------------------------------------------
 -- shift
 
@@ -22,7 +24,7 @@ prop_shift_reversible (x :: T) = do
       Just _  -> return $ normal ((view n . shift n . view i . shift i) y) == normal y
     where
         y = swapMaster x
-        n = currentTag y
+        n = y^._currentTag
 
 ------------------------------------------------------------------------
 -- shiftMaster
@@ -63,7 +65,7 @@ prop_shift_win_fix_current = do
   -- that got chosen.
   let otherWindows = allWindows x L.\\ index x
   -- We know such tag must exists, due to the precondition
-  n <- arbitraryTag x `suchThat` (/= currentTag x)
+  n <- arbitraryTag x `suchThat` (/= x^._currentTag)
   -- we know length is >= 1, from above precondition
   idx <- choose(0, length(otherWindows) - 1)
   let w = otherWindows !! idx
