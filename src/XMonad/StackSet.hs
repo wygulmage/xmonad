@@ -32,7 +32,7 @@ module XMonad.StackSet (
         Workspace(..), _tag, _layout, _stack,
         Screen(..), _workspace, _screen, _screenDetail,
         Stack(..), RationalRect(..),
-        _workspaces,
+        _layouts, _workspaces,
         -- *  Construction
         -- $construction
         new, view, greedyView,
@@ -61,15 +61,16 @@ module XMonad.StackSet (
     ) where
 
 import Prelude hiding (filter)
+import Data.Functor.Apply
 import Data.Traversable
 import Data.Foldable
 import Data.Maybe   (listToMaybe,isJust,fromMaybe)
 import Data.List.NonEmpty (NonEmpty ((:|)))
-import qualified Data.List as List (deleteBy,find,splitAt,filter,nub)
+import qualified Data.List as List (deleteBy, splitAt,filter,nub)
 import Data.List ( (\\) )
 import Data.Map (Map)
 import qualified Data.Map  as Map (insert, delete, empty)
-import Control.Lens hiding (from, index, view)
+import Control.Lens hiding ((<.>), from, index, view)
 import qualified Control.Lens as Lens
 
 
@@ -268,11 +269,11 @@ view :: (Eq s, Eq i) =>
 view i s
     | i == currentTag s = s  -- current
 
-    | Just x <- List.find (views (_workspace._tag) (== i)) (s^._visible)
+    | Just x <- find (views (_workspace._tag) (== i)) (s^._visible)
     -- if it is visible, it is just raised
     = s { current = x, visible = current s : List.deleteBy (equating screen) x (visible s) }
 
-    | Just x <- List.find (views _tag (i==)) (s^._hidden) -- must be hidden then
+    | Just x <- find (views _tag (i==)) (s^._hidden) -- must be hidden then
     -- if it was hidden, it is raised on the xine screen currently used
     = s { current = (current s) { workspace = x }
         , hidden = workspace (current s) : List.deleteBy (equating tag) x (hidden s) }
@@ -354,19 +355,24 @@ _down = lens down (\ s x -> s{ down = x })
 
 instance Traversable Stack where
     traverse f (Stack x xu xd) =
-        flip Stack <$> fmap reverse (traverse f (reverse xu)) <*> f x <*> traverse f xd
+        flip Stack <$> backwards traverse f xu <*> f x <*> traverse f xd
 
 instance Foldable Stack where
-    toList (Stack x l r) = reverse l <> (x : r)
-    foldr f z = foldr f z . toList
+    -- toList (Stack x l r) = reverse l <> (x : r)
+    -- foldr f z = foldr f z . toList
+    foldMap = foldMapDefault
 
 instance Functor Stack where
-    fmap = fmapDefault
+    -- fmap = fmapDefault
+    -- Order should not matter?
+    fmap f (Stack x xus xds) = Stack (f x) (fmap f xus) (fmap f xds)
 
 instance Semigroup (Stack a) where
     Stack x xu xd <> s =
         Stack x xu (xd <> toList s)
 
+single :: a -> Stack a
+single x = Stack x [] []
 
 -- | this function indicates to catch that an error is expected
 abort :: String -> a
@@ -383,7 +389,7 @@ abort x = error $ "xmonad: StackSet: " <> x
 greedyView :: (Eq s, Eq i) => i -> StackSet i l a s sd -> StackSet i l a s sd
 greedyView w ws
     | any wTag (hidden ws) = view w ws
-    | (Just s) <- List.find (wTag . workspace) (visible ws)
+    | (Just s) <- find (wTag . workspace) (visible ws)
         = ws { current = (current ws) { workspace = workspace s }
              , visible = s { workspace = workspace (current ws) }
                            : List.filter (not . wTag . workspace) (visible ws) }
@@ -414,9 +420,10 @@ with = _with views
 
 -- Using the identity 'views l f ≡ view (l . to f)':
 _with :: Functor m =>
-    ((LensLike' m (StackSet i l a sid sd) (Maybe (Stack a))) ->
-    (Maybe c -> b) -> t) -> b -> (c -> b) -> t
-_with fo dflt df = fo _currentStack (maybe dflt df)
+    (LensLike' m (StackSet i l a sid sd) (Maybe (Stack a)) ->
+     (Maybe c -> b) -> t) ->
+    b -> (c -> b) -> t
+_with ll d f = ll _currentStack (maybe d f)
 
 -- |
 -- Apply a function, and a default value for 'Nothing', to modify the current stack.
@@ -509,11 +516,16 @@ index = with [] toList
 -- the current stack.
 --
 focusUp, focusDown, swapUp, swapDown :: StackSet i l a s sd -> StackSet i l a s sd
-focusUp   = modify' focusUp'
-focusDown = modify' focusDown'
+-- focusUp   = modify' focusUp'
+focusUp = over (_currentStack._Just) focusUp'
+-- focusDown = modify' focusDown'
+focusDown = over (_currentStack._Just) focusDown'
 
-swapUp    = modify' swapUp'
-swapDown  = modify' (reverseStack . swapUp' . reverseStack)
+-- swapUp    = modify' swapUp'
+swapUp = over (_currentStack._Just) swapUp'
+-- swapDown  = modify' (reverseStack . swapUp' . reverseStack)
+swapDown  = over (_currentStack._Just) (reverseStack . swapUp' . reverseStack)
+
 
 -- | Variants of 'focusUp' and 'focusDown' that work on a
 -- 'Stack' rather than an entire 'StackSet'.
@@ -611,7 +623,9 @@ findTag a s = listToMaybe
 --
 insertUp :: Eq a => a -> StackSet i l a s sd -> StackSet i l a s sd
 insertUp a s = if member a s then s else insert
-  where insert = modify (Just $ Stack a [] []) (\(Stack t l r) -> Just $ Stack a l (t:r)) s
+  -- where insert = modify (Just $ Stack a [] []) (\(Stack t l r) -> Just $ Stack a l (t:r)) s
+  where insert = over _currentStack (Just . maybe (single a) (\(Stack t l r) -> Stack a l (t:r))) s
+
 
 -- insertDown :: a -> StackSet i l a s sd -> StackSet i l a s sd
 -- insertDown a = modify (Stack a [] []) $ \(Stack t l r) -> Stack a (t:l) r
@@ -709,3 +723,14 @@ shiftWin n w s = case findTag w s of
 onWorkspace :: (Eq i, Eq s) => i -> (StackSet i l a s sd -> StackSet i l a s sd)
             -> (StackSet i l a s sd -> StackSet i l a s sd)
 onWorkspace n f s = view (s^._currentTag) . f . view n $ s
+
+
+------- Misc. -------
+
+injectBy :: (Applicative m, Monoid (m a)) => (a -> Bool) -> a -> m a
+injectBy p x = if p x then pure x else mempty
+
+tagBy :: (a -> Bool) -> a -> Either a a
+tagBy p x = if p x then Right x else Left x
+
+filterO p = (`views` injectBy p)

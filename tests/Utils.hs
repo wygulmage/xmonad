@@ -1,4 +1,5 @@
 {-# LANGUAGE RankNTypes #-}
+{-# OPTIONS_GHC -Wno-warnings-deprecations #-}
 module Utils where
 
 import XMonad.StackSet hiding (filter)
@@ -44,4 +45,3 @@ tags x = map tag $ workspaces x
 noOverflows :: (Integral b, Integral c) =>
   (forall a. Integral a => a -> a -> a) -> b -> c -> Bool
 noOverflows op a b = toInteger (a `op` fromIntegral b) == toInteger a `op` toInteger b
-

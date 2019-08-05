@@ -1,4 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# OPTIONS_GHC -Wno-warnings-deprecations #-}
 module Properties.StackSet where
 
 import Test.QuickCheck

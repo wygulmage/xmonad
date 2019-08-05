@@ -379,8 +379,8 @@ setFocusX w = withWindowSet $ \ws -> do
 
     -- clear mouse button grab and border on other windows
     for_ (view W._current ws : view W._visible ws) $ \wk ->
-        for_ (W.index (W.view (view (W._workspace . W._tag) wk) ws)) $ \otherw ->
-            setButtonGrab True otherw
+        for_ (W.index (W.view (view (W._workspace . W._tag) wk) ws)) $
+            setButtonGrab True
 
     -- If we ungrab buttons on the root window, we lose our mouse bindings.
     whenX (not <$> isRoot w) $ setButtonGrab False w
@@ -440,7 +440,6 @@ updateLayout i ml = whenJust ml $ \l ->
 -- | Set the layout of the currently viewed workspace
 setLayout :: Layout Window -> X ()
 setLayout l = do
-    -- ss <- gets windowset
     ss <- use _windowset
     handleMessage (view (W._current . W._workspace . W._layout) ss) (SomeMessage ReleaseResources)
     windows . const $ set (W._current . W._workspace . W._layout) l ss
@@ -504,7 +503,7 @@ writeStateToFile = do
         maybeShow (t, Left str) = Just (t, str)
         maybeShow _ = Nothing
 
-        wsData   = W.mapLayout show . windowset
+        wsData   = over W._layouts show . windowset
         extState = mapMaybe maybeShow . Map.toList . extensibleState
 
     path  <- stateFileName
@@ -528,7 +527,7 @@ readStateFile xmc = do
     pure $ do
       sf <- join sf'
 
-      let winset = W.ensureTags layout (workspaces xmc) . W.mapLayout (fromMaybe layout . maybeRead lreads) $ view _sfWins sf
+      let winset = W.ensureTags layout (workspaces xmc) . over W._layouts (fromMaybe layout . maybeRead lreads) $ view _sfWins sf
           extState = Map.fromList . fmap (second Left) $ view _sfExt sf
 
       pure XState { windowset       = winset
@@ -619,7 +618,7 @@ floatLocation w =
 -- | Given a point, determine the screen (if any) that contains it.
 pointScreen :: Position -> Position
             -> X (Maybe (W.Screen WorkspaceId (Layout Window) Window ScreenId ScreenDetail))
-pointScreen x y = withWindowSet $ pure . find p . W.screens
+pointScreen x y = withWindowSet $ pure . find p . (^..W._screens)
   where p = views  (W._screenDetail . _screenRect) (pointWithin x y)
 
 -- | @pointWithin x y r@ returns 'True' if the @(x, y)@ co-ordinate is within

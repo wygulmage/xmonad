@@ -1,4 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# OPTIONS_GHC -Wno-warnings-deprecations #-}
 module Properties.Screen where
 
 import Utils

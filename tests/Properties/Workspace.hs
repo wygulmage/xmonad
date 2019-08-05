@@ -1,4 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# OPTIONS_GHC -Wno-warnings-deprecations #-}
 module Properties.Workspace where
 
 import Test.QuickCheck
@@ -61,5 +62,3 @@ prop_mapWorkspaceInverse (x::T) = x == mapWorkspace predTag (mapWorkspace succTa
 prop_mapLayoutId (x::T) = x == mapLayout id x
 
 prop_mapLayoutInverse (x::T) = x == mapLayout pred (mapLayout succ x)
-
-

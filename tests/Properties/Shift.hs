@@ -1,4 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# OPTIONS_GHC -Wno-warnings-deprecations #-}
 module Properties.Shift where
 
 import Test.QuickCheck
@@ -67,4 +68,3 @@ prop_shift_win_fix_current = do
   idx <- choose(0, length(otherWindows) - 1)
   let w = otherWindows !! idx
   return $ (current $ x) == (current $ shiftWin n w x)
-
