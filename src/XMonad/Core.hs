@@ -114,34 +114,22 @@ data XState = XState
     }
 
 _windowset :: Lens' XState WindowSet
--- _windowset f xstate@XState{ windowset = x } =
-    -- (\ x' -> xstate{ windowset = x' }) <$> f x
 _windowset = lens windowset (\ s x -> s{ windowset = x })
 
 _mapped :: Lens' XState (Set Window)
--- _mapped f xstate@XState{ mapped = x } =
-    -- (\ x' -> xstate{ mapped = x' }) <$> f x
 _mapped = lens mapped (\ s x -> s{ mapped = x})
 
 _waitingUnmap :: Lens' XState (Map Window Int)
--- _waitingUnmap f xstate@XState{ waitingUnmap = x } =
-    -- (\ x' -> xstate{ waitingUnmap = x' }) <$> f x
 _waitingUnmap = lens waitingUnmap (\ s x -> s{ waitingUnmap = x })
 
 _dragging :: Lens' XState (Maybe (Position -> Position -> X (), X ()))
--- _dragging f xstate@XState{ dragging = x } =
-    -- (\ x' -> xstate{ dragging = x' }) <$> f x
 _dragging = lens dragging (\ s x -> s{ dragging = x })
 
 _numberlockMask :: Lens' XState KeyMask
--- _numberlockMask f xstate@XState{ numberlockMask = x } =
-    -- (\ x' -> xstate{ numberlockMask = x' }) <$> f x
 _numberlockMask = lens numberlockMask (\ s x -> s{ numberlockMask = x })
 
 _extensibleState :: Lens' XState (Map String (Either String StateExtension))
-_extensibleState f xstate@XState{ extensibleState = x } =
-    (\ x' -> xstate{ extensibleState = x' }) <$> f x
-
+_extensibleState = lens extensibleState (\ s x -> s{ extensibleState = x })
 
 
 -- | XConf, the (read-only) window manager configuration.
@@ -164,44 +152,34 @@ data XConf = XConf
     }
 
 _display :: Lens' XConf Display
-_display f xconf@XConf{ display = x } =
-    (\ x' -> xconf{ display = x' }) <$> f x
+_display = lens display (\ s x -> s{ display = x })
 
 _config :: Lens' XConf (XConfig Layout)
-_config f xconf@XConf{ config = x } =
-    (\ x' -> xconf{ config = x' }) <$> f x
+_config = lens config (\ s x -> s{ config = x })
 
 _theRoot :: Lens' XConf Window
-_theRoot f xconf@XConf{ theRoot = x } =
-    (\ x' -> xconf{ theRoot = x' }) <$> f x
+_theRoot = lens theRoot (\ s x -> s{ theRoot = x })
 
 _normalBorder :: Lens' XConf Pixel
-_normalBorder f xconf@XConf{ normalBorder = x } =
-    (\ x' -> xconf{ normalBorder = x' }) <$> f x
+_normalBorder = lens normalBorder (\ s x -> s{ normalBorder = x })
 
 _focusedBorder :: Lens' XConf Pixel
-_focusedBorder f xconf@XConf{ focusedBorder = x } =
-    (\ x' -> xconf{ focusedBorder = x' }) <$> f x
+_focusedBorder = lens focusedBorder (\ s x -> s{ focusedBorder = x })
 
 _keyActions :: Lens' XConf (Map (KeyMask, KeySym) (X ()))
-_keyActions f xconf@XConf{ keyActions = x } =
-    (\ x' -> xconf{ keyActions = x' }) <$> f x
+_keyActions = lens keyActions (\ s x -> s{ keyActions = x })
 
 _buttonActions :: Lens' XConf (Map (KeyMask, Button) (Window -> X ()))
-_buttonActions f xconf@XConf{ buttonActions = x } =
-    (\ x' -> xconf{ buttonActions = x' }) <$> f x
+_buttonActions = lens buttonActions (\ s x -> s{ buttonActions = x })
 
 _mouseFocused :: Lens' XConf Bool
-_mouseFocused f xconf@XConf{ mouseFocused = x } =
-    (\ x' -> xconf{ mouseFocused = x' }) <$> f x
+_mouseFocused = lens mouseFocused (\ s x -> s{ mouseFocused = x })
 
 _mousePosition :: Lens' XConf (Maybe (Position, Position))
-_mousePosition f xconf@XConf{ mousePosition = x } =
-    (\ x' -> xconf{ mousePosition = x' }) <$> f x
+_mousePosition = lens mousePosition (\ s x -> s{ mousePosition = x })
 
 _currentEvent :: Lens' XConf (Maybe Event)
-_currentEvent f xconf@XConf{ currentEvent = x } =
-    (\ x' -> xconf{ currentEvent = x' }) <$> f x
+_currentEvent f s = (\ x -> s{ currentEvent = x }) <$> f (currentEvent s)
 
 
 
@@ -365,12 +343,15 @@ catchX job errcase = do
 -- | Execute the argument, catching all exceptions.  Either this function or
 -- 'catchX' should be used at all callsites of user customized code.
 userCode :: X a -> X (Maybe a)
-userCode a = catchX (Just <$> a) (pure Nothing)
+-- userCode a = catchX (Just <$> a) (pure Nothing)
+userCode = userCodeDef Nothing . fmap Just
 
 -- | Same as userCode but with a default argument to return instead of using
 -- Maybe, provided for convenience.
 userCodeDef :: a -> X a -> X a
-userCodeDef defValue a = fromMaybe defValue <$> userCode a
+-- userCodeDef defValue a = fromMaybe defValue <$> userCode a
+-- userCodeDef defVal x = catchX x (pure defVal)
+userCodeDef = flip catchX . pure
 
 -- ---------------------------------------------------------------------
 -- Convenient wrappers to state

@@ -25,7 +25,6 @@ import Control.Applicative
 import Control.Exception (bracket, SomeException(..))
 import qualified Control.Exception as E
 import Control.Monad.Reader
-import Data.Functor
 import Data.Foldable
 import Data.Maybe
 import Data.Monoid
@@ -51,7 +50,6 @@ idHook = mempty
 composeAll :: Monoid m => [m] -> m
 composeAll = fold
 
-infix 0 -->
 
 -- | @p --> x@.  If @p@ returns 'True', execute the 'ManageHook'.
 --
@@ -59,8 +57,11 @@ infix 0 -->
 (-->) :: (Monad m, Monoid a) => m Bool -> m a -> m a
 p --> f = p >>= \b -> if b then f else pure mempty
 
+infix 0 -->
+
 -- | @q =? x@. if the result of @q@ equals @x@, return 'True'.
-(=?) :: Eq a => Query a -> a -> Query Bool
+-- (=?) :: Eq a => Query a -> a -> Query Bool
+(=?) :: (Functor m, Eq a) => m a -> a -> m Bool
 q =? x = fmap (== x) q
 
 infixr 3 <&&>, <||>
@@ -88,16 +89,21 @@ title = ask >>= \w -> liftX $ do
 
 -- | Return the application name.
 appName :: Query String
--- appName = ask >>= (\w -> liftX . withDisplay $ \d -> fmap resName . io $ getClassHint d w)
-appName = ask >>= \w -> liftX . withDisplay $ fmap resName . io . flip getClassHint w
+-- appName = ask >>= \w -> liftX . withDisplay $ fmap resName . io . flip getClassHint w
+appName = queryClass resName
 
 -- | Backwards compatible alias for 'appName'.
 resource :: Query String
 resource = appName
+{-# DEPRECATED resource "Use 'appName'." #-}
 
 -- | Return the resource class.
 className :: Query String
-className = ask >>= \w -> liftX . withDisplay $ \d -> fmap resClass . io $ getClassHint d w
+-- className = ask >>= \w -> liftX . withDisplay $ fmap resClass . io . flip getClassHint w
+className = queryClass resClass
+
+queryClass :: (ClassHint -> a) -> Query a
+queryClass getHint = ask >>= \w -> liftX . withDisplay $ fmap getHint .  io . flip getClassHint w
 
 -- | A query that can return an arbitrary X property of type 'String',
 --   identified by name.
