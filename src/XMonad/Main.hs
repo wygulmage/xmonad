@@ -430,15 +430,12 @@ handle e@CrossingEvent{ ev_window = w, ev_event_type = t }
 -- left a window, check if we need to focus root
 handle e@CrossingEvent{ ev_event_type = t }
     | t == leaveNotify
-    -- = do rootw <- asks theRoot
     = do rootw <- view _theRoot
          when (ev_window e == rootw && not (ev_same_screen e)) $ setFocusX rootw
 
 -- configure a window
 handle e@ConfigureRequestEvent{ ev_window = w } = withDisplay $ \dpy -> do
-    -- ws <- gets windowset
     ws <- use _windowset
-    -- bw <- asks (borderWidth . config)
     bw <- view (_config._borderWidth)
 
     -- if Map.member w (floating ws)
@@ -512,7 +509,6 @@ setNumlockMask = do
                             then pure (setBit 0 (fromIntegral m))
                             else pure (0 :: KeyMask)
                         | (m, kcs) <- ms, kc <- kcs, kc /= 0]
-    -- modify (\s -> s { numberlockMask = foldr (.|.) 0 xs })
     modify $ set _numberlockMask (foldr (.|.) 0 xs)
 
 -- | Grab the keys back
@@ -523,14 +519,13 @@ grabKeys = do
         (minCode, maxCode) = displayKeycodes dpy
         allCodes = [fromIntegral minCode .. fromIntegral maxCode]
     io $ ungrabKey dpy anyKey anyModifier rootw
-    -- ks <- asks keyActions
     ks <- view _keyActions
     -- build a map from keysyms to lists of keysyms (doing what
     -- XGetKeyboardMapping would do if the X11 package bound it)
     syms <- for allCodes $ \code -> io (keycodeToKeysym dpy code 0)
     let keysymMap = Map.fromListWith (<>) (zip syms [[code] | code <- allCodes])
         keysymToKeycodes sym = Map.findWithDefault [] sym keysymMap
-    for_ (Map.keys ks) $ \(mask,sym) ->
+    for_ (Map.keys ks) $ \(mask, sym) ->
          for_ (keysymToKeycodes sym) $ \kc ->
               traverse_ (grab kc . (mask .|.)) =<< extraModifiers
 
@@ -542,7 +537,6 @@ grabButtons = do
                                            grabModeAsync grabModeSync none none
     io $ ungrabButton dpy anyButton anyModifier rootw
     ems <- extraModifiers
-    -- ba <- asks buttonActions
     ba <- view _buttonActions
     traverse_ (\(m,b) -> traverse_ (grab b . (m .|.)) ems) (Map.keys ba)
 

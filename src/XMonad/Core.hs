@@ -377,12 +377,11 @@ userCodeDef defValue a = fromMaybe defValue <$> userCode a
 
 -- | Run a monad action with the current display settings
 withDisplay :: (Display -> X a) -> X a
-withDisplay f = asks display >>= f
+withDisplay = (=<< Lens.view _display)
 
 -- | Run a monadic action with the current stack set
 withWindowSet :: (WindowSet -> X a) -> X a
--- withWindowSet f = gets windowset >>= f
-withWindowSet f = use _windowset >>= f
+withWindowSet = (=<< use _windowset)
 
 -- | Safely access window attributes.
 withWindowAttributes :: Display -> Window -> (WindowAttributes -> X ()) -> X ()
@@ -392,7 +391,7 @@ withWindowAttributes dpy win f = do
 
 -- | True if the given window is the root window
 isRoot :: Window -> X Bool
-isRoot w = (w==) <$> asks theRoot
+isRoot w = (w ==) <$> Lens.view _theRoot
 
 -- | Wrapper for the common case of atom internment
 getAtom :: String -> X Atom

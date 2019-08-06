@@ -36,7 +36,7 @@ import Data.Functor
 import Data.Bifunctor (bimap)
 import Data.Maybe
 import Data.Monoid          (Endo(..),Any(..))
-import Data.List            (nub, (\\), find)
+import Data.List            (nub, (\\))
 import Data.Bits            ((.|.), (.&.), complement, testBit)
 import Data.Function        (on)
 import Data.Ratio
@@ -75,13 +75,18 @@ manage w = whenX (not <$> isClient w) . withDisplay $ \d -> do
 
     rr <- snd <$> floatLocation w
     -- ensure that float windows don't go over the edge of the screen
-    let adjust (W.RationalRect x y wid h) | x + wid > 1 || y + h > 1 || x < 0 || y < 0
-                                              = W.RationalRect (0.5 - wid/2) (0.5 - h/2) wid h
-        adjust r = r
 
-        f ws | isFixedSize || isTransient = W.float w (adjust rr) . W.insertUp w . W.view i $ ws
-             | otherwise                  = W.insertUp w ws
-            where i = view (W._current . W._workspace . W._tag) ws -- I'm tryna use lenses, OK?
+    let
+        adjust r@(W.RationalRect x y wid h)
+          | x + wid > 1 || y + h > 1 || x < 0 || y < 0
+            = W.RationalRect (0.5 - wid/2) (0.5 - h/2) wid h
+          | otherwise
+            = r
+
+        f ws | isFixedSize || isTransient
+               = W.float w (adjust rr) . W.insertUp w . W.view (ws ^. W._currentTag) $ ws
+             | otherwise
+               = W.insertUp w ws
 
     mh <- view $ _config . _manageHook
     g <- appEndo <$> userCodeDef (Endo id) (runQuery mh w)
@@ -101,7 +106,8 @@ unmanage = windows . W.delete
 --
 killWindow :: Window -> X ()
 killWindow w = withDisplay $ \d -> do
-    wmdelt <- atom_WM_DELETE_WINDOW  ;  wmprot <- atom_WM_PROTOCOLS
+    wmdelt <- atom_WM_DELETE_WINDOW
+    wmprot <- atom_WM_PROTOCOLS
 
     protocols <- io $ getWMProtocols d w
     io $ if wmdelt `elem` protocols
@@ -123,6 +129,7 @@ windows :: (WindowSet -> WindowSet) -> X ()
 windows f = do
     XState { windowset = old } <- get
     let oldvisible = foldMap (W.integrate' . W.stack . W.workspace) $ W.current old : W.visible old
+    -- let oldvisible = foldMap (^.. W._workspace . W._stack) (old ^.. W._screens)
         newwindows = W.allWindows ws \\ W.allWindows old
         ws = f old
     XConf { display = d , normalBorder = nbc, focusedBorder = fbc } <- ask
@@ -145,16 +152,18 @@ windows f = do
     let allscreens     = views W._screens pure ws -- W.screens ws
         summed_visible = scanl (<>) [] $ fmap (W.integrate' . view (W._workspace . W._stack)) allscreens
     rects <- fmap fold . for (zip allscreens summed_visible) $ \ (w, vis) -> do
-        let wsp   = view W._workspace w
+        let wsp   = w ^. W._workspace
             this  = W.view n ws
-            n     = view W._tag wsp
-            tiled = view (W._current . W._workspace . W._stack) this
+            n     = wsp ^. W._tag
+            -- tiled = view (W._current . W._workspace . W._stack) this
+            tiled = this ^. W._currentStack
                     >>= W.filter (\x -> x `Map.notMember` W.floating ws && x `notElem` vis)
             viewrect = screenRect $ W.screenDetail w
 
         -- just the tiled windows:
         -- now tile the windows on this workspace, modified by the gap
-        (rs, ml') <- runLayout (set W._stack tiled wsp) viewrect `catchX`
+        -- (rs, ml') <- runLayout (set W._stack tiled wsp) viewrect `catchX`
+        (rs, ml') <- runLayout (wsp & W._stack .~ tiled) viewrect `catchX`
                      runLayout (set W._stack tiled . set W._layout (Layout Full) $ wsp) viewrect
         updateLayout n ml'
 
@@ -199,6 +208,7 @@ windows f = do
 -- | Modify the @WindowSet@ in state with no special handling.
 modifyWindowSet :: (WindowSet -> WindowSet) -> X ()
 modifyWindowSet = (_windowset %=)
+{-# DEPRECATED modifyWindowSet "Use '_windowset %='." #-}
 
 -- | Perform an @X@ action and check its return value against a predicate p.
 -- If p holds, unwind changes to the @WindowSet@ and replay them using @windows@.
@@ -206,14 +216,13 @@ windowBracket :: (a -> Bool) -> X a -> X a
 windowBracket p action = withWindowSet $ \old -> do
   a <- action
   when (p a) . withWindowSet $ \new ->
-      -- modifyWindowSet (const old) *> windows (const new)
-      (_windowset .= old) *> windows (const new) -- (_windows .~ new)
+      (_windowset .= old) *> windows (const new)
   pure a
 
 -- | A version of @windowBracket@ that discards the return value, and handles an
 -- @X@ action reporting its need for refresh via @Any@.
 windowBracket_ :: X Any -> X ()
-windowBracket_ = void . windowBracket getAny
+windowBracket_ = (() <$) . windowBracket getAny
 
 -- | Produce the actual rectangle from a screen and a ratio on that screen.
 scaleRationalRect :: Rectangle -> W.RationalRect -> Rectangle
@@ -418,22 +427,16 @@ setFocusX w = withWindowSet $ \ws -> do
 -- layout the windows, in which case changes are handled through a refresh.
 sendMessage :: Message a => a -> X ()
 sendMessage a = windowBracket_ $ do
-    -- w <- view (W._current . W._workspace) <$> use _windowset
     w <- use $ _windowset . W._current . W._workspace
-    ml' <- handleMessage (view W._layout w) (SomeMessage a) `catchX` pure Nothing
+    ml' <- handleMessage (w ^. W._layout) (SomeMessage a) `catchX` pure Nothing
     whenJust ml' $
-        -- ((W._current . W._workspace . W._layout) .=)
-        modifyWindowSet . set (W._current . W._workspace . W._layout)
+        (_windowset %=) . set W._currentLayout
     pure (Any $ isJust ml')
 
 -- | Send a message to all layouts, without refreshing.
 broadcastMessage :: Message a => a -> X ()
-broadcastMessage a = withWindowSet $ \ws -> do
-   -- let c = ws ^. W._current . W._workspace
-       -- v = ws ^.. W._visible . traverse . W._workspace
-       -- h = ws ^. W._hidden
-   -- traverse_ (sendMessageWithNoRefresh a) (c : v <> h)
-   traverseOf_ W._workspaces (sendMessageWithNoRefresh a) ws
+broadcastMessage a = withWindowSet $
+   traverseOf_ W._workspaces (sendMessageWithNoRefresh a)
 
 -- | Send a message to a layout, without refreshing.
 sendMessageWithNoRefresh :: Message a => a -> W.Workspace WorkspaceId (Layout Window) Window -> X ()
@@ -576,7 +579,6 @@ migrateState Dirs{ dataDir } ws xs = do
 restart :: String -> Bool -> X ()
 restart prog resume =
     broadcastMessage ReleaseResources
-    -- *> (io . flush =<< asks display)
     *> (io . flush =<< view _display)
     *> when resume writeStateToFile
     *> catchIO (executeFile prog True [] Nothing)

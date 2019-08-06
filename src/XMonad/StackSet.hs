@@ -179,6 +179,11 @@ _workspaces :: Traversal
 _workspaces f (StackSet cur vis hid flo) =
     StackSet <$> _workspace f cur <*> (traverse . _workspace) f vis <*> traverse f hid <*> pure flo
 
+-- | Traverse all screens in the 'StackSet'.
+_screens :: Applicative m => (Screen i l a sid sd -> m (Screen i l a sid' sd')) -> StackSet i l a sid sd -> m (StackSet i l a sid' sd')
+_screens f (StackSet cur vis hid flo) =
+    StackSet <$> f cur <*> traverse f vis <*> pure hid <*> pure flo
+
 -- | Map a function on all the workspaces in the 'StackSet'.
 mapWorkspace :: (Workspace i l a -> Workspace i' l' a) -> StackSet i l a s sd -> StackSet i' l' a s sd
 mapWorkspace = over _workspaces
@@ -199,10 +204,6 @@ screens :: StackSet i l a s sd -> [Screen i l a s sd]
 screens = (^.._screens)
 {-# DEPRECATED screens "Use '^.._screens'." #-}
 
--- | Traverse all screens in the 'StackSet'.
-_screens :: Applicative m => (Screen i l a sid sd -> m (Screen i l a sid' sd')) -> StackSet i l a sid sd -> m (StackSet i l a sid' sd')
-_screens f (StackSet cur vis hid flo) =
-    StackSet <$> f cur <*> traverse f vis <*> pure hid <*> pure flo
 
 -- | Maybe access the current Stack.
 _currentStack :: Lens' (StackSet i l a sid sd) (Maybe (Stack a))
@@ -679,7 +680,7 @@ sink w = over _floating (Map.delete w)
 -- The old master window is swapped in the tiling order with the focused window.
 -- Focus stays with the item moved.
 swapMaster :: StackSet i l a s sd -> StackSet i l a s sd
-swapMaster = modify' $ \c -> case c of
+swapMaster = over (_currentStack._Just) $ \c -> case c of
     Stack _ [] _  -> c    -- already master.
     Stack t ls rs -> Stack t [] (xs <> (x : rs)) where (x:xs) = reverse ls
 
@@ -690,13 +691,13 @@ swapMaster = modify' $ \c -> case c of
 -- just hit mod-shift-k a bunch of times.
 -- Focus stays with the item moved.
 shiftMaster :: StackSet i l a s sd -> StackSet i l a s sd
-shiftMaster = modify' $ \c -> case c of
+shiftMaster = over (_currentStack._Just) $ \c -> case c of
     Stack _ [] _ -> c     -- already master.
     Stack t ls rs -> Stack t [] (reverse ls <> rs)
 
 -- | /O(s)/. Set focus to the master window.
 focusMaster :: StackSet i l a s sd -> StackSet i l a s sd
-focusMaster = modify' (fromNonEmpty . toNonEmpty)
+focusMaster = over (_currentStack._Just) (fromNonEmpty . toNonEmpty)
 
 --
 -- ---------------------------------------------------------------------
@@ -709,7 +710,8 @@ focusMaster = modify' (fromNonEmpty . toNonEmpty)
 -- element on the current stack, the original stackSet is returned.
 --
 shift :: (Ord a, Eq s, Eq i) => i -> StackSet i l a s sd -> StackSet i l a s sd
-shift n s = maybe s (\w -> shiftWin n w s) (peek s)
+-- shift n s = maybe s (\w -> shiftWin n w s) (peek s)
+shift n s = maybe s (shiftWin' n s) (peek s)
 
 -- | /O(n)/. shiftWin. Searches for the specified window 'w' on all workspaces
 -- of the stackSet and moves it to stack 'n', leaving it as the focused
@@ -717,6 +719,12 @@ shift n s = maybe s (\w -> shiftWin n w s) (peek s)
 -- focused element on that workspace.
 -- The actual focused workspace doesn't change. If the window is not
 -- found in the stackSet, the original stackSet is returned.
+shiftWin' :: (Ord a, Eq s, Eq i) => i -> StackSet i l a s sd -> a -> StackSet i l a s sd
+shiftWin' n s w = case findTag w s of
+        Just from | n `tagMember` s && n /= from -> go from s
+        _                                        -> s
+    where
+    go from = onWorkspace n (insertUp w) . onWorkspace from (delete' w)
 shiftWin :: (Ord a, Eq s, Eq i) => i -> a -> StackSet i l a s sd -> StackSet i l a s sd
 shiftWin n w s = case findTag w s of
                     Just from | n `tagMember` s && n /= from -> go from s
@@ -726,14 +734,3 @@ shiftWin n w s = case findTag w s of
 onWorkspace :: (Eq i, Eq s) => i -> (StackSet i l a s sd -> StackSet i l a s sd)
             -> (StackSet i l a s sd -> StackSet i l a s sd)
 onWorkspace n f s = view (s^._currentTag) . f . view n $ s
-
-
-------- Misc. -------
-
-injectBy :: (Applicative m, Monoid (m a)) => (a -> Bool) -> a -> m a
-injectBy p x = if p x then pure x else mempty
-
-tagBy :: (a -> Bool) -> a -> Either a a
-tagBy p x = if p x then Right x else Left x
-
-filterO p = (`views` injectBy p)
