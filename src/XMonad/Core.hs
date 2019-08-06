@@ -92,11 +92,15 @@ import System.Exit
 import Graphics.X11.Xlib
 import Graphics.X11.Xlib.Extras (getWindowAttributes, WindowAttributes, Event)
 import Data.List ((\\))
+import Data.List.NonEmpty (NonEmpty ((:|)))
+import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map (Map)
 import Data.Maybe (isJust,fromMaybe)
 import Data.Set (Set)
 import Data.Typeable
 import System.Environment (lookupEnv)
+import Path (Path)
+import qualified Path
 
 
 -- | XState, the (mutable) window manager state.
@@ -291,15 +295,15 @@ newtype X a = X (ReaderT XConf (StateT XState IO) a)
     deriving (Functor, Monad, MonadFail, MonadIO, MonadState XState, MonadReader XConf, Typeable)
 
 instance Applicative X where
-  pure = return
-  (<*>) = ap
+    pure = return
+    (<*>) = ap
 
 instance Semigroup a => Semigroup (X a) where
     (<>) = liftA2 (<>)
 
 instance (Monoid a) => Monoid (X a) where
     mempty  = pure mempty
-    mappend = liftA2 (<>)
+    mappend = (<>)
 
 instance Default a => Default (X a) where
     def = pure def
@@ -316,7 +320,7 @@ instance Semigroup a => Semigroup (Query a) where
 
 instance Monoid a => Monoid (Query a) where
     mempty  = pure mempty
-    mappend = liftA2 (<>)
+    mappend = (<>)
 
 instance Default a => Default (Query a) where
     def = pure def
@@ -350,7 +354,6 @@ userCode = userCodeDef Nothing . fmap Just
 -- Maybe, provided for convenience.
 userCodeDef :: a -> X a -> X a
 -- userCodeDef defValue a = fromMaybe defValue <$> userCode a
--- userCodeDef defVal x = catchX x (pure defVal)
 userCodeDef = flip catchX . pure
 
 -- ---------------------------------------------------------------------
@@ -368,7 +371,8 @@ withWindowSet = (=<< use _windowset)
 withWindowAttributes :: Display -> Window -> (WindowAttributes -> X ()) -> X ()
 withWindowAttributes dpy win f = do
     wa <- userCode (io $ getWindowAttributes dpy win)
-    catchX (whenJust wa f) (pure ())
+    -- catchX (whenJust wa f) (pure ())
+    userCodeDef () (whenJust wa f)
 
 -- | True if the given window is the root window
 isRoot :: Window -> X Bool
@@ -584,12 +588,13 @@ xfork x = io . forkProcess . finally nullStdin $ uninstallSignalHandlers *> crea
 -- | This is basically a map function, running a function in the 'X' monad on
 -- each workspace with the output of that function being the modified workspace.
 runOnWorkspaces :: (WindowSpace -> X WindowSpace) -> X ()
+-- runOnWorkspaces job = uses _windowset (_workspaces %= job)
 runOnWorkspaces job = do
-    -- ws <- gets windowset
     ws <- use _windowset
     h <- traverse job $ hidden ws
     c : v <- traverse (_workspace job) $ current ws : visible ws
-    modify $ \s -> s { windowset = ws { current = c, visible = v, hidden = h } }
+    -- modify $ \s -> s { windowset = ws { current = c, visible = v, hidden = h } }
+    _windowset %= (_current .~ c) . (_visible .~ v) . (_hidden .~ h)
 
 -- | All the directories that xmonad will use.  They will be used for
 -- the following purposes:

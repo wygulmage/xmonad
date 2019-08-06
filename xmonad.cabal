@@ -82,6 +82,8 @@ library
                  , filepath
                  , lens
                  , mtl
+                 , path
+                 , path-io
                  , process
                  , semigroupoids
                  , setlocale
