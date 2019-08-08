@@ -10,6 +10,7 @@ import XMonad.StackSet hiding (filter)
 
 import Data.List (sortBy)
 
+import Control.Lens ((^.))
 import qualified Control.Lens as Lens
 
 -- ---------------------------------------------------------------------
@@ -18,17 +19,18 @@ import qualified Control.Lens as Lens
 -- view sets the current workspace to 'n'
 prop_view_current (x :: T) = do
     n <- arbitraryTag x
-    return $ (tag . workspace . current . view n) x == n
+    -- pure $ (tag . workspace . current . view n) x == n
+    pure $ (^. Lens.to (view n) . _currentTag) x == n
 
 -- view *only* sets the current workspace, and touches Xinerama.
 -- no workspace contents will be changed.
 prop_view_local  (x :: T) = do
     n <- arbitraryTag x
-    return $ workspaces x == workspaces (view n x)
+    pure $ workspaces x == workspaces (view n x)
   where
     workspaces a = sortBy (\s t -> tag s `compare` tag t) $
                                     workspace (current a)
-                                    : map workspace (visible a) ++ hidden a
+                                    : fmap workspace (visible a) <> hidden a
 
 -- TODO: Fix this
 -- view should result in a visible xinerama screen
@@ -40,11 +42,11 @@ prop_view_local  (x :: T) = do
 -- view is idempotent
 prop_view_idem (x :: T) = do
     n <- arbitraryTag x
-    return $ view n (view n x) == (view n x)
+    pure $ view n (view n x) == view n x
 
 -- view is reversible, though shuffles the order of hidden/visible
 prop_view_reversible (x :: T) = do
     n <- arbitraryTag x
-    return $ normal (view n' (view n x)) == normal x
+    pure $ normal (view n' (view n x)) == normal x
   where
-    n' = Lens.view _currentTag x
+  n' = x^._currentTag

@@ -22,9 +22,9 @@ prop_index_length (x :: T) =
 -- correct workspace
 prop_findIndex (x :: T) =
     and [ tag w == fromJust (findTag i x)
-        | w <- workspace (current x) : map workspace (visible x)  ++ hidden x
+        | w <- workspace (current x) : (fmap workspace (visible x) <> hidden x)
         , t <- maybeToList (stack w)
-        , i <- focus t : up t ++ down t
+        , i <- focus t : (up t <> down t)
         ]
 
 prop_allWindowsMember (NonEmptyWindowsStackSet x) = do
@@ -33,19 +33,19 @@ prop_allWindowsMember (NonEmptyWindowsStackSet x) = do
       -- which is a key component in this test (together with member).
   let ws = allWindows x
   -- We know that there are at least 1 window in a NonEmptyWindowsStackSet.
-  idx <- choose(0, (length ws) - 1)
-  return $ member (ws!!idx) x
+  idx <- choose(0, length ws - 1)
+  pure $ member (ws !! idx) x
 
 
 -- preserve order
 prop_filter_order (x :: T) =
-    case stack $ workspace $ current x of
+    case stack . workspace $ current x of
         Nothing -> True
         Just s@(Stack i _ _) -> integrate' (S.filter (/= i) s) == filter (/= i) (integrate' (Just s))
 
 -- differentiate should return Nothing if the list is empty or Just stack, with
 -- the first element of the list is current, and the rest of the list is down.
 prop_differentiate xs =
-        if null xs then differentiate xs == Nothing
-                   else (differentiate xs) == Just (Stack (head xs) [] (tail xs))
+        if null xs then isNothing (differentiate xs)
+                   else differentiate xs == Just (Stack (head xs) [] (tail xs))
     where _ = xs :: [Int]

@@ -12,6 +12,9 @@ import Data.Maybe
 
 import Data.List (nub)
 
+import Data.Foldable (fold)
+
+import Control.Lens ((^.))
 import qualified Control.Lens as Lens
 
 -- ---------------------------------------------------------------------
@@ -35,7 +38,7 @@ import qualified Control.Lens as Lens
 -- * no element should ever appear more than once in a StackSet
 -- * the xinerama screen map should be:
 --          -- keys should always index valid workspaces
---          -- monotonically ascending in the elements
+--          -- successiveally ascending in the elements
 -- * the current workspace should be a member of the xinerama screens
 --
 invariant (s :: T) = and
@@ -49,29 +52,32 @@ invariant (s :: T) = and
 --  , inBounds
     ]
   where
-    ws = concat [ focus t : up t ++ down t
-                  | w <- workspace (current s) : map workspace (visible s) ++ hidden s
-                  , t <- maybeToList (stack w)] :: [Char]
+    ws = fold [ focus t : (up t <> down t)
+                  | w <- workspace (current s) : (fmap workspace (visible s) <> hidden s)
+                  , t <- maybeToList (stack w)] :: String
     noDuplicates = nub ws == ws
 
---  validScreens = monotonic . sort . M. . (W.current s : W.visible : W$ s
+--  validScreens = successive . sort . M. . (W.current s : W.visible : W$ s
 
 --  validWorkspaces = and [ w `elem` allworkspaces | w <- (M.keys . screens) s ]
 --          where allworkspaces = map tag $ current s : prev s ++ next s
 
 --  inBounds  = and [ w >=0 && w < size s | (w,sc) <- M.assocs (screens s) ]
 
-monotonic []       = True
-monotonic (x:[])   = True
-monotonic (x:y:zs) | x == y-1  = monotonic (y:zs)
-                   | otherwise = False
+successive :: (Eq a, Enum a) => [a] -> Bool
+-- Really this means 'sequential' or 'successive'; 'successive' would require only x ≤ y.
+successive (x:y:zs)
+    | succ x == y = successive (y:zs)
+    | otherwise = False
+successive _ = True
 
 prop_invariant = invariant
 
 -- and check other ops preserve invariants
-prop_empty_I  (SizedPositive n) l = forAll (choose (1, fromIntegral n)) $  \m ->
-                                      forAll (vector m) $ \ms ->
-        invariant $ new l [0..fromIntegral n-1] ms
+prop_empty_I  (SizedPositive n) l =
+    forAll (choose (1, fromIntegral n)) $  \m ->
+        forAll (vector m) $ \ms ->
+            invariant $ new l [0..fromIntegral n-1] ms
 
 prop_view_I n (x :: T) =
     invariant $ view n x
@@ -109,13 +115,13 @@ prop_swap_right_I (SizedPositive n) (x :: T) =
 
 prop_shift_I (x :: T) = do
   n <- arbitraryTag x
-  return $ invariant $ shift (fromIntegral n) x
+  pure . invariant $ shift (fromIntegral n) x
 
 prop_shift_win_I (nex :: NonEmptyWindowsStackSet) = do
   let NonEmptyWindowsStackSet x = nex
   w <- arbitraryWindow nex
   n <- arbitraryTag x
-  return $ invariant $ shiftWin n w x
+  pure . invariant $ shiftWin n w x
 
 
 -- ---------------------------------------------------------------------
@@ -123,14 +129,15 @@ prop_shift_win_I (nex :: NonEmptyWindowsStackSet) = do
 
 -- empty StackSets have no windows in them
 prop_empty (EmptyStackSet x) =
-        all (== Nothing) [ stack w | w <- workspace (current x)
-                                        : map workspace (visible x) ++ hidden x ]
+        all isNothing [ stack w | w <- workspace (current x)
+                                        : fmap workspace (visible x) <> hidden x ]
 
 -- empty StackSets always have focus on first workspace
-prop_empty_current (EmptyStackSet x) = Lens.view _currentTag x == head (tags x)
+prop_empty_current (EmptyStackSet x) = x^._currentTag == head (tags x)
 
 -- no windows will be a member of an empty workspace
-prop_member_empty i (EmptyStackSet x) = member i x == False
+-- prop_member_empty i (EmptyStackSet x) = member i x == False
+prop_member_empty i (EmptyStackSet x) = not (member i x)
 
 -- peek either yields nothing on the Empty workspace, or Just a valid window
 prop_member_peek (x :: T) =

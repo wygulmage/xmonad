@@ -18,12 +18,12 @@ import Control.Lens ((^.))
 -- greedyView sets the current workspace to 'n'
 prop_greedyView_current (x :: T)  = do
     n <- arbitraryTag x
-    pure $ (greedyView n x)^._currentTag == n
+    pure $ greedyView n x ^._currentTag == n
 
 -- greedyView leaves things unchanged for invalid workspaces
 prop_greedyView_current_id (x :: T) = do
   n <- arbitrary `suchThat` \n' -> not $ n' `tagMember` x
-  pure $ (greedyView n x)^._currentTag == x^._currentTag
+  pure $ greedyView n x ^._currentTag == x^._currentTag
 
 -- greedyView *only* sets the current workspace, and touches Xinerama.
 -- no workspace contents will be changed.
@@ -33,12 +33,12 @@ prop_greedyView_local  (x :: T) = do
   where
     workspaces a = sortBy (\s t -> tag s `compare` tag t) $
                                     workspace (current a)
-                                    : map workspace (visible a) ++ hidden a
+                                    : fmap workspace (visible a) <> hidden a
 
 -- greedyView is idempotent
 prop_greedyView_idem (x :: T) = do
   n <- arbitraryTag x
-  pure $ greedyView n (greedyView n x) == (greedyView n x)
+  pure $ greedyView n (greedyView n x) == greedyView n x
 
 -- greedyView is reversible, though shuffles the order of hidden/visible
 prop_greedyView_reversible (x :: T) = do

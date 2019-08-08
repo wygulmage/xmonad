@@ -1,7 +1,7 @@
 import Test.QuickCheck
 
 -- Our QC instances and properties:
-import Instances
+import Instances ()
 import Properties.Delete
 import Properties.Failure
 import Properties.Floating
@@ -18,25 +18,25 @@ import Properties.Workspace
 import Properties.Layout.Full
 import Properties.Layout.Tall
 
-import System.Environment
+-- import System.Environment
 import Text.Printf
 
 import Control.Monad
-import Control.Applicative
 
 main :: IO ()
 main = do
-  arg <- fmap (drop 1) getArgs
-  let n = if null arg then 100 else read $ head arg
-      args = stdArgs { maxSuccess = n, maxSize = 100 }
+  -- arg <- fmap (drop 1) getArgs
+  let -- n = if null arg then 100 else read $ head arg
+      args = stdArgs { maxSuccess = 200, maxSize = 200 }
       qc t = do
           c <- quickCheckWithResult args t
           case c of
-            Success {} -> return True
-            _ -> return False
-      perform (s, t) = printf "%-35s: " s >> qc t
-  n <- length . filter not <$> mapM perform tests
-  unless (n == 0) (error (show n ++ " test(s) failed"))
+           Success{} -> pure True
+           _ -> pure False
+      -- perform (s, t) = printf "%-35s: " s *> qc t
+      perform (s, t) = printf "%-35s " s *> qc t
+  n' <- length . filter not <$> traverse perform tests
+  unless (n' == 0) (error (show n' <> " test(s) failed"))
 
 
 
@@ -44,8 +44,8 @@ tests =
   [("StackSet invariants", property prop_invariant)
   ,("empty: invariant",    property prop_empty_I)
   ,("empty is empty",      property prop_empty)
-  ,("empty / current",     property prop_empty_current)
-  ,("empty / member",      property prop_member_empty)
+  ,("empty: current workspace is 1st",     property prop_empty_current)
+  ,("empty has no members",      property prop_member_empty)
 
 
   ,("view : invariant",  property prop_view_I)
@@ -197,5 +197,3 @@ tests =
   ,("pointWithin mirror", property prop_point_within_mirror)
 
   ]
-
-

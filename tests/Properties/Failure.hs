@@ -16,15 +16,15 @@ prop_abort :: Int -> Bool
 prop_abort _ = unsafePerformIO $ C.catch (abort "fail") check
    where
      check (C.SomeException e) =
-       return $ "xmonad: StackSet: fail" `isPrefixOf` show e
+       pure $ "xmonad: StackSet: fail" `isPrefixOf` show e
 
 -- new should fail with an abort
 prop_new_abort :: Int -> Bool
 prop_new_abort _ = unsafePerformIO $ C.catch f check
    where
-     f = new undefined{-layout-} [] [] `seq` return False
+     f = new undefined{-layout-} [] [] `seq` pure False
      check (C.SomeException e) =
-       return $ "xmonad: StackSet: non-positive argument to StackSet.new" `isPrefixOf` show e
+       pure $ "xmonad: StackSet: non-positive argument to StackSet.new" `isPrefixOf` show e
 
 -- TODO: Fix this?
 -- prop_view_should_fail = view {- with some bogus data -}

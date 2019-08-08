@@ -22,7 +22,7 @@ prop_lookup_visible = do
   x <- arbitrary `suchThat` \(x' :: T) -> visible x' /= []
   let tags = [ tag (workspace y) | y <- visible x ]
       scr = last [ screen y | y <- visible x ]
-  return $ fromJust (lookupWorkspace scr x) `elem` tags
+  pure $ fromJust (lookupWorkspace scr x) `elem` tags
 
 
 prop_currentTag (x :: T) =
@@ -34,7 +34,7 @@ prop_rename1 (x::T) = do
   n <- arbitrary `suchThat` \n' -> not $ n' `tagMember` x
   -- Rename o to n
   let y = renameTag o n x
-  return $ n `tagMember` y
+  pure $ n `tagMember` y
 
 -- Ensure that a given set of workspace tags is present by renaming
 -- existing workspaces and\/or creating new hidden workspaces as
@@ -48,7 +48,7 @@ prop_ensure_append (x :: T) l = do
     n <- arbitrary `suchThat` \n' -> not $ n' `tagMember` x
     let ts = tags x
         y  = ensureTags l (n:ts) x
-    return $ hidden y /= hidden x     -- doesn't append, renames
+    pure $ hidden y /= hidden x     -- doesn't append, renames
              && and [ isNothing (stack z) && layout z == l | z <- hidden y, tag z == n ]
 
 

@@ -35,15 +35,15 @@ instance (Integral i, Integral s, Eq a, Arbitrary a, Arbitrary l, Arbitrary sd)
 
       -- Pick a random window "number" in each workspace, to give focus.
       focus <- sequence [ if null windows
-                          then return Nothing
-                          else liftM Just $ choose (0, length windows - 1)
+                          then pure Nothing
+                          else Just <$> choose (0, length windows - 1)
                         | windows <- wsWindows ]
 
       let tags = [1 .. fromIntegral numWs]
           focusWsWindows = zip focus wsWindows
           wss = zip tags focusWsWindows -- tmp representation of a workspace (tag, windows)
           initSs = new lay tags screens
-      return $
+      pure $
         view (fromIntegral wsIdxInFocus) $
         foldr (\(tag, (focus, windows)) ss -> -- Fold through all generated (tags,windows).
                 -- set workspace active by tag and fold through all
@@ -71,7 +71,7 @@ instance Arbitrary EmptyStackSet where
         (NonEmptyNubList sds) <- arbitrary
         l <- arbitrary
         -- there cannot be more screens than workspaces:
-        return . EmptyStackSet . new l ns $ take (min (length ns) (length sds)) sds
+        pure . EmptyStackSet . new l ns $ take (min (length ns) (length sds)) sds
 
 
 
@@ -79,8 +79,8 @@ newtype NonEmptyWindowsStackSet = NonEmptyWindowsStackSet T
     deriving Show
 
 instance Arbitrary NonEmptyWindowsStackSet where
-  arbitrary =
-    NonEmptyWindowsStackSet `fmap` (arbitrary `suchThat` (not . null . allWindows))
+    arbitrary =
+        fmap NonEmptyWindowsStackSet (arbitrary `suchThat` (not . null . allWindows))
 
 instance Arbitrary Rectangle where
     arbitrary = Rectangle <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
@@ -90,8 +90,9 @@ newtype SizedPositive = SizedPositive Int
     deriving (Eq, Ord, Show, Read)
 
 instance Arbitrary SizedPositive where
-  arbitrary = sized $ \s -> do x <- choose (1, max 1 s)
-                               return $ SizedPositive x
+    arbitrary = sized $ \s -> do
+        x <- choose (1, max 1 s)
+        pure $ SizedPositive x
 
 
 
@@ -99,7 +100,7 @@ newtype NonEmptyNubList a = NonEmptyNubList [a]
     deriving ( Eq, Ord, Show, Read )
 
 instance (Eq a, Arbitrary a) => Arbitrary (NonEmptyNubList a) where
-  arbitrary   = NonEmptyNubList `fmap` ((liftM nub arbitrary) `suchThat` (not . null))
+    arbitrary = fmap NonEmptyNubList (fmap nub arbitrary `suchThat` (not . null))
 
 
 
@@ -114,10 +115,10 @@ instance (Eq a, Arbitrary a) => Arbitrary (NonEmptyNubList a) where
 -- n <- arbitrary `suchThat` \n' -> not $ n' `tagMember` x
 arbitraryTag :: T -> Gen Tag
 arbitraryTag x = do
-  let ts = tags x
-  -- There must be at least 1 workspace, thus at least 1 tag.
-  idx <- choose (0, (length ts) - 1)
-  return $ ts!!idx
+    let ts = tags x
+    -- There must be at least 1 workspace, thus at least 1 tag.
+    idx <- choose (0, length ts - 1)
+    pure $ ts !! idx
 
 -- | Pull out an arbitrary window from a StackSet that is guaranteed to have a
 -- non empty set of windows. This eliminates the precondition "i `member` x" in
@@ -134,7 +135,7 @@ arbitraryTag x = do
 --   n <- arbitrary `suchThat` \n' -> not $ n `member` x
 arbitraryWindow :: NonEmptyWindowsStackSet -> Gen Window
 arbitraryWindow (NonEmptyWindowsStackSet x) = do
-  let ws = allWindows x
-  -- We know that there are at least 1 window in a NonEmptyWindowsStackSet.
-  idx <- choose(0, (length ws) - 1)
-  return $ ws!!idx
+    let ws = allWindows x
+    -- We know that there are at least 1 window in a NonEmptyWindowsStackSet.
+    idx <- choose(0, length ws - 1)
+    pure $ ws !! idx

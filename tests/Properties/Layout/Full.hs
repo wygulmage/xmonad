@@ -19,7 +19,7 @@ prop_purelayout_full rect = do
   let layout = Full
       st = fromJust . stack . workspace . current $ x
       ts = pureLayout layout rect st
-  return $
+  pure $
         length ts == 1        -- only one window to view
       &&
         snd (head ts) == rect -- and sets fullscreen
@@ -29,6 +29,6 @@ prop_purelayout_full rect = do
 
 -- what happens when we send an IncMaster message to Full --- Nothing
 prop_sendmsg_full (NonNegative k) =
-         isNothing (Full `pureMessage` (SomeMessage (IncMasterN k)))
+         isNothing (Full `pureMessage` SomeMessage (IncMasterN k))
 
 prop_desc_full = description Full == show Full
