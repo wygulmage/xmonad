@@ -167,7 +167,6 @@ windows f = do
                      runLayout (set W._stack tiled . set W._layout (Layout Full) $ wsp) viewrect
         updateLayout n ml'
 
-        -- let m   = W.floating ws
         let m   = view W._floating ws
             flt = [(fw, scaleRationalRect viewrect r)
                     | fw <- filter (`Map.member` m) (W.index this)
@@ -183,8 +182,7 @@ windows f = do
     traverse_ (uncurry tileWindow) rects
 
     whenJust (W.peek ws) $ \w -> do
-      -- fbs <- asks (focusedBorderColor . config)
-      fbs <- view (_config . _focusedBorderColor)
+      fbs <- view (_config._focusedBorderColor)
       setWindowBorderWithFallback d w fbs fbc
 
     traverse_ reveal visible
@@ -200,10 +198,9 @@ windows f = do
     traverse_ (`setWMState` withdrawnState) (W.allWindows old \\ W.allWindows ws)
 
     -- isMouseFocused <- asks mouseFocused
-    isMouseFocused <- view _mouseFocused
-    unless isMouseFocused $ clearEvents enterWindowMask
-    -- asks (logHook . config) >>= userCodeDef ()
-    view (_config . _logHook) >>= userCodeDef ()
+    mouseIsFocused <- view _mouseFocused
+    unless mouseIsFocused $ clearEvents enterWindowMask
+    view (_config._logHook) >>= userCodeDef ()
 
 -- | Modify the @WindowSet@ in state with no special handling.
 modifyWindowSet :: (WindowSet -> WindowSet) -> X ()

@@ -810,11 +810,11 @@ recompile Dirs{ cfgDir, dataDir } force = io $ do
 
 -- | Conditionally run an action, using a @Maybe a@ to decide.
 whenJust :: Monad m => Maybe a -> (a -> m ()) -> m ()
-whenJust mg f = maybe (pure ()) f mg
+whenJust = flip (maybe (pure ()))
 
 -- | Conditionally run an action, using a 'X' event to decide
-whenX :: X Bool -> X () -> X ()
-whenX a f = a >>= \b -> when b f
+whenX :: Monad m => m Bool -> m () -> m ()
+whenX a f = a >>= flip when f
 
 -- | A 'trace' for the 'X' monad. Logs a string to stderr. The result may
 -- be found in your .xsession-errors file

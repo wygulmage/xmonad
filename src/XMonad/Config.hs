@@ -20,19 +20,15 @@
 --
 ------------------------------------------------------------------------
 
-module XMonad.Config (defaultConfig, Default(..)) where
+module XMonad.Config (Default(..)) where
 
 --
 -- Useful imports
 --
 import XMonad.Core as XMonad hiding
-    (workspaces,manageHook,keys,logHook,startupHook,borderWidth,mouseBindings
-    ,layoutHook,modMask,terminal,normalBorderColor,focusedBorderColor,focusFollowsMouse
-    ,handleEventHook,clickJustFocuses,rootMask,clientMask)
+    ( workspaces, manageHook, keys, logHook, startupHook, borderWidth, mouseBindings, layoutHook, modMask, terminal, normalBorderColor, focusedBorderColor, focusFollowsMouse, handleEventHook, clickJustFocuses, rootMask, clientMask)
 import qualified XMonad.Core as XMonad
-    (workspaces,manageHook,keys,logHook,startupHook,borderWidth,mouseBindings
-    ,layoutHook,modMask,terminal,normalBorderColor,focusedBorderColor,focusFollowsMouse
-    ,handleEventHook,clickJustFocuses,rootMask,clientMask)
+    ( workspaces, manageHook, keys, logHook, startupHook, borderWidth, mouseBindings, layoutHook, modMask, terminal, normalBorderColor, focusedBorderColor, focusFollowsMouse, handleEventHook, clickJustFocuses, rootMask, clientMask)
 
 import XMonad.Layout
 import XMonad.Operations
@@ -74,8 +70,8 @@ borderWidth = 1
 -- | Border colors for unfocused and focused windows, respectively.
 --
 normalBorderColor, focusedBorderColor :: String
-normalBorderColor  = "gray" -- "#dddddd"
-focusedBorderColor = "red"  -- "#ff0000" don't use hex, not <24 bit safe
+normalBorderColor  = "black" -- "#000000"
+focusedBorderColor = "white" -- "#ffffff" don't use hex, not <24 bit safe
 
 ------------------------------------------------------------------------
 -- Window rules
@@ -156,8 +152,11 @@ clientMask = structureNotifyMask .|. enterWindowMask .|. propertyChangeMask
 
 -- | The root events that xmonad is interested in
 rootMask :: EventMask
-rootMask =  substructureRedirectMask .|. substructureNotifyMask
-        .|. enterWindowMask .|. leaveWindowMask .|. structureNotifyMask
+rootMask =  substructureRedirectMask
+        .|. substructureNotifyMask
+        .|. enterWindowMask
+        .|. leaveWindowMask
+        .|. structureNotifyMask
         .|. buttonPressMask
 
 ------------------------------------------------------------------------
@@ -253,8 +252,8 @@ mouseBindings XConfig {XMonad.modMask = modMask} = M.fromList
 
 instance (a ~ Choose Tall (Choose (Mirror Tall) Full)) => Default (XConfig a) where
   def = XConfig
-    { XMonad.borderWidth        = borderWidth
-    , XMonad.workspaces         = workspaces
+    { XMonad.borderWidth        = 1
+    , XMonad.workspaces         = fmap show [1 .. 9 :: Int]
     , XMonad.layoutHook         = layout
     , XMonad.terminal           = terminal
     , XMonad.normalBorderColor  = normalBorderColor
@@ -267,7 +266,7 @@ instance (a ~ Choose Tall (Choose (Mirror Tall) Full)) => Default (XConfig a) wh
     , XMonad.manageHook         = manageHook
     , XMonad.handleEventHook    = handleEventHook
     , XMonad.focusFollowsMouse  = focusFollowsMouse
-    , XMonad.clickJustFocuses       = clickJustFocuses
+    , XMonad.clickJustFocuses   = clickJustFocuses
     , XMonad.clientMask         = clientMask
     , XMonad.rootMask           = rootMask
     , XMonad.handleExtraArgs = \ xs theConf -> case xs of
@@ -275,10 +274,6 @@ instance (a ~ Choose Tall (Choose (Mirror Tall) Full)) => Default (XConfig a) wh
                 _ -> fail ("unrecognized flags:" <> show xs)
     }
 
--- | The default set of configuration values itself
-{-# DEPRECATED defaultConfig "Use def (from Data.Default, and re-exported by XMonad and XMonad.Config) instead." #-}
-defaultConfig :: XConfig (Choose Tall (Choose (Mirror Tall) Full))
-defaultConfig = def
 
 -- | Finally, a copy of the default bindings in simple textual tabular format.
 help :: String
