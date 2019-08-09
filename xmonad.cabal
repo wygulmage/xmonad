@@ -65,6 +65,7 @@ library
   exposed-modules: XMonad
                    XMonad.Config
                    XMonad.Core
+                   XMonad.Focused
                    XMonad.Layout
                    XMonad.Main
                    XMonad.ManageHook

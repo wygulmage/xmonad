@@ -190,6 +190,7 @@ tests =
   ,("window resize hints: max all ", property prop_resize_max_extra)
 
   ,("window aspect hints: fits", property prop_aspect_fits)
+  -- window aspect hints: fits           *** Failed! Falsified (after 172 tests): (0,14940,14567,2)
   ,("window aspect hints: shrinks ", property prop_aspect_hint_shrink)
 
 

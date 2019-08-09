@@ -476,9 +476,13 @@ differentiate :: [a] -> Maybe (Stack a)
 differentiate (x:xs) = Just $ Stack x [] xs
 differentiate _      = Nothing
 
+
+focusToMaster :: Stack a -> Stack a
+focusToMaster (Stack x (x' : xu) xd) = focusToMaster (Stack x' xu (x : xd))
+focusToMaster s = s
+
 toNonEmpty :: Stack a -> NonEmpty a
-toNonEmpty (Stack x (x' : xu) xd) = toNonEmpty (Stack x' xu (x : xd)) -- focusUp'
-toNonEmpty (Stack x [] xd) = x :| xd
+toNonEmpty s = case focusToMaster s of Stack x _ xs -> x :| xs
 
 fromNonEmpty :: NonEmpty a -> Stack a
 fromNonEmpty (x :| xs) = Stack x [] xs
@@ -697,7 +701,7 @@ shiftMaster = over (_currentStack._Just) $ \c -> case c of
 
 -- | /O(s)/. Set focus to the master window.
 focusMaster :: StackSet i l a s sd -> StackSet i l a s sd
-focusMaster = over (_currentStack._Just) (fromNonEmpty . toNonEmpty)
+focusMaster = over (_currentStack._Just) focusToMaster
 
 --
 -- ---------------------------------------------------------------------
