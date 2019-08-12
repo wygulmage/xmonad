@@ -63,7 +63,7 @@ module XMonad.StackSet (
     ) where
 
 import Prelude hiding (filter)
-import Data.Functor.Apply
+-- import Data.Functor.Apply
 import Data.Traversable
 import Data.Foldable
 import Data.Maybe   (listToMaybe,isJust,fromMaybe)
@@ -358,22 +358,15 @@ _master f s@Stack{ up = xu } =
     _ ->
         _focus f s
 
-_up, _down :: Lens' (Stack a) [a]
-_up = lens up (\ s x -> s{ up = x })
-_down = lens down (\ s x -> s{ down = x })
-
 
 instance Traversable Stack where
     traverse f (Stack x xu xd) =
         flip Stack <$> backwards traverse f xu <*> f x <*> traverse f xd
 
 instance Foldable Stack where
-    -- toList (Stack x l r) = reverse l <> (x : r)
-    -- foldr f z = foldr f z . toList
     foldMap = foldMapDefault
 
 instance Functor Stack where
-    -- fmap = fmapDefault
     -- Order should not matter?
     fmap f (Stack x xus xds) = Stack (f x) (fmap f xus) (fmap f xds)
 
