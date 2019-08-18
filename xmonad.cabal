@@ -65,13 +65,14 @@ library
   exposed-modules: XMonad
                    XMonad.Config
                    XMonad.Core
-                   XMonad.Focused
                    XMonad.Layout
                    XMonad.Main
                    XMonad.ManageHook
                    XMonad.Operations
                    XMonad.StackSet
                    XMonad.Optic
+                   -- XMonad.Type.Focused
+                   -- XMonad.Type.Workspace
                    XMonad.Optic.X11
   other-modules:   Paths_xmonad
   hs-source-dirs:  src

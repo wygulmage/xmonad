@@ -34,6 +34,7 @@ module XMonad.StackSet (
         Stack(..), RationalRect(..),
         _layouts, _workspaces, _tags,
         _currentTag, _currentStack, _currentLayout,
+        currentTag,
         -- *  Construction
         -- $construction
         new, view, greedyView,
@@ -211,6 +212,11 @@ _currentStack = _current._workspace._stack
 
 _currentLayout :: Lens' (StackSet i l a sid sd) l
 _currentLayout = _current._workspace._layout
+
+
+instance Ord a => Semigroup (StackSet i l a s sd) where
+    StackSet c1 v1 h1 f1 <> StackSet c2 v2 h2 f2 = StackSet c1 (v1 <> (c2 : v2)) (h1 <> h2) (f1 <> f2)
+
 
 -- | Visible workspaces, and their Xinerama screens.
 data Screen i l a sid sd = Screen

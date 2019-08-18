@@ -61,14 +61,12 @@ module XMonad.Core
     ) where
 
 import XMonad.StackSet hiding (modify, workspaces)
--- import XMonad.Optic
 import Control.Lens hiding (mapped, view)
 import qualified Control.Lens as Lens
 
 import Prelude
 import Control.Exception (fromException, try, bracket, throw, finally, SomeException(..))
 import qualified Control.Exception as E
-
 import Control.Applicative (Applicative, pure, liftA2, (<*>), (<|>), empty)
 import Control.Monad.Fail
 import Control.Monad.State
@@ -95,7 +93,7 @@ import Data.List ((\\))
 import Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map (Map)
-import Data.Maybe (isJust,fromMaybe)
+import Data.Maybe (isJust)
 import Data.Set (Set)
 import Data.Typeable
 import System.Environment (lookupEnv)
