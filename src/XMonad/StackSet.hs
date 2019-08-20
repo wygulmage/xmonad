@@ -277,20 +277,29 @@ new _ _ _ = abort "non-positive argument to StackSet.new"
 view :: (Eq s, Eq i) =>
     i -> StackSet i l a s sd -> StackSet i l a s sd
 view i s
-    | i == currentTag s = s  -- current
+    -- | i == currentTag s = s  -- current
+    | i == s^._currentTag = s  -- current
 
-    | Just x <- find (views (_workspace._tag) (== i)) (s^._visible)
+    -- | Just x <- find (views (_workspace._tag) (== i)) (s^._visible)
+    | Just x <- findOf (_visible.traverse) (views (_workspace._tag) (== i)) s
     -- if it is visible, it is just raised
-    = s { current = x, visible = current s : List.deleteBy (equating screen) x (visible s) }
+    -- = s { current = x, visible = current s : List.deleteBy (equating screen) x (visible s) }
+    -- = (_current.~ x) . (_visible.~ (s^._current : List.deleteBy (same _screen) x (s^._visible))) $ s
+    = (_current.~ x) . over _visible (((s^._current) :) . List.deleteBy (same _screen) x) $ s
 
-    | Just x <- find (views _tag (i==)) (s^._hidden) -- must be hidden then
+    -- | Just x <- find (views _tag (i==)) (s^._hidden) -- must be hidden then
+    | Just x <- findOf (_hidden.traverse) (views _tag (== i)) s -- must be hidden then
     -- if it was hidden, it is raised on the xine screen currently used
-    = s { current = (current s) { workspace = x }
-        , hidden = workspace (current s) : List.deleteBy (equating tag) x (hidden s) }
+    -- = s { current = (current s) { workspace = x }
+        -- , hidden = workspace (current s) : List.deleteBy (equating tag) x (hidden s) }
+    = (_current._workspace.~ x) . over _hidden (((s^._current._workspace) :) . List.deleteBy (same _tag) x) $ s
 
     | otherwise = s -- not a member of the stackset
 
-  where equating f x y = f x == f y
+  where
+  same :: Eq a => Getter s a -> s -> s -> Bool
+  same o x y = x^.o == y^.o
+  -- findTagIn o l = findOf (o.traverse) (views l (== i))
 
     -- 'Catch'ing this might be hard. Relies on monotonically increasing
     -- workspace tags defined in 'new'

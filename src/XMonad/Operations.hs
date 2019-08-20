@@ -27,6 +27,7 @@ module XMonad.Operations where
 import XMonad.Core
 import XMonad.Layout (Full(..))
 import qualified XMonad.StackSet as W
+import qualified XMonad.WindowSet as WS
 
 import Control.Lens hiding (mapped, none)
 
@@ -41,7 +42,7 @@ import Data.Bits            ((.|.), (.&.), complement, testBit)
 import Data.Function        (on)
 import Data.Ratio
 import qualified Data.Map as Map
-import qualified Data.Set as Set
+-- import qualified Data.Set as Set
 
 import Control.Applicative ((<$>), (<*>))
 import Control.Arrow (second)
@@ -246,7 +247,7 @@ setWindowBorderWithFallback dpy w color basic = io . C.handle fallback $ do
 
 -- | hide. Hide a window by unmapping it, and setting Iconified.
 hide :: Window -> X ()
-hide w = whenX (gets (Set.member w . mapped)) . withDisplay $ \d -> do
+hide w = whenX (gets (WS.member w . mapped)) . withDisplay $ \d -> do
     cMask <- view $ _config . _clientMask
     io $ selectInput d w (cMask .&. complement structureNotifyMask)
          *> unmapWindow d w
@@ -254,7 +255,7 @@ hide w = whenX (gets (Set.member w . mapped)) . withDisplay $ \d -> do
     setWMState w iconicState
     -- this part is key: we increment the waitingUnmap counter to distinguish
     -- between client and xmonad initiated unmaps.
-    modify (over _mapped (Set.delete w) . over _waitingUnmap (Map.insertWith (+) w 1))
+    modify (over _mapped (WS.delete w) . over _waitingUnmap (Map.insertWith (+) w 1))
 
 -- | reveal. Show a window by mapping it and setting Normal
 -- this is harmless if the window was already visible
@@ -262,7 +263,7 @@ reveal :: Window -> X ()
 reveal w = withDisplay $ \d -> do
     setWMState w normalState
     io $ mapWindow d w
-    whenX (isClient w) $ modify (over _mapped (Set.insert w))
+    whenX (isClient w) $ modify (over _mapped (WS.insert w))
 
 -- | Set some properties when we initially gain control of a window
 setInitialProperties :: Window -> X ()
@@ -541,7 +542,7 @@ readStateFile xmc = do
 
       pure XState { windowset       = winset
                   , numberlockMask  = 0
-                  , mapped          = Set.empty
+                  , mapped          = WS.empty
                   , waitingUnmap    = Map.empty
                   , dragging        = Nothing
                   , extensibleState = extState

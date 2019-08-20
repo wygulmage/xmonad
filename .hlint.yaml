@@ -4,44 +4,53 @@
 - fixity: "infixl 4 *>"
 - fixity: "infixl 4 <*"
 
-- group: {name: teaching, enabled: true}
-- group: {name: dollar, enabled: true}
-- group: {name: generalise, enabled: true}
+- group: {name: teaching,                   enabled: true}
+- group: {name: dollar,                     enabled: true}
+- group: {name: generalise,                 enabled: true}
 - group: {name: generalise-for-conciseness, enabled: true}
-- group: {name: lens, enabled: true}
-- group: {name: use-lens, enabled: true}
+- group: {name: lens,                       enabled: true}
+- group: {name: use-lens,                   enabled: true}
 
+- ignore: {name: Use tuple-section} # low signal-to-noise
 - ignore: {name: Use camelCase}
 - ignore: {name: Use list literal}
 - ignore: {name: Use void}
+- warn: {lhs: void, rhs: "(() <$)", name: Say what you mean}
 
-- warn: {lhs: pure x <* y, rhs: x <$ y}
+- warn: {lhs: pure x <* y, rhs: x <$ y, name: Generalize}
 
-- error: {lhs: map, rhs: fmap}
-- error: {lhs: liftM, rhs: fmap}
-- error: {lhs: x `liftM` y, rhs: x <$> y}
+# Generalize to Functor.
+- error: {lhs: map,         rhs: fmap,    name: Generalize}
+- error: {lhs: liftM,       rhs: fmap,    name: Generalize}
+- error: {lhs: x `liftM` y, rhs: x <$> y, name: Generalize}
 
-- error: {lhs: return, rhs: pure}
-- error: {lhs: ap, rhs: (<*>)}
-- error: {lhs: liftM2, rhs: liftA2}
-- error: {lhs: x >> y, rhs: x *> y}
-- error: {lhs: x << y, rhs: x <* y}
+- error: {lhs: return, rhs: pure,   name: Generalize}
+- error: {lhs: ap,     rhs: (<*>),  name: Generalize}
+- error: {lhs: liftM2, rhs: liftA2, name: Generalize}
+- error: {lhs: x >> y, rhs: x *> y, name: Generalize}
+- error: {lhs: x << y, rhs: x <* y, name: Generalize}
 
-- error: {lhs: concatMap, rhs: foldMap}
-- error: {lhs: concat, rhs: fold}
-- error: {lhs: mconcat, rhs: fold}
-- error: {lhs: mapM_, rhs: traverse_}
-- error: {lhs: forM_, rhs: for_}
+# Generalize to Foldable.
+- error: {lhs: concatMap, rhs: foldMap,   name: Generalize to Foldable}
+- error: {lhs: concat,    rhs: fold,      name: Generalize to Foldable}
+- error: {lhs: mconcat,   rhs: fold,      name: Generalize to Foldable}
+- error: {lhs: mapM_,     rhs: traverse_, name: Generalize to Foldable}
+- error: {lhs: forM_,     rhs: for_,      name: Generalize to Foldable}
+- warn: {lhs: maybe mempty,          rhs: foldMap, name: Generalize to Foldable}
+- warn: {lhs: either (const mempty), rhs: foldMap, name: Generalize to Foldable}
+- warn: {lhs: fromMaybe mempty, rhs: fold}
+- warn: {lhs: fromRight mempty, rhs: fold}
 
-- error: {lhs: mapM, rhs: traverse}
-- error: {lhs: forM, rhs: for}
+- error: {lhs: mapM, rhs: traverse, name: Generalize}
+- error: {lhs: forM, rhs: for,      name: Generalize}
 
-- error: {lhs: x ++ y, rhs: x <> y}
-- error: {lhs: mappend, rhs: (<>)}
+# Generalize to Semigroup.
+- error: {lhs: x ++ y,  rhs: x <> y, name: Generalize}
+- error: {lhs: mappend, rhs: (<>),   name: Generalize}
 
 # Lens
-- error: {lhs: Control.Lens.view l (Control.Lens.set l v s), rhs: v}
-- error: {lhs: Control.Lens.set l (Control.Lens.view l s) s, rhs: s}
+- error: {lhs: Control.Lens.view l (Control.Lens.set l v s),   rhs: v}
+- error: {lhs: Control.Lens.set l (Control.Lens.view l s) s,   rhs: s}
 - error: {lhs: Control.Lens.set l v' (Control.Lens.set l v s), rhs: set l v' s}
 - error: {lhs: "l <%@~ const f", rhs: "l <%~ f"}
 - error: {lhs: Control.Lens.preview l (Control.Lens.review l b), rhs: Just b}
@@ -50,14 +59,14 @@
 - error: {lhs: Control.Lens.sets (Control.Lens.over l), rhs: l}
 - error: {lhs: Control.Lens.over (Control.Lens.sets l), rhs: l}
 - error: {lhs: "x & (Control.Lens.mapped .~ y)", rhs: "x $> y"}
-- error: {lhs: "ask . Control.Lens.view", rhs: "Control.Lens.view"}
-- error: {lhs: "asks . Control.Lens.view", rhs: "Control.Lens.view"}
-- error: {lhs: "ask . Control.Lens.views", rhs: "Control.Lens.views"}
-- error: {lhs: "ask . Control.Lens.views l", rhs: "Control.Lens.views l"}
-- error: {lhs: "asks . Control.Lens.views l", rhs: "Control.Lens.views l"}
+- error: {lhs: "ask . Control.Lens.view",      rhs: view, name: view already asks}
+- error: {lhs: "asks . Control.Lens.view",     rhs: view, name: view already asks}
+- error: {lhs: "ask . Control.Lens.views",     rhs: views,   name: views already asks}
+- error: {lhs: "ask . Control.Lens.views l",   rhs: views l, name: views already asks}
+- error: {lhs: "asks . Control.Lens.views l",  rhs: views l, name: views already asks}
 
-- warn: {lhs: Control.Lens.over l f . Control.Lens.over l g, rhs: Control.Lens.over l (f . g)}
-- warn: {lhs: Control.Lens.to f . Control.Lens.to g, rhs: Control.Lens.to (f . g)}
+- warn: {lhs: Control.Lens.over l f . Control.Lens.over l g, rhs: over l (f . g)}
+- warn: {lhs: Control.Lens.to f . Control.Lens.to g, rhs: to (f . g)}
 - warn: {lhs: Control.Lens.set l (Just x), rhs: "l ?~ x"}
-
-
+- warn: {lhs: either Just (const Nothing), rhs: preview _Left}
+- warn: {lhs: either (const Nothing) Just, rhs: preview _Right}

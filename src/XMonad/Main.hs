@@ -25,7 +25,7 @@ import qualified Data.Set as Set
 import Control.Monad (filterM, forever, guard, unless, when)
 import Control.Monad.Reader (ask, local)
 import Control.Monad.State (gets, modify)
-import Data.Foldable (fold, for_, traverse_)
+import Data.Foldable (fold, for_, traverse_, sequenceA_)
 import Data.Traversable (for)
 import Data.Maybe (fromMaybe)
 import Data.Monoid (getAll)
@@ -72,6 +72,7 @@ import qualified XMonad.Config as Default
 import XMonad.StackSet (new, member)
 import qualified XMonad.StackSet as W
 import XMonad.Operations
+import qualified XMonad.WindowSet as WS
 
 import System.IO (BufferMode (NoBuffering), hSetBuffering, stdout)
 import System.Directory (doesFileExist)
@@ -262,7 +263,7 @@ launch initxmc drs = do
         st = XState
             { windowset       = initialWinset
             , numberlockMask  = 0
-            , mapped          = Set.empty
+            , mapped          = WS.empty
             , waitingUnmap    = Map.empty
             , dragging        = Nothing
             , extensibleState = Map.empty
@@ -309,7 +310,7 @@ launch initxmc drs = do
       where
       -- if the event gives us the position of the pointer, set mousePosition
       mouse :: X.Event -> XConf -> XConf
-      mouse e = set _mousePosition (e^? X._RootPosition . X._Position . X.position)
+      mouse e = _mousePosition.~ (e^? X._RootPosition . X._Position . X.position)
       prehandle :: X.Event -> X ()
       prehandle e = local (mouse e . (_currentEvent ?~ e)) (handleWithHook e)
 
@@ -339,7 +340,8 @@ handle KeyEvent{ ev_event_type = t, ev_state = m, ev_keycode = code }
         s  <- io $ keycodeToKeysym dpy code 0
         mClean <- cleanMask m
         ks <- view _keyActions
-        userCodeDef () $ whenJust (Map.lookup (mClean, s) ks) id
+        -- userCodeDef () $ whenJust (Map.lookup (mClean, s) ks) id
+        userCodeDef () $ sequenceA_ (Map.lookup (mClean, s) ks)
 
 -- manage a new window
 handle MapRequestEvent{ ev_window = w } = withDisplay $ \dpy ->
@@ -352,7 +354,7 @@ handle MapRequestEvent{ ev_window = w } = withDisplay $ \dpy ->
 -- window gone,      unmanage it
 handle DestroyWindowEvent{ ev_window = w } = whenX (isClient w) $ do
     unmanage w
-    modify (\s -> s { mapped       = Set.delete w (mapped s)
+    modify (\s -> s { mapped       = WS.delete w (mapped s)
                     , waitingUnmap = Map.delete w (waitingUnmap s)})
 
 -- We track expected unmap events in waitingUnmap.  We ignore this event unless

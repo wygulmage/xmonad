@@ -99,12 +99,13 @@ import Data.Typeable
 import System.Environment (lookupEnv)
 import Path (Path)
 import qualified Path
+import qualified XMonad.WindowSet as WS
 
 
 -- | XState, the (mutable) window manager state.
 data XState = XState
     { windowset        :: !WindowSet                     -- ^ workspace list
-    , mapped           :: !(Set Window)                -- ^ the Set of mapped windows
+    , mapped           :: !WS.WindowSet                -- ^ the Set of mapped windows
     , waitingUnmap     :: !(Map Window Int)            -- ^ the number of expected UnmapEvents
     , dragging         :: !(Maybe (Position -> Position -> X (), X ()))
     , numberlockMask   :: !KeyMask                       -- ^ The numlock modifier
@@ -118,7 +119,7 @@ data XState = XState
 _windowset :: Lens' XState WindowSet
 _windowset = lens windowset (\ s x -> s{ windowset = x })
 
-_mapped :: Lens' XState (Set Window)
+_mapped :: Lens' XState WS.WindowSet
 _mapped = lens mapped (\ s x -> s{ mapped = x})
 
 _waitingUnmap :: Lens' XState (Map Window Int)
@@ -367,10 +368,11 @@ withWindowSet = (=<< use _windowset)
 
 -- | Safely access window attributes.
 withWindowAttributes :: Display -> Window -> (WindowAttributes -> X ()) -> X ()
-withWindowAttributes dpy win f = do
-    wa <- userCode (io $ getWindowAttributes dpy win)
-    -- catchX (whenJust wa f) (pure ())
-    userCodeDef () (whenJust wa f)
+withWindowAttributes dpy win f = userCodeDef () . traverse_ f =<< userCode (io $ getWindowAttributes dpy win)
+-- withWindowAttributes dpy win f = do
+--     wa <- userCode (io $ getWindowAttributes dpy win)
+--     -- catchX (whenJust wa f) (pure ())
+--     userCodeDef () (traverse_ f wa)
 
 -- | True if the given window is the root window
 isRoot :: Window -> X Bool
@@ -808,7 +810,8 @@ recompile Dirs{ cfgDir, dataDir } force = io $ do
 
 -- | Conditionally run an action, using a @Maybe a@ to decide.
 whenJust :: Monad m => Maybe a -> (a -> m ()) -> m ()
-whenJust = flip (maybe (pure ()))
+whenJust = for_
+{-# DEPRECATED whenJust "Use for_" #-}
 
 -- | Conditionally run an action, using a 'X' event to decide
 whenX :: Monad m => m Bool -> m () -> m ()
