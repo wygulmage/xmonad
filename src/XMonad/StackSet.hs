@@ -74,7 +74,7 @@ import Data.Map (Map)
 import qualified Data.Map  as Map (insert, delete, empty)
 import Control.Lens hiding ((<.>), from, index, view)
 import qualified Control.Lens as Lens
-
+import XMonad.Class.Windowed (Windowed)
 
 
 -- $intro

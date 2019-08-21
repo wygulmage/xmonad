@@ -71,6 +71,11 @@ library
                    XMonad.Operations
                    XMonad.StackSet
                    XMonad.Optic
+                   XMonad.Class.HasName
+                   XMonad.Class.HasRectangle
+                   XMonad.Class.Windowed
+                   XMonad.Type.Focused.Map
+                   -- XMonad.Type.Workspaces
                    -- XMonad.Type.Focused
                    -- XMonad.Type.Workspace
                    XMonad.Optic.X11
@@ -79,12 +84,13 @@ library
   hs-source-dirs:  src
   build-depends:   base                  >= 4.9 && < 5
                  , X11                   >= 1.8 && < 1.10
-                 , comonad
+                 , comonad >= 5.0
                  , containers
                  , data-default
                  , deepseq
                  , directory
                  , filepath
+                 , hashable
                  , lens
                  , mtl
                  , path
@@ -93,6 +99,7 @@ library
                  , semigroupoids
                  , setlocale
                  , unix
+                 , unordered-containers >= 0.2
                  , utf8-string           >= 0.3 && < 1.1
   ghc-options:     -funbox-strict-fields -Wall -fno-warn-unused-do-bind -Wno-unused-imports
 
