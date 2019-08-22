@@ -11,58 +11,62 @@
 module XMonad.Type.Focused.Map where
 
 
-import Prelude (Eq (..), Ord, otherwise)
+import Prelude (Eq (..), Ord, fst, snd, uncurry, otherwise)
 import Control.Applicative
 import Control.Category ((.))
 import Control.Comonad
 import Control.Lens
+import Data.Bifunctor (first)
 import Data.Functor.Apply
 import Data.Foldable
 import Data.Traversable
 import Data.Semigroup
 import Data.Semigroup.Foldable
 import Data.Monoid hiding (First)
-import qualified Data.Map.Strict as SM
-import Data.Maybe (Maybe (..))
+import qualified XMonad.Type.Strict.Map as SM
+import Data.Maybe (Maybe (..), maybe)
 
 
 data Map k v = Map !k !v !(SM.Map k v)
 
 type Key = Ord
 
+
+------- Instances -------
+
 type instance Index (Map i a) = i
 type instance IxValue (Map i a) = a
-instance Ord i => Ixed (Map i a) where
+instance (Key i, Semigroup a) => Ixed (Map i a) where
     ix k f kvs = case lookup k kvs of
        Just v -> (\ v' -> insert k v' kvs) <$> f v
        _ -> pure kvs
 
 
-instance Functor (Map k) where
+instance Key k => Functor (Map k) where
     fmap f (Map k v kvs) = Map k (f v) (fmap f kvs)
 
 
 instance Key i => Comonad (Map i) where
     extract (Map _ v _) = v
     -- ^ Get the focused value.
-    -- duplicate kvs = imap (\k v -> refocus k v kvs) kvs
-    duplicate kvs0@(Map k v kvs) = Map k kvs0 (imap refocus' kvs)
+    duplicate kvs0@(Map k _ kvs) = Map k kvs0 (imap refocus' kvs)
         where
         refocus' k' v' = Map k' v' (SM.delete k' kvs)
-    -- duplicate kvs1@(Map k v kvs) =
 
-instance Foldable (Map k) where
+instance Key k => Foldable (Map k) where
     foldMap = foldMapDefault
 
-instance Traversable (Map k) where
+instance Key k =>  Traversable (Map k) where
     traverse f = itraverse (pure f)
 
-instance FunctorWithIndex k (Map k)
-instance FoldableWithIndex k (Map k)
-instance TraversableWithIndex k (Map k) where
+instance Key k => FunctorWithIndex k (Map k)
+instance Key k => FoldableWithIndex k (Map k)
+instance Key k => TraversableWithIndex k (Map k) where
     itraverse f (Map k v kvs) =
         Map k <$> f k v <*> itraverse f kvs
 
+
+------- Functions -------
 
 lookup ::
     Key k =>
@@ -71,16 +75,15 @@ lookup k' (Map k v kvs)
     | k' == k = Just v
     | otherwise = SM.lookup k' kvs
 
-
-singleton :: Key k => k -> v -> Map k v
-singleton k v = Map k v SM.empty
-
-insert :: Key k => k -> v -> Map k v -> Map k v
+insert :: (Key k, Semigroup v) => k -> v -> Map k v -> Map k v
 insert k' v' (Map k v kvs)
   | k' == k = Map k' v' kvs
   | otherwise = Map k v (SM.insert k' v' kvs)
 
-refocus :: Key k => k -> v -> Map k v -> Map k v
+focusMapOn :: Key i => i -> SM.Map i v -> Maybe (Map i v)
+focusMapOn k kvs = uncurry (Map k) <$> SM.pop k kvs
+
+refocus :: (Key k, Semigroup v) => k -> v -> Map k v -> Map k v
 refocus k' v' (Map k v kvs) =
     Map k' v' kvs'
     where
@@ -92,9 +95,23 @@ refocus k' v' (Map k v kvs) =
 -- ^ Delete the focus and replace it with the provided values.
 -- replaceFocus k' v' (Map _ _ kvs) = Map k' v' kvs
 
-shiftFocus :: Key k => k -> Map k v -> Maybe (Map k v)
+shiftFocus ::
+    (Key k, Semigroup v) =>
+    k -> Map k v -> Maybe (Map k v)
 shiftFocus k' kvs1@(Map k v kvs)
     | k' == k = Just kvs1
     | otherwise = uncheckedRefocus <$> SM.lookup k' kvs
     where
     uncheckedRefocus v' = Map k' v' (SM.insert k v kvs)
+
+
+unionWith :: Ord i => (a -> a -> a) -> Map i a -> Map i a -> Map i a
+-- Keeps the left focus,
+unionWith f (Map k v kvs) (Map j u jus)
+    | k == j = Map k (f v u) (SM.unionWith f kvs jus)
+    | otherwise = Map k v' (SM.unionWith f kvs jus')
+         where
+         mujus' = SM.pop k jus
+         (v', jus') = maybe (v, jus) (first (f v)) mujus'
+         -- v' = maybe v ((<>) v . fst) mujus'
+         -- jus' = maybe jus snd mujus'
