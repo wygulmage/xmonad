@@ -11,13 +11,13 @@ module XMonad.Type.Strict.Map where
 
 
 import Prelude (Ord, Read, Show, Bool (..), fromIntegral)
-import Control.Applicative
+import Control.Applicative (pure)
 import Control.Category
 import Control.DeepSeq (NFData)
 import Control.Lens
 import Data.Functor
 import Data.Functor.Apply
-import Data.Foldable
+import Data.Foldable (Foldable (foldMap, foldr))
 -- import Data.Traversable
 import Data.Semigroup
 import Data.Monoid
@@ -35,14 +35,14 @@ type instance Index (Map i a) = i
 type instance IxValue (Map i a) = a
 
 instance (Ord i, Semigroup a) => Ixed (Map i a) where
-    ix k f kvs = case lookup k kvs of
+    ix k f kvs = case find k kvs of
         Just v -> (\ v' -> insert k v' kvs) <$> f v
         _ -> pure kvs
 
 instance (Ord i, Semigroup a) => At (Map i a) where
     at k f kvs = alter <$> f mv
         where
-        mv = lookup k kvs
+        mv = find k kvs
         alter (Just v) = insert k v kvs
         alter Nothing = maybe kvs (pure (delete k kvs)) mv
 
@@ -50,7 +50,7 @@ instance (Ord i, Semigroup a) => Semigroup (Map i a) where
     (<>) = unionWith (<>)
 
 instance (Ord i, Semigroup a) => Monoid (Map i a) where
-    mempty = Map SM.empty
+    mempty = empty
 
 instance Ord i => Functor (Map i) where
     fmap f = Map . fmap f . getMap
@@ -78,10 +78,15 @@ instance Ord i => Apply (Map i) where
 
 ------- Functions -------
 
--- For empty use mempty. You didn't want to use a non-Semigroup Map anyway, right?
+--- Constructors ---
+
+empty :: Map i a
+empty = Map SM.empty
 
 singleton :: i -> a -> Map i a
 singleton k = Map . SM.singleton k
+
+--- Map Properties ---
 
 null :: Map i a -> Bool
 null = SM.null . getMap
@@ -89,23 +94,29 @@ null = SM.null . getMap
 size :: Map i a -> Natural
 size = fromIntegral . SM.size . getMap
 
+--- Query Map ---
+
 findWith :: Ord i => b -> (a -> b) -> i -> Map i a -> b
-findWith z f k = maybe z f . lookup k
+findWith z f k = maybe z f . find k
 
-lookup :: Ord i => i -> Map i a -> Maybe a
-lookup k = SM.lookup k . getMap
-
-pop :: Ord i => i -> Map i a -> Maybe (a, Map i a)
-pop k kvs = (\ v -> (v, delete k kvs)) <$> lookup k kvs
-
-delete :: Ord i => i -> Map i a -> Map i a
-delete k = Map . SM.delete k . getMap
+find :: Ord i => i -> Map i a -> Maybe a
+find k = SM.lookup k . getMap
 
 insertWith :: Ord i => (a -> a -> a) -> i -> a -> Map i a -> Map i a
 insertWith f k v = Map . SM.insertWith f k v . getMap
 
 insert :: (Ord i, Semigroup a) => i -> a -> Map i a -> Map i a
 insert = insertWith (<>)
+
+replace :: Ord i => i -> a -> Map i a -> Map i a
+replace k v = Map . SM.insert k v . getMap
+
+delete :: Ord i => i -> Map i a -> Map i a
+delete k = Map . SM.delete k . getMap
+
+pop :: Ord i => i -> Map i a -> Maybe (a, Map i a)
+pop k kvs = (\ v -> (v, delete k kvs)) <$> find k kvs
+
 
 -- For 'union' use '(<>)'.
 

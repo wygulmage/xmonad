@@ -18,7 +18,7 @@ import Control.Comonad
 import Control.Lens
 import Data.Bifunctor (first)
 import Data.Functor.Apply
-import Data.Foldable
+import Data.Foldable (Foldable (foldMap, foldr))
 import Data.Traversable
 import Data.Semigroup
 import Data.Semigroup.Foldable
@@ -37,7 +37,7 @@ type Key = Ord
 type instance Index (Map i a) = i
 type instance IxValue (Map i a) = a
 instance (Key i, Semigroup a) => Ixed (Map i a) where
-    ix k f kvs = case lookup k kvs of
+    ix k f kvs = case find k kvs of
        Just v -> (\ v' -> insert k v' kvs) <$> f v
        _ -> pure kvs
 
@@ -68,12 +68,12 @@ instance Key k => TraversableWithIndex k (Map k) where
 
 ------- Functions -------
 
-lookup ::
+find ::
     Key k =>
     k -> Map k v -> Maybe v
-lookup k' (Map k v kvs)
+find k' (Map k v kvs)
     | k' == k = Just v
-    | otherwise = SM.lookup k' kvs
+    | otherwise = SM.find k' kvs
 
 insert :: (Key k, Semigroup v) => k -> v -> Map k v -> Map k v
 insert k' v' (Map k v kvs)
@@ -100,7 +100,7 @@ shiftFocus ::
     k -> Map k v -> Maybe (Map k v)
 shiftFocus k' kvs1@(Map k v kvs)
     | k' == k = Just kvs1
-    | otherwise = uncheckedRefocus <$> SM.lookup k' kvs
+    | otherwise = uncheckedRefocus <$> SM.find k' kvs
     where
     uncheckedRefocus v' = Map k' v' (SM.insert k v kvs)
 
