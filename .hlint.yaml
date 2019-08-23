@@ -60,6 +60,7 @@
 - error: {lhs: Control.Lens.over (Control.Lens.sets l), rhs: l}
 - error: {lhs: "x & (Control.Lens.mapped .~ y)", rhs: "x $> y"}
 - error: {lhs: "ask . Control.Lens.view",      rhs: view, name: view already asks}
+- error: {lhs: "ask (^. o)",      rhs: "(^. o)", name: view already asks}
 - error: {lhs: "asks . Control.Lens.view",     rhs: view, name: view already asks}
 - error: {lhs: "ask . Control.Lens.views",     rhs: views,   name: views already asks}
 - error: {lhs: "ask . Control.Lens.views l",   rhs: views l, name: views already asks}
@@ -68,5 +69,12 @@
 - warn: {lhs: Control.Lens.over l f . Control.Lens.over l g, rhs: over l (f . g)}
 - warn: {lhs: Control.Lens.to f . Control.Lens.to g, rhs: to (f . g)}
 - warn: {lhs: Control.Lens.set l (Just x), rhs: "l ?~ x"}
+- warn: {lhs: "l .~ (Just x)", rhs: "l ?~ x"}
 - warn: {lhs: either Just (const Nothing), rhs: preview _Left}
 - warn: {lhs: either (const Nothing) Just, rhs: preview _Right}
+
+# warn: {lhs: "Data.Map.Strict.unionWith (<>)", rhs: "(<>)"}
+
+# Data.Functor.Apply
+- warn: {lhs: "Data.Map.Strict.intersectionWith", rhs: liftF2}
+- warn: {lhs: "Data.Map.Lazy.intersectionWith", rhs: liftF2}

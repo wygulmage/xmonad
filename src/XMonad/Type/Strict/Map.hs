@@ -21,6 +21,7 @@ import Data.Foldable (Foldable (foldMap, foldr))
 -- import Data.Traversable
 import Data.Semigroup
 import Data.Monoid
+import Data.Either (Either (..))
 import Data.Maybe (Maybe (..), maybe)
 import qualified Data.Map.Strict as SM
 import Numeric.Natural (Natural)
@@ -35,14 +36,14 @@ type instance Index (Map i a) = i
 type instance IxValue (Map i a) = a
 
 instance (Ord i, Semigroup a) => Ixed (Map i a) where
-    ix k f kvs = case find k kvs of
+    ix k f kvs = case lookup k kvs of
         Just v -> (\ v' -> insert k v' kvs) <$> f v
         _ -> pure kvs
 
 instance (Ord i, Semigroup a) => At (Map i a) where
     at k f kvs = alter <$> f mv
         where
-        mv = find k kvs
+        mv = lookup k kvs
         alter (Just v) = insert k v kvs
         alter Nothing = maybe kvs (pure (delete k kvs)) mv
 
@@ -73,7 +74,8 @@ instance Ord i => TraversableWithIndex i (Map i) where
     itraverse f = fmap Map . itraverse f . getMap
 
 instance Ord i => Apply (Map i) where
-    liftF2 f (Map kvs) = Map . SM.intersectionWith f kvs . getMap
+    liftF2 f (Map kvs) = Map . liftF2 f kvs . getMap
+    -- liftF2 f (Map kvs) = Map . SM.intersectionWith f kvs . getMap
 
 
 ------- Functions -------
@@ -86,7 +88,7 @@ empty = Map SM.empty
 singleton :: i -> a -> Map i a
 singleton k = Map . SM.singleton k
 
---- Map Properties ---
+--- Properties ---
 
 null :: Map i a -> Bool
 null = SM.null . getMap
@@ -94,13 +96,15 @@ null = SM.null . getMap
 size :: Map i a -> Natural
 size = fromIntegral . SM.size . getMap
 
---- Query Map ---
+--- Query ---
 
-findWith :: Ord i => b -> (a -> b) -> i -> Map i a -> b
-findWith z f k = maybe z f . find k
+lookupWith :: Ord i => b -> (a -> b) -> i -> Map i a -> b
+lookupWith z f k = maybe z f . lookup k
 
-find :: Ord i => i -> Map i a -> Maybe a
-find k = SM.lookup k . getMap
+lookup :: Ord i => i -> Map i a -> Maybe a
+lookup k = SM.lookup k . getMap
+
+--- Modify ---
 
 insertWith :: Ord i => (a -> a -> a) -> i -> a -> Map i a -> Map i a
 insertWith f k v = Map . SM.insertWith f k v . getMap
@@ -109,14 +113,15 @@ insert :: (Ord i, Semigroup a) => i -> a -> Map i a -> Map i a
 insert = insertWith (<>)
 
 replace :: Ord i => i -> a -> Map i a -> Map i a
-replace k v = Map . SM.insert k v . getMap
+replace = insertWith pure
 
 delete :: Ord i => i -> Map i a -> Map i a
 delete k = Map . SM.delete k . getMap
 
 pop :: Ord i => i -> Map i a -> Maybe (a, Map i a)
-pop k kvs = (\ v -> (v, delete k kvs)) <$> find k kvs
+pop k kvs = (\ v -> (v, delete k kvs)) <$> lookup k kvs
 
+--- Combine ---
 
 -- For 'union' use '(<>)'.
 
