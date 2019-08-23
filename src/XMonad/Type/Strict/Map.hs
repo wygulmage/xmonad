@@ -46,8 +46,6 @@ instance (Ord i, Semigroup a) => At (Map i a) where
         alter (Just v) = insert k v kvs
         alter Nothing = maybe kvs (pure (delete k kvs)) mv
 
-
-
 instance (Ord i, Semigroup a) => Semigroup (Map i a) where
     (<>) = unionWith (<>)
 
@@ -91,31 +89,30 @@ null = SM.null . getMap
 size :: Map i a -> Natural
 size = fromIntegral . SM.size . getMap
 
+findWith :: Ord i => b -> (a -> b) -> i -> Map i a -> b
+findWith z f k = maybe z f . lookup k
+
 lookup :: Ord i => i -> Map i a -> Maybe a
 lookup k = SM.lookup k . getMap
 
-findWithDefault :: Ord i => a -> i -> Map i a -> a
-findWithDefault v k = SM.findWithDefault v k . getMap
-
-insert :: (Ord i, Semigroup a) => i -> a -> Map i a -> Map i a
-insert k v = Map . SM.insertWith (<>) k v . getMap
+pop :: Ord i => i -> Map i a -> Maybe (a, Map i a)
+pop k kvs = (\ v -> (v, delete k kvs)) <$> lookup k kvs
 
 delete :: Ord i => i -> Map i a -> Map i a
 delete k = Map . SM.delete k . getMap
 
-pop :: Ord i => i -> Map i a -> Maybe (a, Map i a)
-pop k kvs = (\ v -> (v, delete k kvs)) <$> lookup k kvs
--- pop k kvs = case lookup k kvs of
-    -- Just v -> Just (v, delete k kvs)
-    -- _ -> Nothing
+insertWith :: Ord i => (a -> a -> a) -> i -> a -> Map i a -> Map i a
+insertWith f k v = Map . SM.insertWith f k v . getMap
 
+insert :: (Ord i, Semigroup a) => i -> a -> Map i a -> Map i a
+insert = insertWith (<>)
 
--- for 'union' use '(<>)'.
+-- For 'union' use '(<>)'.
 
 unionWith :: Ord i => (a -> a -> a) -> Map i a -> Map i a -> Map i a
 unionWith f (Map kvs)  = Map . SM.unionWith f kvs . getMap
 
--- for 'intersectionWith' use 'liftF2'.
+-- For 'intersectionWith' use 'liftF2'.
 
 intersection :: (Ord i, Semigroup a) => Map i a -> Map i a -> Map i a
 intersection = liftF2 (<>)
@@ -123,3 +120,5 @@ intersection = liftF2 (<>)
 differenceWith :: Ord i => (a -> b -> Maybe a) -> Map i a -> Map i b -> Map i a
 differenceWith f (Map kvs) =
     Map . SM.differenceWith f  kvs. getMap
+
+--  No subtractive semigroups to base 'difference' on.

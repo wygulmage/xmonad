@@ -137,7 +137,7 @@ windows f = do
 
     traverse_ setInitialProperties newwindows
 
-    whenJust (W.peek old) $ \otherw -> do
+    for_ (W.peek old) $ \otherw -> do
       nbs <- view $ _config . _normalBorderColor
       setWindowBorderWithFallback d otherw nbs nbc
 
@@ -182,7 +182,7 @@ windows f = do
 
     traverse_ (uncurry tileWindow) rects
 
-    whenJust (W.peek ws) $ \w -> do
+    for_ (W.peek ws) $ \w -> do
       fbs <- view (_config._focusedBorderColor)
       setWindowBorderWithFallback d w fbs fbc
 
@@ -427,8 +427,7 @@ sendMessage :: Message a => a -> X ()
 sendMessage a = windowBracket_ $ do
     w <- use $ _windowset . W._current . W._workspace
     ml' <- handleMessage (w ^. W._layout) (SomeMessage a) `catchX` pure Nothing
-    whenJust ml' $
-        (_windowset %=) . set W._currentLayout
+    for_ ml' $ (_windowset %=) . set W._currentLayout
     pure (Any $ isJust ml')
 
 -- | Send a message to all layouts, without refreshing.
@@ -444,7 +443,7 @@ sendMessageWithNoRefresh a w =
 
 -- | Update the layout field of a workspace
 updateLayout :: WorkspaceId -> Maybe (Layout Window) -> X ()
-updateLayout i ml = whenJust ml $ \l ->
+updateLayout i ml = for_ ml $ \l ->
     runOnWorkspaces $ \ww -> pure $ if view W._tag ww == i then set W._layout l ww else ww
 
 -- | Set the layout of the currently viewed workspace
@@ -465,7 +464,7 @@ screenWorkspace sc = withWindowSet $ pure . W.lookupWorkspace sc
 
 -- | Apply an 'X' operation to the currently focused window, if there is one.
 withFocused :: (Window -> X ()) -> X ()
-withFocused f = withWindowSet $ \w -> (whenJust . W.peek) w f
+withFocused f = withWindowSet $ \w -> (for_ . W.peek) w f
 
 -- | 'True' if window is under management by us
 isClient :: Window -> X Bool
@@ -563,7 +562,7 @@ readStateFile xmc = do
 migrateState :: (Functor m, MonadIO m) => Dirs -> String -> String -> m ()
 migrateState Dirs{ dataDir } ws xs = do
     io (putStrLn "WARNING: --resume is no longer supported.")
-    whenJust stateData $ \s ->
+    for_ stateData $ \s ->
         catchIO (writeFile (dataDir </> "xmonad.state") $ show s)
   where
     stateData = StateFile <$> maybeRead ws <*> maybeRead xs
