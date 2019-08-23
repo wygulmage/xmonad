@@ -370,6 +370,10 @@ instance Functor Stack where
     -- Order should not matter?
     fmap f (Stack x xus xds) = Stack (f x) (fmap f xus) (fmap f xds)
 
+-- instance Comonad Stack where
+  -- extract = focus
+  -- extend xs@(_ ups downs) = Stack xs
+
 instance Semigroup (Stack a) where
     Stack x xu xd <> s =
         Stack x xu (xd <> toList s)

@@ -78,6 +78,7 @@ library
   hs-source-dirs:  src
   build-depends:   base                  >= 4.9 && < 5
                  , X11                   >= 1.8 && < 1.10
+                 , comonad
                  , containers
                  , data-default
                  , directory
