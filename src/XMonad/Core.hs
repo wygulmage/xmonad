@@ -769,10 +769,10 @@ recompile Dirs{ cfgDir, dataDir } force = io $ do
             then trace "XMonad recompilation process exited with success!"
             else do
                 ghcErr <- readFile err
-                let msg = unlines $
+                let msg =
+                      unlines $
                         ["Error detected while loading xmonad configuration file: " <> src]
-                        <>  [if null ghcErr then show status else ghcErr]
-                        -- <> lines (if null ghcErr then show status else ghcErr)
+                        <> lines (if null ghcErr then show status else ghcErr)
                         <> ["","Please check the file for errors."]
                 -- nb, the ordering of printing, then forking, is crucial due to
                 -- lazy evaluation
@@ -815,7 +815,10 @@ whenJust = for_
 
 -- | Conditionally run an action, using a 'X' event to decide
 whenX :: Monad m => m Bool -> m () -> m ()
-whenX a f = a >>= flip when f
+whenX mb ma = mb >>= flip when ma
+-- whenX mb mx = do
+    -- b <- mb
+    -- if b then mx else pure mempty
 
 -- | A 'trace' for the 'X' monad. Logs a string to stderr. The result may
 -- be found in your .xsession-errors file

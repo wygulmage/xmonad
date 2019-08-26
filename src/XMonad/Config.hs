@@ -36,11 +36,11 @@ import XMonad.ManageHook
 import qualified XMonad.StackSet as W
 import Data.Bits ((.|.))
 import Data.Default
-import Data.Monoid
-import qualified Data.Map as M
+-- import Data.Monoid
+import qualified Data.Map as Map
 import System.Exit
 import Graphics.X11.Xlib
-import Graphics.X11.Xlib.Extras
+-- import Graphics.X11.Xlib.Extras
 
 -- | The default number of workspaces (virtual screens) and their names.
 -- By default we use numeric strings, but any string may be used as a
@@ -69,9 +69,9 @@ borderWidth = 1
 
 -- | Border colors for unfocused and focused windows, respectively.
 --
-normalBorderColor, focusedBorderColor :: String
-normalBorderColor  = "black" -- "#000000"
-focusedBorderColor = "white" -- "#ffffff" don't use hex, not <24 bit safe
+-- normalBorderColor, focusedBorderColor :: String
+-- normalBorderColor  = "black" -- "#000000"
+-- focusedBorderColor = "white" -- "#ffffff" don't use hex, not <24 bit safe
 
 ------------------------------------------------------------------------
 -- Window rules
@@ -86,9 +86,8 @@ focusedBorderColor = "white" -- "#ffffff" don't use hex, not <24 bit safe
 -- and click on the client you're interested in.
 --
 manageHook :: ManageHook
-manageHook = composeAll
-                [ className =? "MPlayer"        --> doFloat
-                , className =? "mplayer2"       --> doFloat ]
+manageHook = (className =? "MPlayer"  --> doFloat)
+          <> (className =? "mplayer2" --> doFloat)
 
 ------------------------------------------------------------------------
 -- Logging
@@ -180,8 +179,8 @@ clickJustFocuses = True
 --
 -- (The comment formatting character is used when generating the manpage)
 --
-keys :: XConfig Layout -> M.Map (KeyMask, KeySym) (X ())
-keys conf@XConfig {XMonad.modMask = modMask} = M.fromList $
+keys :: XConfig Layout -> Map.Map (KeyMask, KeySym) (X ())
+keys conf@XConfig {XMonad.modMask = modMask} = Map.fromList $
     -- launching and killing programs
     [ ((modMask .|. shiftMask, xK_Return), spawn $ XMonad.terminal conf) -- %! Launch terminal
     , ((modMask,               xK_p     ), spawn "dmenu_run") -- %! Launch dmenu
@@ -239,8 +238,8 @@ keys conf@XConfig {XMonad.modMask = modMask} = M.fromList $
     helpCommand = spawn ("echo " <> show help <> " | xmessage -file -")
 
 -- | Mouse bindings: default actions bound to mouse events
-mouseBindings :: XConfig Layout -> M.Map (KeyMask, Button) (Window -> X ())
-mouseBindings XConfig {XMonad.modMask = modMask} = M.fromList
+mouseBindings :: XConfig Layout -> Map.Map (KeyMask, Button) (Window -> X ())
+mouseBindings XConfig {XMonad.modMask = modMask} = Map.fromList
     -- mod-button1 %! Set the window to floating mode and move by dragging
     [ ((modMask, button1), \w -> focus w *> mouseMoveWindow w *> windows W.shiftMaster)
     -- mod-button2 %! Raise the window to the top of the stack
