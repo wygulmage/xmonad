@@ -35,6 +35,7 @@ import Data.Foldable
 import Data.Traversable
 import Data.Functor
 import Data.Bifunctor (bimap)
+import Data.Biapplicative (biliftA2)
 import Data.Maybe
 import Data.Monoid          (Endo(..),Any(..))
 import Data.List            (nub, (\\))
@@ -621,21 +622,26 @@ floatLocation w =
                   then W.RationalRect x y width height
                   else W.RationalRect (0.5 - width/2) (0.5 - height/2) width height
 
-          pure (W.screen sc, rr)
+          pure (sc^.W._screen, rr)
 
 -- | Given a point, determine the screen (if any) that contains it.
 pointScreen :: Position -> Position
             -> X (Maybe (W.Screen WorkspaceId (Layout Window) Window ScreenId ScreenDetail))
 pointScreen x y = withWindowSet $ pure . findOf W._screens p
-  where p = views  (W._screenDetail . _screenRect) (pointWithin x y)
+  where p = views (W._screenDetail . _screenRect) (pointWithin x y)
 
 -- | @pointWithin x y r@ returns 'True' if the @(x, y)@ co-ordinate is within
 -- @r@.
 pointWithin :: Position -> Position -> Rectangle -> Bool
-pointWithin x y r = x >= rect_x r &&
-                    x <  rect_x r + fromIntegral (rect_width r) &&
-                    y >= rect_y r &&
-                    y <  rect_y r + fromIntegral (rect_height r)
+pointWithin x y r = x  >=  rx        &&
+                    x  <   rx + rw   &&
+                    y  >=  ry        &&
+                    y  <   ry + rh
+    where
+    rx = rect_x r
+    ry = rect_y r
+    rw = fromIntegral (rect_width r)
+    rh = fromIntegral (rect_height r)
 
 -- | Make a tiled window floating, using its suggested rectangle
 float :: Window -> X ()
@@ -677,12 +683,15 @@ mouseMoveWindow :: Window -> X ()
 mouseMoveWindow w = whenX (isClient w) . withDisplay $ \d -> do
     io $ raiseWindow d w
     wa <- io $ getWindowAttributes d w
-    (_, _, _, ox', oy', _, _, _) <- io $ queryPointer d w
-    let ox = fi ox'
-        oy = fi oy'
+    (_, _, _, ox, oy, _, _, _) <- io $ queryPointer d w
+    -- let ox = fi ox'
+    --     oy = fi oy'
     mouseDrag (\ex ey ->
-                  io (moveWindow d w (fi (fi (wa_x wa) + (ex - ox)))
-                                     (fi (fi (wa_y wa) + (ey - oy))))
+                 io (moveWindow d w (fi (wa_x wa) + (fi ex - fi ox))
+                                    (fi (wa_y wa) + (fi ey - fi oy)))
+
+                 -- io (moveWindow d w (fi (fi (wa_x wa) + (ex - fi ox')))
+                 --                     (fi (fi (wa_y wa) + (ey - fi oy'))))
                   *> float w)
               (float w)
         where
@@ -772,7 +781,7 @@ applyResizeIncHint (iw, ih)
 
 
 -- | Reduce the dimensions if they exceed the given maximum dimensions.
-applyMaxSizeHint  :: D -> D -> D
+applyMaxSizeHint :: D -> D -> D
 applyMaxSizeHint (mw, mh)
-    | mw > 0 && mh > 0 = bimap (min mw) (min mh)
+    | mw > 0 && mh > 0 = bimap (min mw) (min mh) -- Why are the dimensions not tested individually?
     | otherwise        = id

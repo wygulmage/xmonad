@@ -168,8 +168,9 @@ buildLaunch dirs@Dirs{ dataDir } = do
 
 sendRestart :: IO ()
 sendRestart = do
-    dpy <- openDisplay ""
-    rw <- rootWindow dpy $ defaultScreen dpy
+    -- dpy <- openDisplay ""
+    -- rw <- rootWindow dpy $ defaultScreen dpy
+    (dpy, _, rw) <- openDisplayScreenWindow
     xmonad_restart <- internAtom dpy "XMONAD_RESTART" False
     allocaXEvent $ \e ->
         setEventType e clientMessage
@@ -177,13 +178,25 @@ sendRestart = do
         *> sendEvent dpy rw False structureNotifyMask e
     sync dpy False
 
+
+openDisplayScreenWindow :: IO (Display, ScreenNumber, Window)
+openDisplayScreenWindow = do
+    dpy <- openDisplay ""
+    let dflt = defaultScreen dpy
+    rootWin <- rootWindow dpy dflt
+    pure (dpy, dflt, rootWin)
+
+
 -- | a wrapper for 'replace'
 sendReplace :: IO ()
 sendReplace = do
-    dpy <- openDisplay ""
-    let dflt = defaultScreen dpy
-    rootw  <- rootWindow dpy dflt
-    replace dpy dflt rootw
+   (dpy, dflt, rootWin) <- openDisplayScreenWindow
+   replace dpy dflt rootWin
+-- sendReplace = do
+--     dpy <- openDisplay ""
+--     let dflt = defaultScreen dpy
+--     rootw  <- rootWindow dpy dflt
+--     replace dpy dflt rootw
 
 -- | Entry point into xmonad for custom builds.
 --
@@ -214,10 +227,10 @@ launch initxmc drs = do
     -- First, wrap the layout in an existential, to keep things pretty:
     -- let xmc = initxmc { layoutHook = Layout $ layoutHook initxmc }
     let xmc = over _layoutHook Layout initxmc
-    dpy   <- openDisplay ""
-    let dflt = defaultScreen dpy
-
-    rootw  <- rootWindow dpy dflt
+    -- dpy   <- openDisplay ""
+    -- let dflt = defaultScreen dpy
+    -- rootw  <- rootWindow dpy dflt
+    (dpy, _, rootw) <- openDisplayScreenWindow
 
     -- If another WM is running, a BadAccess error will be returned.  The
     -- default error handler will write the exception to stderr and exit with
@@ -232,7 +245,7 @@ launch initxmc drs = do
 
     xinesc <- getCleanedScreenInfo dpy
 
-    nbc    <- do v            <- initColor dpy $ normalBorderColor  xmc
+    nbc    <- do v            <- initColor dpy $ normalBorderColor xmc
                  ~(Just nbc_) <- initColor dpy $ normalBorderColor Default.def
                  pure (fromMaybe nbc_ v)
 
@@ -243,7 +256,7 @@ launch initxmc drs = do
     hSetBuffering stdout NoBuffering
 
     let layout = layoutHook xmc
-        initialWinset = let padToLen n xs = take (max n (length xs)) $ xs <> repeat ""
+        initialWinset = let padToLen n xs = take (max n (length xs)) $ xs <> repeat mempty
             in new layout (padToLen (length xinesc) (workspaces xmc)) $ fmap SD xinesc
 
         cf = XConf
@@ -354,8 +367,9 @@ handle MapRequestEvent{ ev_window = w } = withDisplay $ \dpy ->
 -- window gone,      unmanage it
 handle DestroyWindowEvent{ ev_window = w } = whenX (isClient w) $ do
     unmanage w
-    modify (\s -> s { mapped       = WS.delete w (mapped s)
-                    , waitingUnmap = Map.delete w (waitingUnmap s)})
+    modify (over _mapped (WS.delete w) . over _waitingUnmap (Map.delete w))
+    -- modify (\s -> s { mapped       = WS.delete w (mapped s)
+    --                 , waitingUnmap = Map.delete w (waitingUnmap s)})
 
 -- We track expected unmap events in waitingUnmap.  We ignore this event unless
 -- it is synthetic or we are not expecting an unmap notification from a window.

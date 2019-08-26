@@ -419,7 +419,8 @@ greedyView w ws
 -- | Find the tag of the workspace visible on Xinerama screen 'sc'.
 -- 'Nothing' if screen is out of bounds.
 lookupWorkspace :: Eq s => s -> StackSet i l a s sd -> Maybe i
-lookupWorkspace sc w = listToMaybe [ tag i | Screen i s _ <- current w : visible w, s == sc ]
+-- lookupWorkspace sc w = listToMaybe [ tag i | Screen i s _ <- current w : visible w, s == sc ]
+lookupWorkspace sc = fmap (^._workspace . _tag) . findOf _screens (views _screen (== sc))
 
 -- ---------------------------------------------------------------------
 -- $stackOperations

@@ -85,6 +85,7 @@ library
   hs-source-dirs:  src
   build-depends:   base                  >= 4.9 && < 5
                  , X11                   >= 1.8 && < 1.10
+                 , bifunctors >= 5.5
                  , comonad >= 5.0
                  , containers
                  , data-default
