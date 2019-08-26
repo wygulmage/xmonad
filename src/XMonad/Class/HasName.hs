@@ -1,6 +1,5 @@
 {-# LANGUAGE
     FlexibleInstances
-  , TypeSynonymInstances
   #-}
 
 module XMonad.Class.HasName where

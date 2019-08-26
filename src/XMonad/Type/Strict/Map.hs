@@ -15,6 +15,7 @@ import Control.Applicative (pure)
 import Control.Category
 import Control.DeepSeq (NFData)
 import Control.Lens
+import Control.Monad ((=<<))
 import Data.Functor
 import Data.Functor.Apply
 import Data.Foldable (Foldable (foldMap, foldr))
@@ -119,7 +120,8 @@ delete :: Ord i => i -> Map i a -> Map i a
 delete k = Map . SM.delete k . getMap
 
 pop :: Ord i => i -> Map i a -> Maybe (a, Map i a)
-pop k kvs = (\ v -> (v, delete k kvs)) <$> lookup k kvs
+pop k (Map kvs) = case SM.updateLookupWithKey (pure (pure Nothing)) k kvs of
+    (mv, kvs') -> (\ v -> Just (v, Map kvs')) =<< mv
 
 --- Combine ---
 
@@ -135,6 +137,11 @@ intersection = liftF2 (<>)
 
 differenceWith :: Ord i => (a -> b -> Maybe a) -> Map i a -> Map i b -> Map i a
 differenceWith f (Map kvs) =
-    Map . SM.differenceWith f  kvs. getMap
+    Map . SM.differenceWith f kvs. getMap
 
---  No subtractive semigroups to base 'difference' on.
+
+--- Differentiate ---
+
+splitLookup :: Ord i => i -> Map i a -> (Map i a, Maybe a, Map i a)
+splitLookup k (Map kvs) = case SM.splitLookup k kvs of
+    (kvl, mv, kvr) -> (Map kvl, mv, Map kvr)

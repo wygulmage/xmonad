@@ -1,4 +1,9 @@
-{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses, PatternGuards, TypeSynonymInstances, DeriveDataTypeable #-}
+{-# LANGUAGE
+    FlexibleInstances
+  , MultiParamTypeClasses
+  , PatternGuards
+  , DeriveDataTypeable
+  #-}
 
 -- --------------------------------------------------------------------------
 -- |
