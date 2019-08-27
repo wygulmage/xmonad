@@ -291,11 +291,11 @@ _screenRect = lens screenRect (\ s x -> s{ screenRect = x })
 -- instantiated on 'XConf' and 'XState' automatically.
 --
 newtype X a = X (ReaderT XConf (StateT XState IO) a)
-    deriving (Functor, Monad, MonadFail, MonadIO, MonadState XState, MonadReader XConf, Typeable)
+    deriving (Functor, Applicative, Monad, MonadFail, MonadIO, MonadState XState, MonadReader XConf, Typeable)
 
-instance Applicative X where
-    pure = return
-    (<*>) = ap
+-- instance Applicative X where
+    -- pure = return
+    -- (<*>) = ap
 
 instance Semigroup a => Semigroup (X a) where
     (<>) = liftA2 (<>)
@@ -347,7 +347,7 @@ catchX job errcase = do
 -- 'catchX' should be used at all callsites of user customized code.
 userCode :: X a -> X (Maybe a)
 -- userCode a = catchX (Just <$> a) (pure Nothing)
-userCode = userCodeDef Nothing . fmap Just
+userCode = userCodeDef empty . fmap pure
 
 -- | Same as userCode but with a default argument to return instead of using
 -- Maybe, provided for convenience.
@@ -376,7 +376,8 @@ withWindowAttributes dpy win f = userCodeDef () . traverse_ f =<< userCode (io $
 
 -- | True if the given window is the root window
 isRoot :: Window -> X Bool
-isRoot w = (w ==) <$> Lens.view _theRoot
+-- isRoot w = (w ==) <$> Lens.view _theRoot
+isRoot w = views _theRoot (w ==)
 
 -- | Wrapper for the common case of atom internment
 getAtom :: String -> X Atom
