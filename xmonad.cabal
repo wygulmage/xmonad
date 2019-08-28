@@ -74,6 +74,7 @@ library
                    XMonad.Class.HasName
                    XMonad.Class.HasRectangle
                    XMonad.Class.Windowed
+                   XMonad.Type.Layout
                    XMonad.Type.Strict.Map
                    -- XMonad.Type.Focused.Map
                    -- XMonad.Type.Workspaces

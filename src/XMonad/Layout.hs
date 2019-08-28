@@ -37,7 +37,9 @@ import Control.Applicative (Applicative, (<*>), (<*), (*>), pure, liftA2)
 import Control.Arrow ((***), second)
 import Control.Monad
 import Data.Functor (Functor, (<$>), (<$))
+import Data.Foldable (toList)
 import Data.Maybe (fromMaybe)
+import qualified Data.List.NonEmpty as NonEmpty (unfoldr)
 
 ------------------------------------------------------------------------
 
@@ -101,10 +103,16 @@ tile f r nmaster n = if n <= nmaster || nmaster == 0
 -- Divide the screen vertically into n subrectangles
 --
 splitVertically, splitHorizontally :: Int -> Rectangle -> [Rectangle]
-splitVertically n r | n < 2 = [r]
-splitVertically n (Rectangle sx sy sw sh) = Rectangle sx sy sw smallh :
-    splitVertically (n-1) (Rectangle sx (sy+fromIntegral smallh) sw (sh-smallh))
-  where smallh = sh `div` fromIntegral n --hmm, this is a fold or map.
+splitVertically n rect = toList $ NonEmpty.unfoldr verticalSplitter (n, rect)
+
+verticalSplitter :: (Int, Rectangle) -> (Rectangle, Maybe (Int, Rectangle))
+verticalSplitter (n, rect@(Rectangle x y w h))
+   | n <= 1 = (rect, Nothing)
+   | otherwise = (Rectangle x y w h', Just (n - 1, Rectangle x y' w h''))
+   where
+   h' = h `div` fromIntegral n
+   h'' = h - h'
+   y' = y + fromIntegral h'
 
 -- Not used in the core, but exported
 splitHorizontally n = fmap mirrorRect . splitVertically n . mirrorRect
