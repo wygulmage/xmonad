@@ -21,22 +21,27 @@ import Control.Monad (join)
 import Data.Bifunctor (bimap)
 import Foreign.C.Types (CInt, CULong)
 import Graphics.X11.Types (Colormap, EventType, NotifyDetail, Window)
-import Graphics.X11.Xlib (Display)
+import Graphics.X11.Xlib (Display, Rectangle (..))
 import qualified Graphics.X11.Xlib as X
 import Graphics.X11.Xlib.Extras (Event, WindowAttributes (WindowAttributes), WindowChanges (WindowChanges))
 import qualified Graphics.X11.Xlib.Extras as X
+import Data.Int (Int32)
+import Data.Word (Word32)
 import Data.Coerce (coerce)
+
 
 -- data Position = Position {-# UNPACK #-} !CInt {-# UNPACK #-} !CInt
 -- data Dimensions = Dimensions {-# UNPACK #-} !CInt {-# UNPACK #-} !CInt
 -- data RootPosition = RootPosition {-# UNPACK #-} !Window {-# UNPACK #-} !CInt {-# UNPACK #-} !CInt
 newtype Position = Position{ getPosition :: (CInt, CInt) }
+-- X11 uses both CInt and Int32, but CInt seems to be the least common denominator. Ideally we'd use Integer.
 position :: Integral a => Iso' Position (a, a)
 position = iso
     (join bimap fromIntegral . getPosition)
     (Position . join bimap fromIntegral)
 
 newtype Dimensions = Dimensions{ getDimensions :: (CInt, CInt) }
+-- X11 uses both CInt and Word32. but CInt seems to be the least common denominator. Ideally we'd use Natural.
 dimensions :: Integral a => Iso' Dimensions (a, a)
 dimensions = iso
     (join bimap fromIntegral . getDimensions)
@@ -50,16 +55,16 @@ rootPosition = iso coerce RootPosition
 --- NOTE: 'x' and 'y' are in scope unqualified as methods. Don't use them as variables!
 
 class HasPosition t where
-    x :: Lens' t CInt
-    y :: Lens' t CInt
+    _x :: Lens' t CInt
+    _y :: Lens' t CInt
 
 instance HasPosition Position where
-    x = position . _1
-    y = position . _2
+    _x = position . _1
+    _y = position . _2
 
 instance HasPosition RootPosition where
-    x = rootPosition . _2 . x
-    y = rootPosition . _2 . y
+    _x = rootPosition . _2 . _x
+    _y = rootPosition . _2 . _y
 
 class HasDimensions t where
     height :: Lens' t CInt
@@ -140,6 +145,21 @@ class MayHaveRoot t => MayHaveRootPosition t where
 class MayHaveSubwindow t where
     _subwindow :: Traversal' t Window
 
+----- Rectangle -----
+
+instance HasPosition Rectangle where
+    _x f (Rectangle x y w h) =
+        (\ x' -> Rectangle x' y w h) . fromIntegral <$> (f . fromIntegral) x
+    _y f (Rectangle x y w h) =
+        (\ y' -> Rectangle x y' w h) . fromIntegral <$> (f . fromIntegral) y
+
+instance HasDimensions Rectangle where
+    height f (Rectangle x y w h) =
+        Rectangle x y w . fromIntegral <$> (f . fromIntegral) h
+    width f (Rectangle x y w h) =
+        (\ w' -> Rectangle x y w' h) . fromIntegral <$> (f . fromIntegral) w
+
+
 ----- Event -----
 
 --- Every Event has an eventType, a sendEvent, and eventDisplay, a window, and a serial.
@@ -178,7 +198,7 @@ instance MayHavePosition Event where
         go s@X.ExposeEvent{}             = l s
         go s@X.RRCrtcChangeNotifyEvent{} = l s
         go s = pure s
-        l s = (\p -> s{ X.ev_x = p^.x, X.ev_y = p^.y }) <$> f  ((X.ev_x s, X.ev_y s)^.re position)
+        l s = (\p -> s{ X.ev_x = p^._x, X.ev_y = p^._y }) <$> f  ((X.ev_x s, X.ev_y s)^.re position)
 
 instance MayHaveDimensions Event where
     _Dimensions f = go
@@ -225,7 +245,7 @@ instance MayHaveRootPosition Event where
        go s@X.ButtonEvent{} = l s
        go s@X.CrossingEvent{} = l s
        go s = pure s
-       l s = (\r -> s{ X.ev_root = r^.window, X.ev_x_root = r^.x, X.ev_y_root = r^.y }) <$> f ((X.ev_root s, (X.ev_x_root s, X.ev_y_root s)^.re position)^.re rootPosition)
+       l s = (\r -> s{ X.ev_root = r^.window, X.ev_x_root = r^._x, X.ev_y_root = r^._y }) <$> f ((X.ev_root s, (X.ev_x_root s, X.ev_y_root s)^.re position)^.re rootPosition)
 
 instance MayHaveSubwindow Event where
     _subwindow f = go
@@ -240,8 +260,8 @@ instance MayHaveSubwindow Event where
 ----- WindowAttributes -----
 
 instance HasPosition WindowAttributes where
-    x = lens X.wa_x (\ s v -> s{ X.wa_x = v })
-    y = lens X.wa_y (\ s v -> s{ X.wa_y = v })
+    _x = lens X.wa_x (\ s v -> s{ X.wa_x = v })
+    _y = lens X.wa_y (\ s v -> s{ X.wa_y = v })
 
 instance HasDimensions WindowAttributes where
     height = lens X.wa_height (\ s v -> s{ X.wa_height = v })
@@ -266,8 +286,8 @@ mapState = lens X.wa_map_state (\ s v -> s{ X.wa_map_state = v })
 ----- WindowChanges -----
 
 instance HasPosition WindowChanges where
-    x = lens X.wc_x (\ s v -> s{ X.wc_x = v })
-    y = lens X.wc_y (\ s v -> s{ X.wc_y = v })
+    _x = lens X.wc_x (\ s v -> s{ X.wc_x = v })
+    _y = lens X.wc_y (\ s v -> s{ X.wc_y = v })
 
 instance HasDimensions WindowChanges where
     height = lens X.wc_height (\ s v -> s{ X.wc_height = v })

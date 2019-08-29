@@ -9,14 +9,17 @@ module XMonad.Type.Layout where
 
 
 import Control.Applicative ((<|>))
+import Control.Lens
 import Data.Default (Default (def))
+import Data.Bifunctor (bimap, first, second)
 import Data.Functor.Identity (Identity)
 import Data.Semigroup (First (..))
 import Data.List.NonEmpty as NonEmpty (NonEmpty, unfoldr)
 import Numeric.Natural (Natural)
 import XMonad.Core (Message, SomeMessage, X, Typeable, fromMessage)
 import XMonad.Layout (tile)
-import XMonad.StackSet (Stack, integrate')
+import XMonad.Optic.X11
+import XMonad.StackSet (Stack, _focus, integrate')
 import Graphics.X11.Xlib (Rectangle (..), Window)
 
 
@@ -28,6 +31,15 @@ data Layout m = Layout
   , runLayout :: DoLayout m
   , runMessage :: HandleMessage m
   }
+
+_description :: Lens' (Layout m) String
+_description = lens description (\ s v -> s{ description = v })
+
+_runLayout :: Lens' (Layout m) (DoLayout m)
+_runLayout = lens runLayout (\ s v -> s{ runLayout = v})
+
+_runMessage :: Lens' (Layout m) (HandleMessage m)
+_runMessage = lens runMessage (\ s v -> s{ runMessage = v })
 
 type DoLayout m =
     Rectangle -> Maybe (Stack Window) ->
@@ -73,7 +85,7 @@ tall ntw resizeIncrement sr =
             where
             amount Shrink = max 0 (sr - resizeIncrement)
             amount Expand = min 1 (sr + resizeIncrement)
-        changeNTW (IncMasterN n) = tall (max 0 (fromIntegral $ fromIntegral ntw + n)) resizeIncrement sr
+        changeNTW (IncMasterN n) = tall (fromIntegral $ max 0 (fromIntegral ntw + n)) resizeIncrement sr
 
 splitVertically :: Natural -> Rectangle -> NonEmpty Rectangle
 splitVertically = curry $ NonEmpty.unfoldr (uncurry splitTopBot)
@@ -85,3 +97,21 @@ splitTopBot n (Rectangle x y w h) = (rect', Just (n - 1, rect''))
     rect' = Rectangle x y w h'
     rect'' = Rectangle x (y + fromIntegral h') w (h - h')
     h' = h `div` fromIntegral n
+
+
+swapAxes :: Rectangle -> Rectangle
+swapAxes (Rectangle x y w h) = Rectangle y x h w
+
+swappedAxes :: Iso' Rectangle Rectangle
+swappedAxes = iso swapAxes swapAxes
+
+rotate90 :: Applicative m => Layout m -> Layout m
+rotate90 (Layout desc run handle) = Layout desc' run' handle'
+    where
+    desc' = desc <> " -- but rotated 90 degrees clockwise"
+    run' r = fmap (bimap (fmap (second swapAxes)) (fmap rotate90)) . (run . swapAxes) r
+
+    handle' = fmap (fmap rotate90) . handle
+
+rotated90 :: Applicative m => Iso' (Layout m) (Layout m)
+rotated90 = iso rotate90 rotate90
