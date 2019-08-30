@@ -109,7 +109,7 @@ rotate90 :: Applicative m => Layout m -> Layout m
 rotate90 (Layout desc run handle) = Layout desc' run' handle'
     where
     desc' = desc <> " -- but rotated 90 degrees clockwise"
-    run' r = fmap (bimap (fmap (second swapAxes)) (fmap rotate90)) . (run . swapAxes) r
+    run' rect = fmap (bimap (fmap (second swapAxes)) (fmap rotate90)) . (run . swapAxes) rect
 
     handle' = fmap (fmap rotate90) . handle
 
