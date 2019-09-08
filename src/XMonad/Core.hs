@@ -301,7 +301,7 @@ instance Semigroup a => Semigroup (X a) where
     (<>) = liftA2 (<>)
 
 instance (Monoid a) => Monoid (X a) where
-    mempty  = pure mempty
+    mempty = pure mempty
     mappend = (<>)
 
 instance Default a => Default (X a) where
