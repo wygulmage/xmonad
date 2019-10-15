@@ -135,7 +135,8 @@ _extensibleState :: Lens' XState (Map String (Either String StateExtension))
 _extensibleState = lens extensibleState (\ s x -> s{ extensibleState = x })
 
 
--- | XConf, the (read-only) window manager configuration.
+-- | XConf, the (read-only???) window manager -configuration- state.
+-- Why are mouseFocused, mousePosition, and currentEvent in this? They're state, not configuration! Because we can only read them from X, we can't set them.
 data XConf = XConf
     { display       :: Display        -- ^ the X11 display
     , config        :: !(XConfig Layout)       -- ^ initial user configuration
@@ -154,34 +155,34 @@ data XConf = XConf
     , dirs         :: !Dirs           -- ^ directories to use
     }
 
-_display :: Lens' XConf Display
+_display :: Getter XConf Display
 _display = lens display (\ s x -> s{ display = x })
 
-_config :: Lens' XConf (XConfig Layout)
+_config :: Getter XConf (XConfig Layout)
 _config = lens config (\ s x -> s{ config = x })
 
-_theRoot :: Lens' XConf Window
+_theRoot :: Getter XConf Window
 _theRoot = lens theRoot (\ s x -> s{ theRoot = x })
 
-_normalBorder :: Lens' XConf Pixel
+_normalBorder :: Getter XConf Pixel
 _normalBorder = lens normalBorder (\ s x -> s{ normalBorder = x })
 
-_focusedBorder :: Lens' XConf Pixel
+_focusedBorder :: Getter XConf Pixel
 _focusedBorder = lens focusedBorder (\ s x -> s{ focusedBorder = x })
 
-_keyActions :: Lens' XConf (Map (KeyMask, KeySym) (X ()))
+_keyActions :: Getter XConf (Map (KeyMask, KeySym) (X ()))
 _keyActions = lens keyActions (\ s x -> s{ keyActions = x })
 
-_buttonActions :: Lens' XConf (Map (KeyMask, Button) (Window -> X ()))
+_buttonActions :: Getter XConf (Map (KeyMask, Button) (Window -> X ()))
 _buttonActions = lens buttonActions (\ s x -> s{ buttonActions = x })
 
-_mouseFocused :: Lens' XConf Bool
+_mouseFocused :: Lens' XConf Bool -- needs to be used with 'local'
 _mouseFocused = lens mouseFocused (\ s x -> s{ mouseFocused = x })
 
-_mousePosition :: Lens' XConf (Maybe (Position, Position))
+_mousePosition :: Lens' XConf (Maybe (Position, Position)) -- needs to be manually updated in config!
 _mousePosition = lens mousePosition (\ s x -> s{ mousePosition = x })
 
-_currentEvent :: Lens' XConf (Maybe Event)
+_currentEvent :: Lens' XConf (Maybe Event) -- set in 'local'; may be mutable.
 _currentEvent f s = (\ x -> s{ currentEvent = x }) <$> f (currentEvent s)
 
 
@@ -198,7 +199,7 @@ data XConfig l = XConfig
                                                  -- event hooks in most cases.
     , workspaces         :: ![String]            -- ^ The list of workspaces' names
     , modMask            :: !KeyMask             -- ^ the mod modifier
-    , keys               :: !(XConfig Layout -> Map (ButtonMask,KeySym) (X ()))
+    , keys               :: !(XConfig Layout -> Map (ButtonMask, KeySym) (X ()))
                                                  -- ^ The key binding: a map from key presses and actions
     , mouseBindings      :: !(XConfig Layout -> Map (ButtonMask, Button) (Window -> X ()))
                                                  -- ^ The mouse bindings
@@ -293,10 +294,6 @@ _screenRect = lens screenRect (\ s x -> s{ screenRect = x })
 newtype X a = X (ReaderT XConf (StateT XState IO) a)
     deriving (Functor, Applicative, Monad, MonadFail, MonadIO, MonadState XState, MonadReader XConf, Typeable)
 
--- instance Applicative X where
-    -- pure = return
-    -- (<*>) = ap
-
 instance Semigroup a => Semigroup (X a) where
     (<>) = liftA2 (<>)
 
@@ -307,8 +304,8 @@ instance (Monoid a) => Monoid (X a) where
 instance Default a => Default (X a) where
     def = pure def
 
-type ManageHook = Query (Endo WindowSet)
-newtype Query a = Query (ReaderT Window X a)
+type ManageHook = Query (Endo WindowSet) -- i.e. Window -> X (WindowSet -> WindowSet)
+newtype Query a = Query (ReaderT Window X a) -- i.e. Window -> X a
     deriving (Functor, Applicative, Monad, MonadReader Window, MonadIO)
 
 runQuery :: Query a -> Window -> X a
