@@ -1,4 +1,5 @@
-{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses, PatternGuards, TypeSynonymInstances, DeriveDataTypeable #-}
+{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses,
+  PatternGuards, DeriveDataTypeable #-}
 
 -- --------------------------------------------------------------------------
 -- |
@@ -13,7 +14,6 @@
 -- The collection of core layouts.
 --
 -----------------------------------------------------------------------------
-
 module XMonad.Layout (
     Full(..), Tall(..), Mirror(..),
     Resize(..), IncMasterN(..), Choose, (|||), ChangeLayout(..),
@@ -28,6 +28,7 @@ import XMonad.Core
 
 import Graphics.X11 (Rectangle(..))
 import qualified XMonad.StackSet as W
+import Control.Applicative (liftA2)
 import Control.Arrow ((***), second)
 import Control.Monad
 import Data.Maybe (fromMaybe)
@@ -38,7 +39,7 @@ import Data.Maybe (fromMaybe)
 data Resize     = Shrink | Expand   deriving Typeable
 
 -- | Increase the number of clients in the master pane.
-data IncMasterN = IncMasterN !Int    deriving Typeable
+newtype IncMasterN = IncMasterN Int    deriving Typeable
 
 instance Message Resize
 instance Message IncMasterN
@@ -87,7 +88,7 @@ tile
     -> [Rectangle]
 tile f r nmaster n = if n <= nmaster || nmaster == 0
     then splitVertically n r
-    else splitVertically nmaster r1 ++ splitVertically (n-nmaster) r2 -- two columns
+    else splitVertically nmaster r1 <> splitVertically (n-nmaster) r2 -- two columns
   where (r1,r2) = splitHorizontallyBy f r
 
 --
@@ -100,7 +101,7 @@ splitVertically n (Rectangle sx sy sw sh) = Rectangle sx sy sw smallh :
   where smallh = sh `div` fromIntegral n --hmm, this is a fold or map.
 
 -- Not used in the core, but exported
-splitHorizontally n = map mirrorRect . splitVertically n . mirrorRect
+splitHorizontally n = fmap mirrorRect . splitVertically n . mirrorRect
 
 -- Divide the screen into two rectangles, using a rational to specify the ratio
 splitHorizontallyBy, splitVerticallyBy :: RealFrac r => r -> Rectangle -> (Rectangle, Rectangle)
@@ -118,10 +119,10 @@ splitVerticallyBy f = (mirrorRect *** mirrorRect) . splitHorizontallyBy f . mirr
 newtype Mirror l a = Mirror (l a) deriving (Show, Read)
 
 instance LayoutClass l a => LayoutClass (Mirror l) a where
-    runLayout (W.Workspace i (Mirror l) ms) r = (map (second mirrorRect) *** fmap Mirror)
+    runLayout (W.Workspace i (Mirror l) ms) r = (fmap (second mirrorRect) *** fmap Mirror)
                                                 `fmap` runLayout (W.Workspace i l ms) (mirrorRect r)
     handleMessage (Mirror l) = fmap (fmap Mirror) . handleMessage l
-    description (Mirror l) = "Mirror "++ description l
+    description (Mirror l) = "Mirror " <> description l
 
 -- | Mirror a rectangle.
 mirrorRect :: Rectangle -> Rectangle
@@ -160,16 +161,16 @@ handle l m = handleMessage l (SomeMessage m)
 -- on newly non-visible layouts.
 choose :: (LayoutClass l a, LayoutClass r a)
        => Choose l r a-> LR -> Maybe (l a) -> Maybe (r a) -> X (Maybe (Choose l r a))
-choose (Choose d _ _) d' Nothing Nothing | d == d' = return Nothing
+choose (Choose d _ _) d' Nothing Nothing | d == d' = pure Nothing
 choose (Choose d l r) d' ml      mr = f lr
  where
     (l', r') = (fromMaybe l ml, fromMaybe r mr)
     lr       = case (d, d') of
-                    (L, R) -> (hide l'  , return r')
-                    (R, L) -> (return l', hide r'  )
-                    (_, _) -> (return l', return r')
-    f (x,y)  = fmap Just $ liftM2 (Choose d') x y
-    hide x   = fmap (fromMaybe x) $ handle x Hide
+                    (L, R) -> (hide l'  , pure r')
+                    (R, L) -> (pure l', hide r'  )
+                    (_, _) -> (pure l', pure r')
+    f (x,y)  = Just <$> liftA2 (Choose d') x y
+    hide x   = fromMaybe x <$> handle x Hide
 
 instance (LayoutClass l a, LayoutClass r a) => LayoutClass (Choose l r) a where
     runLayout (W.Workspace i (Choose L l r) ms) =
@@ -182,7 +183,7 @@ instance (LayoutClass l a, LayoutClass r a) => LayoutClass (Choose l r) a where
 
     handleMessage lr m | Just NextLayout <- fromMessage m = do
         mlr' <- handle lr NextNoWrap
-        maybe (handle lr FirstLayout) (return . Just) mlr'
+        maybe (handle lr FirstLayout) (pure . Just) mlr'
 
     handleMessage c@(Choose d l r) m | Just NextNoWrap <- fromMessage m =
         case d of
@@ -198,13 +199,13 @@ instance (LayoutClass l a, LayoutClass r a) => LayoutClass (Choose l r) a where
         flip (choose c L) Nothing =<< handle l FirstLayout
 
     handleMessage c@(Choose d l r) m | Just ReleaseResources <- fromMessage m =
-        join $ liftM2 (choose c d) (handle l ReleaseResources) (handle r ReleaseResources)
+        join $ liftA2 (choose c d) (handle l ReleaseResources) (handle r ReleaseResources)
 
     handleMessage c@(Choose d l r) m = do
         ml' <- case d of
                 L -> handleMessage l m
-                R -> return Nothing
+                R -> pure Nothing
         mr' <- case d of
-                L -> return Nothing
+                L -> pure Nothing
                 R -> handleMessage r m
         choose c d ml' mr'

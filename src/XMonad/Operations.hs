@@ -1,5 +1,6 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-{-# LANGUAGE FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, PatternGuards, TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleContexts, FlexibleInstances,
+  MultiParamTypeClasses, PatternGuards, ScopedTypeVariables #-}
 -- --------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Operations
@@ -13,13 +14,15 @@
 -- Operations.
 --
 -----------------------------------------------------------------------------
-
 module XMonad.Operations where
 
 import XMonad.Core
 import XMonad.Layout (Full(..))
 import qualified XMonad.StackSet as W
 
+import Data.Functor (($>))
+import Data.Foldable (fold, for_, traverse_)
+import Data.Traversable (for)
 import Data.Maybe
 import Data.Monoid          (Endo(..),Any(..))
 import Data.List            (nub, (\\), find)
@@ -30,7 +33,6 @@ import qualified Data.Set as S
 
 import Control.Applicative((<$>), (<*>))
 import Control.Arrow (second)
-import Control.Monad (void)
 import Control.Monad.Reader
 import Control.Monad.State
 import qualified Control.Exception.Extensible as C
@@ -52,10 +54,10 @@ import Graphics.X11.Xlib.Extras
 -- border set, and its event mask set.
 --
 manage :: Window -> X ()
-manage w = whenX (not <$> isClient w) $ withDisplay $ \d -> do
+manage w = whenX (not <$> isClient w) . withDisplay $ \d -> do
     sh <- io $ getWMNormalHints d w
 
-    let isFixedSize = sh_min_size sh /= Nothing && sh_min_size sh == sh_max_size sh
+    let isFixedSize = isJust (sh_min_size sh) && sh_min_size sh == sh_max_size sh
     isTransient <- isJust <$> io (getTransientForHint d w)
 
     rr <- snd `fmap` floatLocation w
@@ -66,7 +68,7 @@ manage w = whenX (not <$> isClient w) $ withDisplay $ \d -> do
 
         f ws | isFixedSize || isTransient = W.float w (adjust rr) . W.insertUp w . W.view i $ ws
              | otherwise                  = W.insertUp w ws
-            where i = W.tag $ W.workspace $ W.current ws
+            where i = W.tag . W.workspace $ W.current ws
 
     mh <- asks (manageHook . config)
     g <- appEndo <$> userCodeDef (Endo id) (runQuery mh w)
@@ -94,7 +96,7 @@ killWindow w = withDisplay $ \d -> do
                 setEventType ev clientMessage
                 setClientMessageEvent ev w wmprot 32 wmdelt 0
                 sendEvent d w False noEventMask ev
-        else killClient d w >> return ()
+        else killClient d w $> ()
 
 -- | Kill the currently focused client.
 kill :: X ()
@@ -107,12 +109,12 @@ kill = withFocused killWindow
 windows :: (WindowSet -> WindowSet) -> X ()
 windows f = do
     XState { windowset = old } <- get
-    let oldvisible = concatMap (W.integrate' . W.stack . W.workspace) $ W.current old : W.visible old
+    let oldvisible = foldMap (W.integrate' . W.stack . W.workspace) $ W.current old : W.visible old
         newwindows = W.allWindows ws \\ W.allWindows old
         ws = f old
     XConf { display = d , normalBorder = nbc, focusedBorder = fbc } <- ask
 
-    mapM_ setInitialProperties newwindows
+    traverse_ setInitialProperties newwindows
 
     whenJust (W.peek old) $ \otherw -> do
       nbs <- asks (normalBorderColor . config)
@@ -121,14 +123,14 @@ windows f = do
     modify (\s -> s { windowset = ws })
 
     -- notify non visibility
-    let tags_oldvisible = map (W.tag . W.workspace) $ W.current old : W.visible old
+    let tags_oldvisible = fmap (W.tag . W.workspace) $ W.current old : W.visible old
         gottenhidden    = filter (flip elem tags_oldvisible . W.tag) $ W.hidden ws
-    mapM_ (sendMessageWithNoRefresh Hide) gottenhidden
+    traverse_ (sendMessageWithNoRefresh Hide) gottenhidden
 
     -- for each workspace, layout the currently visible workspaces
     let allscreens     = W.screens ws
-        summed_visible = scanl (++) [] $ map (W.integrate' . W.stack . W.workspace) allscreens
-    rects <- fmap concat $ forM (zip allscreens summed_visible) $ \ (w, vis) -> do
+        summed_visible = scanl (++) [] $ fmap (W.integrate' . W.stack . W.workspace) allscreens
+    rects <- fmap fold . for (zip allscreens summed_visible) $ \ (w, vis) -> do
         let wsp   = W.workspace w
             this  = W.view n ws
             n     = W.tag wsp
@@ -147,31 +149,31 @@ windows f = do
             flt = [(fw, scaleRationalRect viewrect r)
                     | fw <- filter (flip M.member m) (W.index this)
                     , Just r <- [M.lookup fw m]]
-            vs = flt ++ rs
+            vs = flt <> rs
 
-        io $ restackWindows d (map fst vs)
+        io $ restackWindows d (fmap fst vs)
         -- return the visible windows for this workspace:
-        return vs
+        pure vs
 
-    let visible = map fst rects
+    let visible = fmap fst rects
 
-    mapM_ (uncurry tileWindow) rects
+    traverse_ (uncurry tileWindow) rects
 
     whenJust (W.peek ws) $ \w -> do
       fbs <- asks (focusedBorderColor . config)
       setWindowBorderWithFallback d w fbs fbc
 
-    mapM_ reveal visible
+    traverse_ reveal visible
     setTopFocus
 
     -- hide every window that was potentially visible before, but is not
     -- given a position by a layout now.
-    mapM_ hide (nub (oldvisible ++ newwindows) \\ visible)
+    traverse_ hide (nub (oldvisible <> newwindows) \\ visible)
 
     -- all windows that are no longer in the windowset are marked as
     -- withdrawn, it is important to do this after the above, otherwise 'hide'
     -- will overwrite withdrawnState with iconicState
-    mapM_ (flip setWMState withdrawnState) (W.allWindows old \\ W.allWindows ws)
+    traverse_ (flip setWMState withdrawnState) (W.allWindows old \\ W.allWindows ws)
 
     isMouseFocused <- asks mouseFocused
     unless isMouseFocused $ clearEvents enterWindowMask
@@ -187,14 +189,14 @@ windowBracket :: (a -> Bool) -> X a -> X a
 windowBracket p action = withWindowSet $ \old -> do
   a <- action
   when (p a) . withWindowSet $ \new -> do
-    modifyWindowSet $ \_ -> old
-    windows         $ \_ -> new
-  return a
+    modifyWindowSet $ const old
+    windows         $ const new
+  pure a
 
 -- | A version of @windowBracket@ that discards the return value, and handles an
 -- @X@ action reporting its need for refresh via @Any@.
 windowBracket_ :: X Any -> X ()
-windowBracket_ = void . windowBracket getAny
+windowBracket_ = (() <$) . windowBracket getAny
 
 -- | Produce the actual rectangle from a screen and a ratio on that screen.
 scaleRationalRect :: Rectangle -> W.RationalRect -> Rectangle
@@ -211,19 +213,18 @@ setWMState w v = withDisplay $ \dpy -> do
 -- | Set the border color using the window's color map, if possible,
 -- otherwise fallback to the color in @Pixel@.
 setWindowBorderWithFallback :: Display -> Window -> String -> Pixel -> X ()
-setWindowBorderWithFallback dpy w color basic = io $
-    C.handle fallback $ do
+setWindowBorderWithFallback dpy w color basic = io . C.handle fallback $ do
       wa <- getWindowAttributes dpy w
       pixel <- color_pixel . fst <$> allocNamedColor dpy (wa_colormap wa) color
       setWindowBorder dpy w pixel
   where
     fallback :: C.SomeException -> IO ()
-    fallback e = do hPrint stderr e >> hFlush stderr
+    fallback e = do hPrint stderr e *> hFlush stderr
                     setWindowBorder dpy w basic
 
 -- | hide. Hide a window by unmapping it, and setting Iconified.
 hide :: Window -> X ()
-hide w = whenX (gets (S.member w . mapped)) $ withDisplay $ \d -> do
+hide w = whenX (gets (S.member w . mapped)) . withDisplay $ \d -> do
     cMask <- asks $ clientMask . config
     io $ do selectInput d w (cMask .&. complement structureNotifyMask)
             unmapWindow d w
@@ -309,9 +310,9 @@ rescreen :: X ()
 rescreen = do
     xinesc <- withDisplay getCleanedScreenInfo
 
-    windows $ \ws@(W.StackSet { W.current = v, W.visible = vs, W.hidden = hs }) ->
-        let (xs, ys) = splitAt (length xinesc) $ map W.workspace (v:vs) ++ hs
-            (a:as)   = zipWith3 W.Screen xs [0..] $ map SD xinesc
+    windows $ \ws@W.StackSet { W.current = v, W.visible = vs, W.hidden = hs } ->
+        let (xs, ys) = splitAt (length xinesc) $ fmap W.workspace (v:vs) <> hs
+            (a:as)   = zipWith3 W.Screen xs [0..] $ fmap SD xinesc
         in  ws { W.current = a
                , W.visible = as
                , W.hidden  = ys }
@@ -325,7 +326,7 @@ setButtonGrab grab w = do
                                     then grabModeAsync
                                     else grabModeSync
     withDisplay $ \d -> io $ if grab
-        then forM_ [button1, button2, button3] $ \b ->
+        then for_ [button1, button2, button3] $ \b ->
             grabButton d b anyModifier w False buttonPressMask
                        pointerMode grabModeSync none none
         else ungrabButton d anyButton anyModifier w
@@ -341,17 +342,17 @@ setTopFocus = withWindowSet $ maybe (setFocusX =<< asks theRoot) setFocusX . W.p
 -- This happens if X notices we've moved the mouse (and perhaps moved
 -- the mouse to a new screen).
 focus :: Window -> X ()
-focus w = local (\c -> c { mouseFocused = True }) $ withWindowSet $ \s -> do
+focus w = local (\c -> c { mouseFocused = True }) . withWindowSet $ \s -> do
     let stag = W.tag . W.workspace
         curr = stag $ W.current s
-    mnew <- maybe (return Nothing) (fmap (fmap stag) . uncurry pointScreen)
+    mnew <- maybe (pure Nothing) (fmap (fmap stag) . uncurry pointScreen)
             =<< asks mousePosition
     root <- asks theRoot
     case () of
         _ | W.member w s && W.peek s /= Just w -> windows (W.focusWindow w)
           | Just new <- mnew, w == root && curr /= new
                                                -> windows (W.view new)
-          | otherwise                          -> return ()
+          | otherwise                          -> pure ()
 
 -- | Call X to set the keyboard focus details.
 setFocusX :: Window -> X ()
@@ -359,8 +360,8 @@ setFocusX w = withWindowSet $ \ws -> do
     dpy <- asks display
 
     -- clear mouse button grab and border on other windows
-    forM_ (W.current ws : W.visible ws) $ \wk ->
-        forM_ (W.index (W.view (W.tag (W.workspace wk)) ws)) $ \otherw ->
+    for_ (W.current ws : W.visible ws) $ \wk ->
+        for_ (W.index (W.view (W.tag (W.workspace wk)) ws)) $ \otherw ->
             setButtonGrab True otherw
 
     -- If we ungrab buttons on the root window, we lose our mouse bindings.
@@ -373,15 +374,13 @@ setFocusX w = withWindowSet $ \ws -> do
     currevt <- asks currentEvent
     let inputHintSet = wmh_flags hints `testBit` inputHintBit
 
-    when ((inputHintSet && wmh_input hints) || (not inputHintSet)) $
-      io $ do setInputFocus dpy w revertToPointerRoot 0
-    when (wmtf `elem` protocols) $
-      io $ allocaXEvent $ \ev -> do
+    when ((inputHintSet && wmh_input hints) || not inputHintSet) . io $ setInputFocus dpy w revertToPointerRoot 0
+    when (wmtf `elem` protocols) . io . allocaXEvent $ \ev -> do
         setEventType ev clientMessage
         setClientMessageEvent ev w wmprot 32 wmtf $ maybe currentTime event_time currevt
         sendEvent dpy w False noEventMask ev
         where event_time ev =
-                if (ev_event_type ev) `elem` timedEvents then
+                if ev_event_type ev `elem` timedEvents then
                   ev_time ev
                 else
                   currentTime
@@ -395,45 +394,45 @@ setFocusX w = withWindowSet $ \ws -> do
 sendMessage :: Message a => a -> X ()
 sendMessage a = windowBracket_ $ do
     w <- W.workspace . W.current <$> gets windowset
-    ml' <- handleMessage (W.layout w) (SomeMessage a) `catchX` return Nothing
+    ml' <- handleMessage (W.layout w) (SomeMessage a) `catchX` pure Nothing
     whenJust ml' $ \l' ->
         modifyWindowSet $ \ws -> ws { W.current = (W.current ws)
                                 { W.workspace = (W.workspace $ W.current ws)
                                   { W.layout = l' }}}
-    return (Any $ isJust ml')
+    pure (Any $ isJust ml')
 
 -- | Send a message to all layouts, without refreshing.
 broadcastMessage :: Message a => a -> X ()
 broadcastMessage a = withWindowSet $ \ws -> do
    let c = W.workspace . W.current $ ws
-       v = map W.workspace . W.visible $ ws
+       v = fmap W.workspace . W.visible $ ws
        h = W.hidden ws
-   mapM_ (sendMessageWithNoRefresh a) (c : v ++ h)
+   traverse_ (sendMessageWithNoRefresh a) (c : v <> h)
 
 -- | Send a message to a layout, without refreshing.
 sendMessageWithNoRefresh :: Message a => a -> W.Workspace WorkspaceId (Layout Window) Window -> X ()
 sendMessageWithNoRefresh a w =
-    handleMessage (W.layout w) (SomeMessage a) `catchX` return Nothing >>=
+    handleMessage (W.layout w) (SomeMessage a) `catchX` pure Nothing >>=
     updateLayout  (W.tag w)
 
 -- | Update the layout field of a workspace
 updateLayout :: WorkspaceId -> Maybe (Layout Window) -> X ()
 updateLayout i ml = whenJust ml $ \l ->
-    runOnWorkspaces $ \ww -> return $ if W.tag ww == i then ww { W.layout = l} else ww
+    runOnWorkspaces $ \ww -> pure $ if W.tag ww == i then ww { W.layout = l} else ww
 
 -- | Set the layout of the currently viewed workspace
 setLayout :: Layout Window -> X ()
 setLayout l = do
-    ss@(W.StackSet { W.current = c@(W.Screen { W.workspace = ws })}) <- gets windowset
+    ss@W.StackSet { W.current = c@W.Screen { W.workspace = ws }} <- gets windowset
     handleMessage (W.layout ws) (SomeMessage ReleaseResources)
-    windows $ const $ ss {W.current = c { W.workspace = ws { W.layout = l } } }
+    windows . const $ ss {W.current = c { W.workspace = ws { W.layout = l } } }
 
 ------------------------------------------------------------------------
 -- Utilities
 
 -- | Return workspace visible on screen 'sc', or 'Nothing'.
 screenWorkspace :: ScreenId -> X (Maybe WorkspaceId)
-screenWorkspace sc = withWindowSet $ return . W.lookupWorkspace sc
+screenWorkspace sc = withWindowSet $ pure . W.lookupWorkspace sc
 
 -- | Apply an 'X' operation to the currently focused window, if there is one.
 withFocused :: (Window -> X ()) -> X ()
@@ -441,25 +440,25 @@ withFocused f = withWindowSet $ \w -> whenJust (W.peek w) f
 
 -- | 'True' if window is under management by us
 isClient :: Window -> X Bool
-isClient w = withWindowSet $ return . W.member w
+isClient w = withWindowSet $ pure . W.member w
 
 -- | Combinations of extra modifier masks we need to grab keys\/buttons for.
 -- (numlock and capslock)
 extraModifiers :: X [KeyMask]
 extraModifiers = do
     nlm <- gets numberlockMask
-    return [0, nlm, lockMask, nlm .|. lockMask ]
+    pure [0, nlm, lockMask, nlm .|. lockMask ]
 
 -- | Strip numlock\/capslock from a mask
 cleanMask :: KeyMask -> X KeyMask
 cleanMask km = do
     nlm <- gets numberlockMask
-    return (complement (nlm .|. lockMask) .&. km)
+    pure (complement (nlm .|. lockMask) .&. km)
 
 -- | Get the 'Pixel' value for a named color
 initColor :: Display -> String -> IO (Maybe Pixel)
-initColor dpy c = C.handle (\(C.SomeException _) -> return Nothing) $
-    (Just . color_pixel . fst) <$> allocNamedColor dpy colormap c
+initColor dpy c = C.handle (\(C.SomeException _) -> pure Nothing) $
+    Just . color_pixel . fst <$> allocNamedColor dpy colormap c
     where colormap = defaultColormap dpy (defaultScreen dpy)
 
 ------------------------------------------------------------------------
@@ -479,7 +478,7 @@ writeStateToFile = do
         maybeShow _ = Nothing
 
         wsData   = W.mapLayout show . windowset
-        extState = catMaybes . map maybeShow . M.toList . extensibleState
+        extState = mapMaybe maybeShow . M.toList . extensibleState
 
     path  <- stateFileName
     stateData <- gets (\s -> StateFile (wsData s) (extState s))
@@ -495,17 +494,17 @@ readStateFile xmc = do
     -- contents of the file before it is removed from the file system.
     sf' <- userCode . io $ do
         raw <- withFile path ReadMode readStrict
-        return $! maybeRead reads raw
+        pure $! maybeRead reads raw
 
     io (removeFile path)
 
-    return $ do
+    pure $ do
       sf <- join sf'
 
       let winset = W.ensureTags layout (workspaces xmc) $ W.mapLayout (fromMaybe layout . maybeRead lreads) (sfWins sf)
-          extState = M.fromList . map (second Left) $ sfExt sf
+          extState = M.fromList . fmap (second Left) $ sfExt sf
 
-      return XState { windowset       = winset
+      pure XState { windowset       = winset
                     , numberlockMask  = 0
                     , mapped          = S.empty
                     , waitingUnmap    = M.empty
@@ -520,7 +519,7 @@ readStateFile xmc = do
                            _         -> Nothing
 
     readStrict :: Handle -> IO String
-    readStrict h = hGetContents h >>= \s -> length s `seq` return s
+    readStrict h = hGetContents h >>= \s -> length s `seq` pure s
 
 -- | Migrate state from a previously running xmonad instance that used
 -- the older @--resume@ technique.
@@ -558,27 +557,29 @@ floatLocation w =
       -- Fallback solution if `go' fails.  Which it might, since it
       -- calls `getWindowAttributes'.
       sc <- W.current <$> gets windowset
-      return (W.screen sc, W.RationalRect 0 0 1 1)
+      pure (W.screen sc, W.RationalRect 0 0 1 1)
 
-  where fi x = fromIntegral x
-        go = withDisplay $ \d -> do
-          ws <- gets windowset
-          wa <- io $ getWindowAttributes d w
-          let bw = (fromIntegral . wa_border_width) wa
-          sc <- fromMaybe (W.current ws) <$> pointScreen (fi $ wa_x wa) (fi $ wa_y wa)
+  where
+    fi :: (Integral a, Integral b) => a -> b
+    fi = fromIntegral
+    go = withDisplay $ \d -> do
+      ws <- gets windowset
+      wa <- io $ getWindowAttributes d w
+      let bw = (fromIntegral . wa_border_width) wa
+      sc <- fromMaybe (W.current ws) <$> pointScreen (fi $ wa_x wa) (fi $ wa_y wa)
 
-          let sr = screenRect . W.screenDetail $ sc
-              rr = W.RationalRect ((fi (wa_x wa) - fi (rect_x sr)) % fi (rect_width sr))
+      let sr = screenRect . W.screenDetail $ sc
+          rr = W.RationalRect ((fi (wa_x wa) - fi (rect_x sr)) % fi (rect_width sr))
                                   ((fi (wa_y wa) - fi (rect_y sr)) % fi (rect_height sr))
                                   (fi (wa_width  wa + bw*2) % fi (rect_width sr))
                                   (fi (wa_height wa + bw*2) % fi (rect_height sr))
 
-          return (W.screen sc, rr)
+      pure (W.screen sc, rr)
 
 -- | Given a point, determine the screen (if any) that contains it.
 pointScreen :: Position -> Position
             -> X (Maybe (W.Screen WorkspaceId (Layout Window) Window ScreenId ScreenDetail))
-pointScreen x y = withWindowSet $ return . find p . W.screens
+pointScreen x y = withWindowSet $ pure . find p . W.screens
   where p = pointWithin x y . screenRect . W.screenDetail
 
 -- | @pointWithin x y r@ returns 'True' if the @(x, y)@ co-ordinate is within
@@ -595,10 +596,10 @@ float w = do
     (sc, rr) <- floatLocation w
     windows $ \ws -> W.float w rr . fromMaybe ws $ do
         i  <- W.findTag w ws
-        guard $ i `elem` map (W.tag . W.workspace) (W.screens ws)
+        guard $ i `elem` fmap (W.tag . W.workspace) (W.screens ws)
         f  <- W.peek ws
         sw <- W.lookupWorkspace sc ws
-        return (W.focusWindow f . W.shiftWin sw w $ ws)
+        pure (W.focusWindow f . W.shiftWin sw w $ ws)
 
 -- ---------------------------------------------------------------------
 -- Mouse handling
@@ -608,7 +609,7 @@ mouseDrag :: (Position -> Position -> X ()) -> X () -> X ()
 mouseDrag f done = do
     drag <- gets dragging
     case drag of
-        Just _ -> return () -- error case? we're already dragging
+        Just _ -> pure () -- error case? we're already dragging
         Nothing -> do
             XConf { theRoot = root, display = d } <- ask
             io $ grabPointer d root False (buttonReleaseMask .|. pointerMotionMask)
@@ -621,11 +622,11 @@ mouseDrag f done = do
         done
     motion x y = do z <- f x y
                     clearEvents pointerMotionMask
-                    return z
+                    pure z
 
 -- | drag the window under the cursor with the mouse while it is dragged
 mouseMoveWindow :: Window -> X ()
-mouseMoveWindow w = whenX (isClient w) $ withDisplay $ \d -> do
+mouseMoveWindow w = whenX (isClient w) . withDisplay $ \d -> do
     io $ raiseWindow d w
     wa <- io $ getWindowAttributes d w
     (_, _, _, ox', oy', _, _, _) <- io $ queryPointer d w
@@ -640,7 +641,7 @@ mouseMoveWindow w = whenX (isClient w) $ withDisplay $ \d -> do
 
 -- | resize the window under the cursor with the mouse while it is dragged
 mouseResizeWindow :: Window -> X ()
-mouseResizeWindow w = whenX (isClient w) $ withDisplay $ \d -> do
+mouseResizeWindow w = whenX (isClient w) . withDisplay $ \d -> do
     io $ raiseWindow d w
     wa <- io $ getWindowAttributes d w
     sh <- io $ getWMNormalHints d w
@@ -665,10 +666,10 @@ mkAdjust w = withDisplay $ \d -> liftIO $ do
     sh <- getWMNormalHints d w
     wa <- C.try $ getWindowAttributes d w
     case wa of
-         Left  err -> const (return id) (err :: C.SomeException)
+         Left  (_ :: C.SomeException) -> pure id
          Right wa' ->
             let bw = fromIntegral $ wa_border_width wa'
-            in  return $ applySizeHints bw sh
+            in  pure $ applySizeHints bw sh
 
 -- | Reduce the dimensions if needed to comply to the given SizeHints, taking
 -- window borders into account.

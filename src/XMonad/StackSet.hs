@@ -180,7 +180,7 @@ data Stack a = Stack { focus  :: !a        -- focused thing in this set
 
 -- | this function indicates to catch that an error is expected
 abort :: String -> a
-abort x = error $ "xmonad: StackSet: " ++ x
+abort x = error $ "xmonad: StackSet: " <> x
 
 -- ---------------------------------------------------------------------
 -- $construction
@@ -196,7 +196,7 @@ abort x = error $ "xmonad: StackSet: " ++ x
 new :: (Integral s) => l -> [i] -> [sd] -> StackSet i l a s sd
 new l wids m | not (null wids) && length m <= length wids && not (null m)
   = StackSet cur visi unseen M.empty
-  where (seen,unseen) = L.splitAt (length m) $ map (\i -> Workspace i l Nothing) wids
+  where (seen,unseen) = L.splitAt (length m) $ fmap (\i -> Workspace i l Nothing) wids
         (cur:visi)    = [ Screen i s sd |  (i, s, sd) <- zip3 seen [0..] m ]
                 -- now zip up visibles with their screen id
 new _ _ _ = abort "non-positive argument to StackSet.new"
@@ -224,7 +224,7 @@ view i s
 
     | otherwise = s -- not a member of the stackset
 
-  where equating f = \x y -> f x == f y
+  where equating f x y = f x == f y
 
     -- 'Catch'ing this might be hard. Relies on monotonically increasing
     -- workspace tags defined in 'new'
@@ -288,13 +288,13 @@ modify' f = modify Nothing (Just . f)
 -- Return 'Just' that element, or 'Nothing' for an empty stack.
 --
 peek :: StackSet i l a s sd -> Maybe a
-peek = with Nothing (return . focus)
+peek = with Nothing (pure . focus)
 
 -- |
 -- /O(n)/. Flatten a 'Stack' into a list.
 --
 integrate :: Stack a -> [a]
-integrate (Stack x l r) = reverse l ++ x : r
+integrate (Stack x l r) = reverse l <> (x : r)
 
 -- |
 -- /O(n)/ Flatten a possibly empty stack into a list.
@@ -371,7 +371,7 @@ focusWindow :: (Eq s, Eq a, Eq i) => a -> StackSet i l a s sd -> StackSet i l a 
 focusWindow w s | Just w == peek s = s
                 | otherwise        = fromMaybe s $ do
                     n <- findTag w s
-                    return $ until ((Just w ==) . peek) focusUp (view n s)
+                    pure $ until ((Just w ==) . peek) focusUp (view n s)
 
 -- | Get a list of all screens in the 'StackSet'.
 screens :: StackSet i l a s sd -> [Screen i l a s sd]
@@ -379,11 +379,11 @@ screens s = current s : visible s
 
 -- | Get a list of all workspaces in the 'StackSet'.
 workspaces :: StackSet i l a s sd -> [Workspace i l a]
-workspaces s = workspace (current s) : map workspace (visible s) ++ hidden s
+workspaces s = workspace (current s) : fmap workspace (visible s) <> hidden s
 
 -- | Get a list of all windows in the 'StackSet' in no particular order
 allWindows :: Eq a => StackSet i l a s sd -> [a]
-allWindows = L.nub . concatMap (integrate' . stack) . workspaces
+allWindows = L.nub . foldMap (integrate' . stack) . workspaces
 
 -- | Get the tag of the currently focused workspace.
 currentTag :: StackSet i l a s sd -> i
@@ -391,7 +391,7 @@ currentTag = tag . workspace . current
 
 -- | Is the given tag present in the 'StackSet'?
 tagMember :: Eq i => i -> StackSet i l a s sd -> Bool
-tagMember t = elem t . map tag . workspaces
+tagMember t = elem t . fmap tag . workspaces
 
 -- | Rename a given tag if present in the 'StackSet'.
 renameTag :: Eq i => i -> i -> StackSet i l a s sd -> StackSet i l a s sd
@@ -402,7 +402,7 @@ renameTag o n = mapWorkspace rename
 -- existing workspaces and\/or creating new hidden workspaces as
 -- necessary.
 ensureTags :: Eq i => l -> [i] -> StackSet i l a s sd -> StackSet i l a s sd
-ensureTags l allt st = et allt (map tag (workspaces st) \\ allt) st
+ensureTags l allt st = et allt (fmap tag (workspaces st) \\ allt) st
     where et [] _ s = s
           et (i:is) rn s | i `tagMember` s = et is rn s
           et (i:is) [] s = et is [] (s { hidden = Workspace i l Nothing : hidden s })
@@ -411,13 +411,13 @@ ensureTags l allt st = et allt (map tag (workspaces st) \\ allt) st
 -- | Map a function on all the workspaces in the 'StackSet'.
 mapWorkspace :: (Workspace i l a -> Workspace i l a) -> StackSet i l a s sd -> StackSet i l a s sd
 mapWorkspace f s = s { current = updScr (current s)
-                     , visible = map updScr (visible s)
-                     , hidden  = map f (hidden s) }
+                     , visible = fmap updScr (visible s)
+                     , hidden  = fmap f (hidden s) }
     where updScr scr = scr { workspace = f (workspace scr) }
 
 -- | Map a function on all the layouts in the 'StackSet'.
 mapLayout :: (l -> l') -> StackSet i l a s sd -> StackSet i l' a s sd
-mapLayout f (StackSet v vs hs m) = StackSet (fScreen v) (map fScreen vs) (map fWorkspace hs) m
+mapLayout f (StackSet v vs hs m) = StackSet (fScreen v) (fmap fScreen vs) (fmap fWorkspace hs) m
  where
     fScreen (Screen ws s sd) = Screen (fWorkspace ws) s sd
     fWorkspace (Workspace t l s) = Workspace t (f l) s
@@ -433,7 +433,7 @@ findTag :: Eq a => a -> StackSet i l a s sd -> Maybe i
 findTag a s = listToMaybe
     [ tag w | w <- workspaces s, has a (stack w) ]
     where has _ Nothing         = False
-          has x (Just (Stack t l r)) = x `elem` (t : l ++ r)
+          has x (Just (Stack t l r)) = x `elem` (t : l <> r)
 
 -- ---------------------------------------------------------------------
 -- $modifyStackset
@@ -484,8 +484,8 @@ delete w = sink w . delete' w
 -- information saved in the 'Stackset'
 delete' :: (Eq a) => a -> StackSet i l a s sd -> StackSet i l a s sd
 delete' w s = s { current = removeFromScreen        (current s)
-                , visible = map removeFromScreen    (visible s)
-                , hidden  = map removeFromWorkspace (hidden  s) }
+                , visible = fmap removeFromScreen    (visible s)
+                , hidden  = fmap removeFromWorkspace (hidden  s) }
     where removeFromWorkspace ws = ws { stack = stack ws >>= filter (/=w) }
           removeFromScreen scr   = scr { workspace = removeFromWorkspace (workspace scr) }
 
@@ -509,7 +509,7 @@ sink w s = s { floating = M.delete w (floating s) }
 swapMaster :: StackSet i l a s sd -> StackSet i l a s sd
 swapMaster = modify' $ \c -> case c of
     Stack _ [] _  -> c    -- already master.
-    Stack t ls rs -> Stack t [] (xs ++ x : rs) where (x:xs) = reverse ls
+    Stack t ls rs -> Stack t [] (xs <> (x : rs)) where (x:xs) = reverse ls
 
 -- natural! keep focus, move current to the top, move top to current.
 
@@ -520,13 +520,13 @@ swapMaster = modify' $ \c -> case c of
 shiftMaster :: StackSet i l a s sd -> StackSet i l a s sd
 shiftMaster = modify' $ \c -> case c of
     Stack _ [] _ -> c     -- already master.
-    Stack t ls rs -> Stack t [] (reverse ls ++ rs)
+    Stack t ls rs -> Stack t [] (reverse ls <> rs)
 
 -- | /O(s)/. Set focus to the master window.
 focusMaster :: StackSet i l a s sd -> StackSet i l a s sd
 focusMaster = modify' $ \c -> case c of
     Stack _ [] _  -> c
-    Stack t ls rs -> Stack x [] (xs ++ t : rs) where (x:xs) = reverse ls
+    Stack t ls rs -> Stack x [] (xs <> (t : rs)) where (x:xs) = reverse ls
 
 --
 -- ---------------------------------------------------------------------
