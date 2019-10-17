@@ -70,6 +70,7 @@ library
                    XMonad.ManageHook
                    XMonad.Operations
                    XMonad.StackSet
+                   XMonad.Zipper
   other-modules:   Paths_xmonad
   hs-source-dirs:  src
   build-depends:   base                  >= 4.9 && < 5

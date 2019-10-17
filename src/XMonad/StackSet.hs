@@ -1,4 +1,6 @@
-{-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE
+    FlexibleContexts
+  , PatternGuards #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -25,17 +27,16 @@ module XMonad.StackSet (
         -- $focus
 
         StackSet(..), Workspace(..), Screen(..), Stack(..), RationalRect(..),
-        -- *  Construction
+        -- * Construction
         -- $construction
         new, view, greedyView,
         -- * Xinerama operations
         -- $xinerama
         lookupWorkspace,
         screens, workspaces, allWindows, currentTag,
-        -- *  Operations on the current stack
+        -- * StackSet Operations
         -- $stackOperations
-        peek, index, integrate, integrate', differentiate,
-        focusUp, focusDown, focusUp', focusDown', focusMaster, focusWindow,
+        peek, index, focusUp, focusDown, focusMaster, focusWindow,
         tagMember, renameTag, ensureTags, member, findTag, mapWorkspace, mapLayout,
         -- * Modifying the stackset
         -- $modifyStackset
@@ -46,25 +47,32 @@ module XMonad.StackSet (
         -- * Composite operations
         -- $composite
         shift, shiftWin,
-
+        -- * Zipper Operations
+        integrate, integrate', differentiate, focusUp', focusDown',
         -- for testing
         abort
     ) where
 
 import Prelude hiding (filter)
 import Control.Applicative ((<**>))
+import Control.Monad.Reader (MonadReader)
 import Data.Foldable (toList)
 import Data.Traversable (fmapDefault, foldMapDefault)
-import Data.Maybe   (listToMaybe,isJust,fromMaybe)
-import qualified Data.List as L (deleteBy,find,splitAt,filter,nub)
+import Data.Maybe (listToMaybe, isJust, fromMaybe)
+import qualified Data.List as L (deleteBy, find, splitAt, filter, nub)
 import Data.List ( (\\) )
 import Data.Map (Map)
-import qualified Data.Map  as M (Map,insert,delete,empty)
+import qualified Data.Map  as M (Map, insert, delete, empty)
 import Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.List.NonEmpty as NonEmpty
 
 import Lens.Micro (Lens, Lens')
 import qualified Lens.Micro as Lens
+import qualified Lens.Micro.Mtl as Lens
+import qualified Lens.Micro.Internal as Lens
+
+import XMonad.Zipper (Stack (..), filter, integrate, integrate', differentiate)
+import qualified XMonad.Zipper as Stack
 
 -- $intro
 --
@@ -154,12 +162,19 @@ _current f s = (\ x' -> s{ current = x' }) <$> f (current s)
 _visible :: Lens' (StackSet i l a sid sd) [Screen i l a sid sd]
 _visible f s = (\ x' -> s{ visible = x' }) <$> f (visible s)
 
-_screens :: Lens
+-- _screens :: Lens
+--   (StackSet i l a sid sd) (StackSet i l a sid' sd')
+--   (NonEmpty (Screen i l a sid sd)) (NonEmpty (Screen i l a sid' sd'))
+-- _screens f s =
+--   (\ (x' :| xs') -> s{ current = x', visible = xs' })
+--   <$> f (current s :| visible s)
+_screens :: Lens.Traversal
   (StackSet i l a sid sd) (StackSet i l a sid' sd')
-  (NonEmpty (Screen i l a sid sd)) (NonEmpty (Screen i l a sid' sd'))
+  (Screen i l a sid sd) (Screen i l a sid' sd')
 _screens f s =
-  (\ (x' :| xs') -> s{ current = x', visible = xs' })
-  <$> f (current s :| visible s)
+  (\ cur' vis' -> s{ current = cur', visible = vis' })
+  <$> f (current s)
+  <*> traverse f (visible s)
 
 _hidden :: Lens' (StackSet i l a sid sd) [Workspace i l a]
 _hidden f s = (\ x' -> s{ hidden = x' }) <$> f (hidden s)
@@ -168,11 +183,10 @@ _workspaces :: Lens.Traversal
   (StackSet i l a sid sd) (StackSet i' l' a sid sd)
   (Workspace i l a) (Workspace i' l' a)
 _workspaces f s =
-  StackSet
+  (\ cur' vis' hid' -> s{ current = cur', visible = vis', hidden = hid' })
   <$> _workspace f (current s)
   <*> (traverse . _workspace) f (visible s)
   <*> traverse f (hidden s)
-  <*> pure (floating s)
 
 _floating :: Lens' (StackSet i l a sid sd) (Map a RationalRect)
 _floating f s = (\ x' -> s{ floating = x' }) <$> f (floating s)
@@ -213,50 +227,6 @@ _stack f s = (\ x' -> s{ stack = x' }) <$> f (stack s)
 data RationalRect = RationalRect Rational Rational Rational Rational
     deriving (Show, Read, Eq)
 
--- |
--- A stack is a cursor onto a window list.
--- The data structure tracks focus by construction, and
--- the master window is by convention the top-most item.
--- Focus operations will not reorder the list that results from
--- flattening the cursor. The structure can be envisaged as:
---
--- >    +-- master:  < '7' >
--- > up |            [ '2' ]
--- >    +---------   [ '3' ]
--- > focus:          < '4' >
--- > dn +----------- [ '8' ]
---
--- A 'Stack' can be viewed as a list with a hole punched in it to make
--- the focused position. Under the zipper\/calculus view of such
--- structures, it is the differentiation of a [a], and integrating it
--- back has a natural implementation used in 'index'.
---
-data Stack a = Stack { focus  :: !a        -- focused thing in this set
-                     , up     :: [a]       -- clowns to the left
-                     , down   :: [a] }     -- jokers to the right
-    deriving (Show, Read, Eq)
-
-_focus :: Lens' (Stack a) a
-_focus f s = (\ x' -> s{ focus = x' }) <$> f (focus s)
-
-_up, _dn :: Lens' (Stack a) [a]
-_up f s = (\ x' -> s{ up = x' }) <$> f (up s)
-_dn f s = (\ x' -> s{ down = x' }) <$> f (down s)
-
-instance Foldable Stack where
-  foldMap = foldMapDefault
-
-instance Functor Stack where
-  fmap = fmapDefault
-
-instance Traversable Stack where
-  traverse f (Stack x xu xd) =
-    flip Stack <$> backwards xu <*> f x <*> traverse f xd
-    where
-    -- backwards (x : xs) = (:) <$> f x <**> backwards xs
-    -- backwards _ = pure []
-    backwards = foldr consM (pure [])
-       where consM y mys = mys <**> ((:) <$> f y)
 
 -- | this function indicates to catch that an error is expected
 abort :: String -> a
@@ -348,17 +318,17 @@ lookupWorkspace sc w = listToMaybe [ tag i | Screen i s _ <- current w : visible
 -- default value. Otherwise, it applies the function to the stack,
 -- returning the result. It is like 'maybe' for the focused workspace.
 --
-with :: b -> (Stack a -> b) -> StackSet i l a s sd -> b
-with dflt f = maybe dflt f . stack . workspace . current
+-- with :: b -> (Stack a -> b) -> StackSet i l a s sd -> b
+-- with dflt f = maybe dflt f . stack . workspace . current
+with :: MonadReader (StackSet i l a sid sd) m => b -> (Stack a -> b) -> m b
+with dflt f = maybe dflt f <$> Lens.view (_current . _workspace . _stack)
 
 -- |
 -- Apply a function, and a default value for 'Nothing', to modify the current stack.
 --
 modify :: Maybe (Stack a) -> (Stack a -> Maybe (Stack a)) -> StackSet i l a s sd -> StackSet i l a s sd
-modify d f s =
-  s{ current =
-       (current s){ workspace =
-                      (workspace (current s)){ stack = with d f s }}}
+-- modify d f s = s{ current = (current s){ workspace = (workspace (current s)){ stack = with d f s }}}
+modify d f = Lens.over (_current . _workspace . _stack) (maybe d f)
 
 -- |
 -- Apply a function to modify the current stack if it isn't empty, and we don't
@@ -373,37 +343,6 @@ modify' f = modify Nothing (Just . f)
 --
 peek :: StackSet i l a s sd -> Maybe a
 peek = with Nothing (pure . focus)
-
--- |
--- /O(n)/. Flatten a 'Stack' into a list.
---
-integrate :: Stack a -> [a]
--- integrate (Stack x l r) = reverse l <> (x : r)
-integrate = toList
-
--- |
--- /O(n)/ Flatten a possibly empty stack into a list.
-integrate' :: Maybe (Stack a) -> [a]
-integrate' = maybe [] integrate
-
--- |
--- /O(n)/. Turn a list into a possibly empty stack (i.e., a zipper):
--- the first element of the list is current, and the rest of the list
--- is down.
-differentiate :: [a] -> Maybe (Stack a)
-differentiate []     = Nothing
-differentiate (x:xs) = Just $ Stack x [] xs
-
--- |
--- /O(n)/. 'filter p s' returns the elements of 's' such that 'p' evaluates to
--- 'True'.  Order is preserved, and focus moves as described for 'delete'.
---
-filter :: (a -> Bool) -> Stack a -> Maybe (Stack a)
-filter p (Stack f ls rs) = case L.filter p (f:rs) of
-    f':rs' -> Just $ Stack f' (L.filter p ls) rs'    -- maybe move focus down
-    []     -> case L.filter p ls of                  -- filter back up
-                    f':ls' -> Just $ Stack f' ls' [] -- else up
-                    []     -> Nothing
 
 -- |
 -- /O(s)/. Extract the stack on the current workspace, as a list.
@@ -427,28 +366,12 @@ index = with [] integrate
 -- the current stack.
 --
 focusUp, focusDown, swapUp, swapDown :: StackSet i l a s sd -> StackSet i l a s sd
-focusUp   = modify' focusUp'
-focusDown = modify' focusDown'
+focusUp   = modify' Stack.focusUp
+focusDown = modify' Stack.focusDown
 
-swapUp    = modify' swapUp'
-swapDown  = modify' (reverseStack . swapUp' . reverseStack)
+swapUp    = modify' Stack.swapUp
+swapDown  = modify' (Stack.reverse . Stack.swapUp . Stack.reverse)
 
--- | Variants of 'focusUp' and 'focusDown' that work on a
--- 'Stack' rather than an entire 'StackSet'.
-focusUp', focusDown' :: Stack a -> Stack a
-focusUp' (Stack t (l:ls) rs) = Stack l ls (t:rs)
-focusUp' (Stack t []     rs) = Stack x xs [] where (x:xs) = reverse (t:rs)
-focusDown'                   = reverseStack . focusUp' . reverseStack
-
-swapUp' :: Stack a -> Stack a
-swapUp'  (Stack t (l:ls) rs) = Stack t ls (l:rs)
-swapUp'  (Stack t []     rs) = Stack t (reverse rs) []
-
--- | reverse a stack: up becomes down and down becomes up.
-reverseStack :: Stack a -> Stack a
-reverseStack (Stack t ls rs) = Stack t rs ls
-
---
 -- | /O(1) on current window, O(n) in general/. Focus the window 'w',
 -- and set its workspace as current.
 --
@@ -460,7 +383,8 @@ focusWindow w s | Just w == peek s = s
 
 -- | Get a list of all screens in the 'StackSet'.
 screens :: StackSet i l a s sd -> [Screen i l a s sd]
-screens s = current s : visible s
+-- screens s = current s : visible s
+screens = Lens.toListOf _screens
 
 -- | Get a list of all workspaces in the 'StackSet'.
 workspaces :: StackSet i l a s sd -> [Workspace i l a]
@@ -472,7 +396,11 @@ allWindows = L.nub . foldMap (integrate' . stack) . workspaces
 
 -- | Get the tag of the currently focused workspace.
 currentTag :: StackSet i l a s sd -> i
-currentTag = tag . workspace . current
+-- currentTag = tag . workspace . current
+currentTag = Lens.view _currentTag
+
+_currentTag :: Lens' (StackSet i l a s sd) i
+_currentTag = _current . _workspace . _tag
 
 -- | Is the given tag present in the 'StackSet'?
 tagMember :: Eq i => i -> StackSet i l a s sd -> Bool
@@ -495,17 +423,24 @@ ensureTags l allt st = et allt (fmap tag (workspaces st) \\ allt) st
 
 -- | Map a function on all the workspaces in the 'StackSet'.
 mapWorkspace :: (Workspace i l a -> Workspace i l a) -> StackSet i l a s sd -> StackSet i l a s sd
-mapWorkspace f s = s { current = updScr (current s)
-                     , visible = fmap updScr (visible s)
-                     , hidden  = fmap f (hidden s) }
-    where updScr scr = scr { workspace = f (workspace scr) }
+-- mapWorkspace f s = s { current = updScr (current s)
+--                      , visible = fmap updScr (visible s)
+--                      , hidden  = fmap f (hidden s) }
+--     where updScr scr = scr { workspace = f (workspace scr) }
+mapWorkspace f = Lens.over _workspaces f
 
 -- | Map a function on all the layouts in the 'StackSet'.
+-- Don't use this; use Lens.over _layouts
 mapLayout :: (l -> l') -> StackSet i l a s sd -> StackSet i l' a s sd
-mapLayout f (StackSet v vs hs m) = StackSet (fScreen v) (fmap fScreen vs) (fmap fWorkspace hs) m
- where
-    fScreen (Screen ws s sd) = Screen (fWorkspace ws) s sd
-    fWorkspace (Workspace t l s) = Workspace t (f l) s
+-- mapLayout f (StackSet v vs hs m) = StackSet (fScreen v) (fmap fScreen vs) (fmap fWorkspace hs) m
+--  where
+--     fScreen (Screen ws s sd) = Screen (fWorkspace ws) s sd
+--     fWorkspace (Workspace t l s) = Workspace t (f l) s
+mapLayout = Lens.over _layouts
+
+_layouts :: Lens.Traversal
+  (StackSet i l a s sd) (StackSet i l' a s sd) l l'
+_layouts = _workspaces . _layout
 
 -- | /O(n)/. Is a window in the 'StackSet'?
 member :: Eq a => a -> StackSet i l a s sd -> Bool
@@ -519,6 +454,9 @@ findTag a s = listToMaybe
     [ tag w | w <- workspaces s, has a (stack w) ]
     where has _ Nothing         = False
           has x (Just (Stack t l r)) = x `elem` (t : l <> r)
+-- findTag x = Lens.foldrOf _workspaces
+--   (\ w ws -> if any (x ==) (stack w) then Just tag w else ws)
+--   Nothing
 
 -- ---------------------------------------------------------------------
 -- $modifyStackset
@@ -571,7 +509,7 @@ delete' :: (Eq a) => a -> StackSet i l a s sd -> StackSet i l a s sd
 delete' w s = s { current = removeFromScreen        (current s)
                 , visible = fmap removeFromScreen    (visible s)
                 , hidden  = fmap removeFromWorkspace (hidden  s) }
-    where removeFromWorkspace ws = ws { stack = stack ws >>= filter (/=w) }
+    where removeFromWorkspace ws = ws { stack = stack ws >>= Stack.filter (/=w) }
           removeFromScreen scr   = scr { workspace = removeFromWorkspace (workspace scr) }
 
 ------------------------------------------------------------------------
@@ -641,3 +579,11 @@ shiftWin n w s = case findTag w s of
 onWorkspace :: (Eq i, Eq s) => i -> (StackSet i l a s sd -> StackSet i l a s sd)
             -> (StackSet i l a s sd -> StackSet i l a s sd)
 onWorkspace n f s = view (currentTag s) . f . view n $ s
+
+
+------------------------------------------
+--- Cruft:
+
+focusUp', focusDown' :: Stack a -> Stack a
+focusUp' = Stack.focusUp
+focusDown' = Stack.focusDown
