@@ -20,6 +20,12 @@ import XMonad.Core
 import XMonad.Layout (Full(..))
 import qualified XMonad.StackSet as W
 
+import Control.Applicative((<$>), (<*>))
+import Control.Arrow (second)
+import qualified Control.Exception.Extensible as C
+import Control.Monad.Reader
+import Control.Monad.State
+
 import Data.Functor (($>))
 import Data.Foldable (fold, for_, traverse_)
 import Data.Traversable (for)
@@ -31,18 +37,16 @@ import Data.Ratio
 import qualified Data.Map as M
 import qualified Data.Set as S
 
-import Control.Applicative((<$>), (<*>))
-import Control.Arrow (second)
-import Control.Monad.Reader
-import Control.Monad.State
-import qualified Control.Exception.Extensible as C
-
-import System.IO
-import System.Directory
-import System.Posix.Process (executeFile)
 import Graphics.X11.Xlib
 import Graphics.X11.Xinerama (getScreenInfo)
 import Graphics.X11.Xlib.Extras
+
+import qualified Lens.Micro as Lens
+import qualified Lens.Micro.Mtl as Lens
+
+import System.Directory
+import System.IO
+import System.Posix.Process (executeFile)
 
 -- ---------------------------------------------------------------------
 -- |
@@ -112,24 +116,29 @@ windows f = do
     let oldvisible = foldMap (W.integrate' . W.stack . W.workspace) $ W.current old : W.visible old
         newwindows = W.allWindows ws \\ W.allWindows old
         ws = f old
-    XConf { display = d , normalBorder = nbc, focusedBorder = fbc } <- ask
+    -- XConf { display = d, normalBorder = nbc, focusedBorder = fbc } <- ask
+    d <- Lens.view _display
+    nbc <- Lens.view _normalBorder
+    fbc <- Lens.view _focusedBorder
 
     traverse_ setInitialProperties newwindows
 
     whenJust (W.peek old) $ \otherw -> do
-      nbs <- asks (normalBorderColor . config)
+      -- nbs <- asks (normalBorderColor . config)
+      nbs <- Lens.view _normalBorderColor
       setWindowBorderWithFallback d otherw nbs nbc
 
-    modify (\s -> s { windowset = ws })
+    -- modify (\s -> s { windowset = ws })
+    modify $ Lens.set _windowSet ws
 
     -- notify non visibility
-    let tags_oldvisible = fmap (W.tag . W.workspace) $ W.current old : W.visible old
+    let tags_oldvisible = W.tag . W.workspace <$> W.current old : W.visible old
         gottenhidden    = filter (flip elem tags_oldvisible . W.tag) $ W.hidden ws
     traverse_ (sendMessageWithNoRefresh Hide) gottenhidden
 
     -- for each workspace, layout the currently visible workspaces
     let allscreens     = W.screens ws
-        summed_visible = scanl (++) [] $ fmap (W.integrate' . W.stack . W.workspace) allscreens
+        summed_visible = scanl (<>) [] $ fmap (W.integrate' . W.stack . W.workspace) allscreens
     rects <- fmap fold . for (zip allscreens summed_visible) $ \ (w, vis) -> do
         let wsp   = W.workspace w
             this  = W.view n ws
@@ -160,7 +169,8 @@ windows f = do
     traverse_ (uncurry tileWindow) rects
 
     whenJust (W.peek ws) $ \w -> do
-      fbs <- asks (focusedBorderColor . config)
+      -- fbs <- asks (focusedBorderColor . config)
+      fbs <- Lens.view _focusedBorderColor
       setWindowBorderWithFallback d w fbs fbc
 
     traverse_ reveal visible
@@ -175,13 +185,19 @@ windows f = do
     -- will overwrite withdrawnState with iconicState
     traverse_ (flip setWMState withdrawnState) (W.allWindows old \\ W.allWindows ws)
 
-    isMouseFocused <- asks mouseFocused
+    -- isMouseFocused <- asks mouseFocused
+    isMouseFocused <- Lens.view _mouseFocused
     unless isMouseFocused $ clearEvents enterWindowMask
-    asks (logHook . config) >>= userCodeDef ()
+    -- asks (logHook . config) >>= userCodeDef ()
+    userCodeDef () =<< Lens.view _logHook
 
 -- | Modify the @WindowSet@ in state with no special handling.
-modifyWindowSet :: (WindowSet -> WindowSet) -> X ()
-modifyWindowSet f = modify $ \xst -> xst { windowset = f (windowset xst) }
+-- modifyWindowSet :: (WindowSet -> WindowSet) -> X ()
+-- modifyWindowSet f = modify $ \xst -> xst { windowset = f (windowset xst) }
+modifyWindowSet ::
+  (MonadState s m, HasWindowSet s) =>
+  (WindowSet -> WindowSet) -> m ()
+modifyWindowSet = modify . Lens.over _windowSet
 
 -- | Perform an @X@ action and check its return value against a predicate p.
 -- If p holds, unwind changes to the @WindowSet@ and replay them using @windows@.
@@ -245,14 +261,19 @@ reveal w = withDisplay $ \d -> do
 
 -- | Set some properties when we initially gain control of a window
 setInitialProperties :: Window -> X ()
-setInitialProperties w = asks normalBorder >>= \nb -> withDisplay $ \d -> do
+-- setInitialProperties w = asks normalBorder >>= \nb -> withDisplay $ \d -> do
+-- setInitialProperties w = Lens.view _normalBorder >>= \nb -> withDisplay $ \d -> do
+setInitialProperties w = withDisplay $ \d -> do
     setWMState w iconicState
-    asks (clientMask . config) >>= io . selectInput d w
-    bw <- asks (borderWidth . config)
-    io $ setWindowBorderWidth d w bw
+    -- asks (clientMask . config) >>= io . selectInput d w
+    Lens.view _clientMask >>= io . selectInput d w
+    -- bw <- asks (borderWidth . config)
+    -- io $ setWindowBorderWidth d w bw
+    Lens.view _borderWidth >>= io . setWindowBorderWidth d w
     -- we must initially set the color of new windows, to maintain invariants
     -- required by the border setting in 'windows'
-    io $ setWindowBorder d w nb
+    -- io $ setWindowBorder d w nb
+    Lens.view _normalBorder >>= io . setWindowBorder d w
 
 -- | refresh. Render the currently visible workspaces, as determined by
 -- the 'StackSet'. Also, set focus to the focused window.
@@ -336,18 +357,21 @@ setButtonGrab grab w = do
 
 -- | Set the focus to the window on top of the stack, or root
 setTopFocus :: X ()
-setTopFocus = withWindowSet $ maybe (setFocusX =<< asks theRoot) setFocusX . W.peek
+-- setTopFocus = withWindowSet $ maybe (setFocusX =<< asks theRoot) setFocusX . W.peek
+setTopFocus = withWindowSet $ maybe (setFocusX =<< Lens.view _theRoot) setFocusX . W.peek
 
 -- | Set focus explicitly to window 'w' if it is managed by us, or root.
 -- This happens if X notices we've moved the mouse (and perhaps moved
 -- the mouse to a new screen).
 focus :: Window -> X ()
-focus w = local (\c -> c { mouseFocused = True }) . withWindowSet $ \s -> do
+-- focus w = local (\c -> c { mouseFocused = True }) . withWindowSet $ \s -> do
+focus w = local (Lens.set _mouseFocused True) . withWindowSet $ \s -> do
     let stag = W.tag . W.workspace
         curr = stag $ W.current s
     mnew <- maybe (pure Nothing) (fmap (fmap stag) . uncurry pointScreen)
             =<< asks mousePosition
-    root <- asks theRoot
+    -- root <- asks theRoot
+    root <- Lens.view _theRoot
     case () of
         _ | W.member w s && W.peek s /= Just w -> windows (W.focusWindow w)
           | Just new <- mnew, w == root && curr /= new
@@ -505,12 +529,12 @@ readStateFile xmc = do
           extState = M.fromList . fmap (second Left) $ sfExt sf
 
       pure XState { windowset       = winset
-                    , numberlockMask  = 0
-                    , mapped          = S.empty
-                    , waitingUnmap    = M.empty
-                    , dragging        = Nothing
-                    , extensibleState = extState
-                    }
+                  , numberlockMask  = 0
+                  , mapped          = S.empty
+                  , waitingUnmap    = M.empty
+                  , dragging        = Nothing
+                  , extensibleState = extState
+                  }
   where
     layout = Layout (layoutHook xmc)
     lreads = readsLayout layout
@@ -611,7 +635,9 @@ mouseDrag f done = do
     case drag of
         Just _ -> pure () -- error case? we're already dragging
         Nothing -> do
-            XConf { theRoot = root, display = d } <- ask
+            -- XConf { theRoot = root, display = d } <- ask
+            root <- Lens.view _theRoot
+            d <- Lens.view _display
             io $ grabPointer d root False (buttonReleaseMask .|. pointerMotionMask)
                     grabModeAsync grabModeAsync none none currentTime
             modify $ \s -> s { dragging = Just (motion, cleanup) }

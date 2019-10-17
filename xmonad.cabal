@@ -79,9 +79,12 @@ library
                  , directory
                  , extensible-exceptions
                  , filepath
+                 , microlens
+                 , microlens-mtl
                  , mtl
                  , process
                  , setlocale
+                 , transformers
                  , unix
                  , utf8-string           >= 0.3 && < 1.1
   ghc-options:     -funbox-strict-fields -Wall -fno-warn-unused-do-bind
@@ -91,7 +94,7 @@ library
 
 executable xmonad
   main-is:       Main.hs
-  build-depends: base, X11, mtl, unix, xmonad
+  build-depends: base, X11, microlens, microlens-mtl, mtl, transformers, unix, xmonad
   ghc-options:   -Wall -fno-warn-unused-do-bind
 
 executable generatemanpage
