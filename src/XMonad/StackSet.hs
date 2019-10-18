@@ -52,6 +52,7 @@ module XMonad.StackSet (
     ) where
 
 import Prelude hiding (filter)
+import Control.Applicative (Applicative (..), Alternative (..))
 import Data.Maybe   (listToMaybe,isJust,fromMaybe)
 import qualified Data.List as L (deleteBy,find,splitAt,filter,nub)
 import Data.List ( (\\) )
@@ -299,27 +300,40 @@ integrate (Stack x l r) = reverse l <> (x : r)
 -- |
 -- /O(n)/ Flatten a possibly empty stack into a list.
 integrate' :: Maybe (Stack a) -> [a]
-integrate' = maybe [] integrate
+-- integrate' = maybe [] integrate
+-- integrate' :: Foldable m => m (Stack a) -> [a]
+integrate' = foldMap integrate
 
 -- |
 -- /O(n)/. Turn a list into a possibly empty stack (i.e., a zipper):
 -- the first element of the list is current, and the rest of the list
 -- is down.
-differentiate :: [a] -> Maybe (Stack a)
-differentiate []     = Nothing
-differentiate (x:xs) = Just $ Stack x [] xs
+-- differentiate :: [a] -> Maybe (Stack a)
+-- differentiate []     = Nothing
+differentiate :: Alternative m => [a] -> m (Stack a)
+differentiate (x:xs) = pure $ Stack x [] xs
+differentiate _     = empty
 
 -- |
 -- /O(n)/. 'filter p s' returns the elements of 's' such that 'p' evaluates to
 -- 'True'.  Order is preserved, and focus moves as described for 'delete'.
 --
-filter :: (a -> Bool) -> Stack a -> Maybe (Stack a)
-filter p (Stack f ls rs) = case L.filter p (f:rs) of
-    f':rs' -> Just $ Stack f' (L.filter p ls) rs'    -- maybe move focus down
-    []     -> case L.filter p ls of                  -- filter back up
-                    f':ls' -> Just $ Stack f' ls' [] -- else up
-                    []     -> Nothing
-
+-- filter :: (a -> Bool) -> Stack a -> Maybe (Stack a)
+-- filter p (Stack f ls rs) = case L.filter p (f:rs) of
+--     f':rs' -> Just $ Stack f' (L.filter p ls) rs'    -- maybe move focus down
+--     []     -> case L.filter p ls of                  -- filter back up
+--                     f':ls' -> Just $ Stack f' ls' [] -- else up
+--                     []     -> Nothing
+filter :: Alternative m => (a -> Bool) -> Stack a -> m (Stack a)
+filter p (Stack x xu xd) =
+    case L.filter p (x : xd) of
+    x' : xd' -> pure (Stack x' xu' xd')   -- maybe move focus down
+    _ ->
+        case xu' of                             -- filter back up
+        x' : xu'' -> pure (Stack x' xu'' [])    -- else up
+        _         -> empty
+    where
+    xu' = L.filter p xu
 -- |
 -- /O(s)/. Extract the stack on the current workspace, as a list.
 -- The order of the stack is determined by the master window -- it will be
