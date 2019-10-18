@@ -427,7 +427,7 @@ mapWorkspace :: (Workspace i l a -> Workspace i l a) -> StackSet i l a s sd -> S
 --                      , visible = fmap updScr (visible s)
 --                      , hidden  = fmap f (hidden s) }
 --     where updScr scr = scr { workspace = f (workspace scr) }
-mapWorkspace f = Lens.over _workspaces f
+mapWorkspace = Lens.over _workspaces
 
 -- | Map a function on all the layouts in the 'StackSet'.
 -- Don't use this; use Lens.over _layouts

@@ -2,14 +2,24 @@
     NoImplicitPrelude
   #-}
 
-module XMonad.Zipper where
+module XMonad.Zipper
+  -- For now just export what's needed to compile.
+  ( Stack (..)
+  , filter, integrate, integrate', differentiate, focusDown, focusUp, reverse, swapUp
+  ) where
 
-import Prelude (Eq (..), Show (..), Read (..), Bool (..), ($), (||), flip, uncurry)
+import Prelude
+  ( Eq (..), Ord (..), Num (..), Show (..), Read (..)
+  , Bool (..), Int
+  , ($), flip, uncurry
+  , (||), otherwise
+  )
 import Control.Applicative
 import Control.Category
-import Control.Monad ((=<<))
+import Control.Monad
 import Data.Functor
 import Data.Semigroup
+import Data.Monoid
 import Data.Foldable
 import Data.Traversable
 import qualified Data.List as List
@@ -42,12 +52,43 @@ data Stack a = Stack { focus  :: !a        -- focused thing in this set
                      , down   :: [a] }     -- jokers to the right
     deriving (Show, Read, Eq)
 
+----- Optics and Accessors -----
+
 _focus :: Lens' (Stack a) a
 _focus f s = (\ x' -> s{ focus = x' }) <$> f (focus s)
 
 _up, _dn :: Lens' (Stack a) [a]
 _up f s = (\ x' -> s{ up = x' }) <$> f (up s)
 _dn f s = (\ x' -> s{ down = x' }) <$> f (down s)
+
+(!?) :: Alternative m => Stack a -> Int -> m a
+-- Safe indexing. Focus is at 0.
+Stack x xu xd !? i
+  | i == 0 = pure x
+  | i < 0 = xu @? abs i
+  | otherwise = xd @? (i - 1)
+  where
+  [] @? _ = empty
+  (x' : _) @? 0 = pure x'
+  (_ : xs) @? i' = xs @? (i' - 1)
+
+----- Constructors and Converters -----
+
+singleton :: a -> Stack a
+singleton x = Stack x [] []
+
+fromNonEmpty :: NonEmpty a -> Stack a
+-- This is the true form of 'integrate'.
+fromNonEmpty (x :| xs) = Stack x [] xs
+
+toNonEmpty :: Stack a -> NonEmpty a
+-- This is the hypothetical 'differentiate''.
+toNonEmpty (Stack x xu xd) =
+  case List.reverse xu of
+  (x' : xs) -> x' :| xs <> (x : xd)
+  _ -> x :| xd
+
+----- Instances -----
 
 instance Foldable Stack where
   foldMap = foldMapDefault
@@ -66,7 +107,53 @@ instance Traversable Stack where
 instance Semigroup (Stack a) where
   Stack x xu xd <> xs = Stack x xu (xd <> toList xs)
 
--- Inserting :: a -> Stack a -> Stack a, or a -> Maybe (Stack a) -> Stack a
+instance Applicative Stack where
+  pure x = Stack x [] []
+  Stack f fu fd <*> xs@(Stack x xu xd) =
+    Stack (f x)
+      (fmap f xu <> (fu <*> toList xs))
+      (fmap f xd <> (fd <*> toList xs))
+
+instance Monad Stack where
+  Stack x xu xd >>= f =
+    case f x of
+    Stack x' xu' xd' ->
+      Stack x'
+        (xu' <> foldMap (toList . f) xu)
+        (xd' <> foldMap (toList . f) xd)
+
+
+----- Specialized Methods -----
+
+zipWith :: (a -> b -> c) -> Stack a -> Stack b -> Stack c
+-- Zip by matching foci.
+zipWith f (Stack x xu xd) (Stack y yu yd) = Stack
+  (f x y)
+  (List.reverse (List.zipWith f (List.reverse xu) (List.reverse yu)))
+  (List.zipWith f xd yd)
+
+--- Comonad:
+-- extract = focus
+
+extend :: (Stack a -> b) -> Stack a -> Stack b
+-- A stack of all the possible refocusings of s, with s focused.
+extend f s = Stack (f s) (goUp s) (goDn s)
+  where
+  goUp (Stack x (x' : xu') xd) = let s' = Stack x' xu' (x : xd) in f s' : goUp s'
+  goUp _ = []
+  goDn (Stack x xu (x' : xd')) = let s' = Stack x' (x : xu) xd' in f s' : goDn s'
+  goDn _ = []
+
+
+duplicate :: Stack a -> Stack (Stack a)
+-- A stack of all the possible refocusings of s, with s focused.
+duplicate = extend id
+
+----- Functions -----
+
+--- Endomorphisms ---
+
+--- Inserting :: a -> Stack a -> Stack a, or a -> Maybe (Stack a) -> Stack a
 -- There are a lot of ways to insert an element into a stack.
 -- * You can insert a new focus and move the old focus up. (O 1)
 -- * You can insert a new focus and move the old focus down. (O 1)
@@ -84,20 +171,6 @@ insert x' (Stack x xu xd) = Stack x' xu (x : xd)
 
 cons :: a -> Stack a -> Stack a
 cons x' (Stack x xu xd) = Stack x (List.reverse (x' : List.reverse xu)) xd
-
-singleton :: a -> Stack a
-singleton x = Stack x [] []
-
-fromNonEmpty :: NonEmpty a -> Stack a
--- This is the true form of 'integrate'.
-fromNonEmpty (x :| xs) = Stack x [] xs
-
-toNonEmpty :: Stack a -> NonEmpty a
--- This is the hypothetical 'differentiate''.
-toNonEmpty (Stack x xu xd) =
-  case List.reverse xu of
-  (x' : xs) -> x' :| xs <> (x : xd)
-  _ -> x :| xd
 
 focusUp, focusDown :: Stack a -> Stack a
 focusUp (Stack t (l:ls) rs) = Stack l ls (t:rs)
@@ -127,25 +200,26 @@ mCons x' = maybe (singleton x') (cons x')
 -- You can delete the focus and try to replace it from below, then above.
 -- You can delete the top of the stack.
 -- You can delete the bottom of the stack.
-deleteFocus, deleteTop :: Stack a -> Maybe (Stack a)
+deleteFocus, deleteTop :: Alternative m => Stack a -> m (Stack a)
 -- Delete the focus and try to replace it from below, then above. (per StackSet delete behavior)
-deleteFocus (Stack _ xu (x' : xd')) = Just (Stack x' xu xd')
-deleteFocus (Stack _ (x' : xu') _) = Just (Stack x' xu' [])
-deleteFocus _ = Nothing
+deleteFocus (Stack _ xu (x' : xd')) = pure (Stack x' xu xd')
+deleteFocus (Stack _ (x' : xu') _) = pure (Stack x' xu' [])
+deleteFocus _ = empty
 
 deleteTop (Stack x xu xd) =
   case List.reverse (List.drop 1 (List.reverse (x : xu))) of
-  (x' : xu') -> Just (Stack x' xu' xd)
+  (x' : xu') -> pure (Stack x' xu' xd)
   _ ->
     case xd of
-    (x' : xd') -> Just (Stack x' [] xd')
-    _ -> Nothing
+    (x' : xd') -> pure (Stack x' [] xd')
+    _ -> empty
 
 -- |
 -- /O(n)/. 'filter p s' returns the elements of 's' such that 'p' evaluates to
 -- 'True'.  Order is preserved, and focus moves as described for 'delete'.
 --
-filter :: (a -> Bool) -> Stack a -> Maybe (Stack a)
+filter :: Alternative m => (a -> Bool) -> Stack a -> m (Stack a)
+-- filter :: (a -> Bool) -> Stack a -> Maybe (Stack a)
 -- filter p (Stack f ls rs) = case List.filter p (f:rs) of
 --     f':rs' -> Just (Stack f' (List.filter p ls) rs')   -- maybe move focus down
 --     []     -> case List.filter p ls of                  -- filter back up
@@ -153,32 +227,39 @@ filter :: (a -> Bool) -> Stack a -> Maybe (Stack a)
 --                     []     -> Nothing
 filter p (Stack x xu xd) =
   case xd' of
-  x' : xd'' -> Just (Stack x' xu' xd'')
+  x' : xd'' -> pure (Stack x' xu' xd'')
   _ ->
     case xu' of
-    x' : xu'' -> Just (Stack x' xu''[])
-    _ -> Nothing
+    x' : xu'' -> pure (Stack x' xu''[])
+    _ -> empty
   where
     xu' = List.filter p xu
     xd' = List.filter p (x : xd)
 
 ------- Possibly-empty Stacks ------
 
-integrate' :: Maybe (Stack a) -> [a]
-integrate' = maybe [] toList
+integrate' :: Foldable m => m (Stack a) -> [a]
+integrate' = foldMap toList
 
-differentiate :: [a] -> Maybe (Stack a)
-differentiate (x : xs) = Just (Stack x [] xs)
-differentiate _ = Nothing
+-- differentiate :: Alternative m => [a] -> m (Stack a)
+differentiate :: (Foldable m, Alternative n) => m a -> n (Stack a)
+differentiate = dx . toList
+  where
+  dx :: Alternative n => [a] -> n (Stack a)
+  dx (x : xs) = pure (Stack x [] xs)
+  dx _ = empty
 
 
-mDeleteFocus :: Maybe (Stack a) -> Maybe (Stack a)
+-- mDeleteFocus :: Maybe (Stack a) -> Maybe (Stack a)
+mDeleteFocus :: (Monad m, Alternative m) => m (Stack a) -> m (Stack a)
 mDeleteFocus = (=<<) deleteFocus
 
-mDeleteTop :: Maybe (Stack a) -> Maybe (Stack a)
+-- mDeleteTop :: Maybe (Stack a) -> Maybe (Stack a)
+mDeleteTop :: (Monad m, Alternative m) => m (Stack a) -> m (Stack a)
 mDeleteTop = (=<<) deleteTop
 
-mFilter :: (a -> Bool) -> Maybe (Stack a) -> Maybe (Stack a)
+-- mFilter :: (a -> Bool) -> Maybe (Stack a) -> Maybe (Stack a)
+mFilter :: (Monad m, Alternative m) => (a -> Bool) -> m (Stack a) -> m (Stack a)
 mFilter p = (=<<) (filter p)
 
 

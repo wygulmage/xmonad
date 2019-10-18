@@ -39,13 +39,13 @@ prop_allWindowsMember (NonEmptyWindowsStackSet x) = do
 
 -- preserve order
 prop_filter_order (x :: T) =
-    case stack $ workspace $ current x of
+    case stack . workspace $ current x of
         Nothing -> True
-        Just s@(Stack i _ _) -> integrate' (S.filter (/= i) s) == filter (/= i) (integrate' (Just s))
+        Just s@(Stack i _ _) -> (integrate' (S.filter (/= i) s :: Maybe (Stack Window)) :: [Window]) == filter (/= i) (integrate' (Just s))
 
 -- differentiate should return Nothing if the list is empty or Just stack, with
 -- the first element of the list is current, and the rest of the list is down.
 prop_differentiate xs =
-        if null xs then differentiate xs == Nothing
-                   else (differentiate xs) == Just (Stack (head xs) [] (tail xs))
+        if null xs then isNothing (differentiate xs)
+                   else differentiate xs == Just (Stack (head xs) [] (tail xs))
     where _ = xs :: [Int]
