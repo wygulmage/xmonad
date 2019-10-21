@@ -51,6 +51,10 @@ module XMonad.StackSet (
         integrate, integrate', differentiate, focusUp', focusDown',
         -- for testing
         abort
+        -- Optics
+        , _current, _visible, _hidden
+        , _workspace
+        , _workspaces
     ) where
 
 import Prelude hiding (filter)

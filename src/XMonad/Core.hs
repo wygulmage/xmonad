@@ -1,6 +1,10 @@
-{-# LANGUAGE ExistentialQuantification, FlexibleInstances,
+{-# LANGUAGE ExistentialQuantification,
   GeneralizedNewtypeDeriving, MultiParamTypeClasses,
-  DeriveDataTypeable, ScopedTypeVariables #-}
+  DeriveDataTypeable, ScopedTypeVariables
+  , TypeFamilies
+  , FlexibleContexts
+  , FlexibleInstances
+  , FunctionalDependencies #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -29,18 +33,25 @@ module XMonad.Core
     getXMonadDir, getXMonadCacheDir, getXMonadDataDir, stateFileName,
     atom_WM_STATE, atom_WM_PROTOCOLS, atom_WM_DELETE_WINDOW, atom_WM_TAKE_FOCUS, withWindowAttributes,
     ManageHook, Query(..), runQuery
-  -- Capabilities:
+  -- Capabilities & Optics:
   , HasBorderWidth (_borderWidth)
   , HasClientMask (_clientMask)
+  , HasCurrentEvent (_currentEvent)
   , HasDisplay (_display)
+  , HasExtensibleState (_extensibleState)
   , HasWindowSet (_windowSet)
   , HasLogHook (_logHook)
   , HasMouseFocused, _mouseFocused
+  , HasMousePosition (_mousePosition)
   , HasTheRoot (_theRoot)
   , HasNormalBorder (_normalBorder)
   , HasFocusedBorder (_focusedBorder)
   , HasNormalBorderColor (_normalBorderColor)
   , HasFocusedBorderColor (_focusedBorderColor)
+  , HasXConfig (..)
+  , _clickJustFocuses, _focusFollowsMouse
+  , _buttonActions, _dragging, _mapped, _waitingUnmap
+  , _layoutHook
   ) where
 
 import XMonad.StackSet hiding (modify)
@@ -52,7 +63,7 @@ import qualified Control.Exception.Extensible as E
 import Control.Monad.Fail (MonadFail)
 import Control.Monad.State
 import Control.Monad.Reader
-import Data.Foldable (fold, traverse_)
+import Data.Foldable (fold, for_, traverse_)
 import Data.Functor (($>))
 import Data.Monoid hiding ((<>))
 import Data.Semigroup
@@ -61,12 +72,13 @@ import Data.Typeable
 import Data.List ((\\))
 import Data.Maybe (isJust,fromMaybe)
 import Data.Map (Map)
-import qualified Data.Map as M
+-- import qualified Data.Map as M
 import Data.Set (Set)
-import qualified Data.Set as S
+-- import qualified Data.Set as S
 import Graphics.X11.Xlib
 import Graphics.X11.Xlib.Extras (getWindowAttributes, WindowAttributes, Event)
-import Lens.Micro
+import Lens.Micro (Lens, Lens')
+import qualified Lens.Micro as Lens
 import System.Directory
 import System.FilePath
 import System.Environment (lookupEnv)
@@ -91,12 +103,22 @@ data XState = XState
     -- ^ the number of expected UnmapEvents
     , dragging         :: !(Maybe (Position -> Position -> X (), X ()))
     , numberlockMask   :: !KeyMask
-    -- ^ The numlock modifier
+    -- ^ the numlock modifier
     , extensibleState  :: !(Map String (Either String StateExtension))
     -- ^ stores custom state information.
     -- The module "XMonad.Util.ExtensibleState" in xmonad-contrib
     -- provides additional information and a simple interface for using this.
     }
+
+-- XState optics:
+_mapped :: Lens' XState (Set Window)
+_mapped f s = (\ x' -> s{ mapped = x' }) <$> f (mapped s)
+
+_waitingUnmap :: Lens' XState (Map Window Int)
+_waitingUnmap f s = (\ x' -> s{ waitingUnmap = x' }) <$> f (waitingUnmap s)
+
+_dragging :: Lens' XState (Maybe (Position -> Position -> X (), X ()))
+_dragging f s = (\ x' -> s{ dragging = x' }) <$> f (dragging s)
 
 class HasXState a where
   _xState :: Lens' a XState
@@ -104,14 +126,14 @@ class HasXState a where
 instance HasXState XState where
   _xState = id
 
-class HasStateExtensions a where
-  _stateExtensions :: Lens' a (Map String (Either String StateExtension))
+class HasExtensibleState a where
+  _extensibleState :: Lens' a (Map String (Either String StateExtension))
 
-instance HasStateExtensions (Map String (Either String StateExtension)) where
-  _stateExtensions = id
+instance HasExtensibleState (Map String (Either String StateExtension)) where
+  _extensibleState = id
 
-instance HasStateExtensions XState where
-  _stateExtensions f s@XState{ extensibleState = x } =
+instance HasExtensibleState XState where
+  _extensibleState f s@XState{ extensibleState = x } =
     (\ x' -> s{ extensibleState = x' }) <$> f x
 
 class HasWindowSet a where
@@ -123,6 +145,7 @@ instance HasWindowSet XState where
 
 instance HasWindowSet WindowSet where
   _windowSet = id
+
 
 -- | XConf, the (read-only) window manager configuration.
 data XConf = XConf
@@ -148,6 +171,17 @@ data XConf = XConf
     -- ^ event currently being processed
     }
 
+-- XConf optics:
+
+_buttonActions :: Lens' XConf (Map (KeyMask, Button) (Window -> X ()))
+_buttonActions f s = (\ x' -> s{ buttonActions = x' }) <$> f (buttonActions s)
+
+class HasCurrentEvent a where
+   _currentEvent :: Lens' a (Maybe Event)
+
+instance HasCurrentEvent XConf where
+   _currentEvent f s = (\ x' -> s{ currentEvent = x' }) <$> f (currentEvent s)
+
 class HasDisplay a where
    _display :: Lens' a Display
 
@@ -165,12 +199,17 @@ class HasNormalBorder a where _normalBorder :: Lens' a Pixel
 instance HasNormalBorder XConf where
   _normalBorder f s = (\ x' -> s{ normalBorder = x' }) <$> f (normalBorder s)
 
-
 class HasMouseFocused a where
   _mouseFocused :: Lens' a Bool
 
 instance HasMouseFocused XConf where
   _mouseFocused f s = (\ x' -> s{ mouseFocused = x' }) <$> f (mouseFocused s)
+
+class HasMousePosition a where
+  _mousePosition :: Lens' a (Maybe (Position, Position))
+
+instance HasMousePosition XConf where
+  _mousePosition f s = (\ x' -> s{ mousePosition = x' }) <$> f (mousePosition s)
 
 class HasTheRoot a where
   _theRoot :: Lens' a Window
@@ -178,27 +217,39 @@ class HasTheRoot a where
 instance HasTheRoot XConf where
   _theRoot f s = (\ x' -> s{ theRoot = x' }) <$> f (theRoot s)
 
+
 -- TODO: better name
 data XConfig l = XConfig
-    { normalBorderColor  :: !String              -- ^ Nonfocused windows' border color. Default: \"#dddddd\"
-    , focusedBorderColor :: !String              -- ^ Focused windows border color. Default: \"#ff0000\"
-    , terminal           :: !String              -- ^ The preferred terminal application. Default: \"xterm\"
-    , layoutHook         :: !(l Window)          -- ^ The available layouts
-    , manageHook         :: !ManageHook          -- ^ The action to run when a new window is opened
-    , handleEventHook    :: !(Event -> X All)    -- ^ Handle an X event, returns (All True) if the default handler
-                                                 -- should also be run afterwards. mappend should be used for combining
-                                                 -- event hooks in most cases.
-    , workspaces         :: ![String]            -- ^ The list of workspaces' names
-    , modMask            :: !KeyMask             -- ^ the mod modifier
+    { normalBorderColor  :: !String
+    -- ^ Nonfocused windows' border color. Default: \"#dddddd\"
+    , focusedBorderColor :: !String
+    -- ^ Focused windows border color. Default: \"#ff0000\"
+    , terminal           :: !String
+    -- ^ The preferred terminal application. Default: \"xterm\"
+    , layoutHook         :: !(l Window)
+    -- ^ The available layouts
+    , manageHook         :: !ManageHook
+    -- ^ The action to run when a new window is opened
+    , handleEventHook    :: !(Event -> X All)
+    -- ^ Handle an X event, returns (All True) if the default handler should also be run afterwards. mappend should be used for combining event hooks in most cases.
+    , workspaces         :: ![String]
+    -- ^ The list of workspaces' names
+    , modMask            :: !KeyMask
+    -- ^ the mod modifier
     , keys               :: !(XConfig Layout -> Map (ButtonMask,KeySym) (X ()))
-                                                 -- ^ The key binding: a map from key presses and actions
+    -- ^ The key binding: a map from key presses and actions
     , mouseBindings      :: !(XConfig Layout -> Map (ButtonMask, Button) (Window -> X ()))
-                                                 -- ^ The mouse bindings
-    , borderWidth        :: !Dimension           -- ^ The border width
-    , logHook            :: !(X ())              -- ^ The action to perform when the windows set is changed
-    , startupHook        :: !(X ())              -- ^ The action to perform on startup
-    , focusFollowsMouse  :: !Bool                -- ^ Whether window entry events can change focus
-    , clickJustFocuses   :: !Bool                -- ^ False to make a click which changes focus to be additionally passed to the window
+    -- ^ The mouse bindings
+    , borderWidth        :: !Dimension
+    -- ^ The border width
+    , logHook            :: !(X ())
+    -- ^ The action to perform when the windows set is changed
+    , startupHook        :: !(X ())
+    -- ^ The action to perform on startup
+    , focusFollowsMouse  :: !Bool
+    -- ^ Whether window entry events can change focus
+    , clickJustFocuses   :: !Bool
+    -- ^ False to make a click which changes focus to be additionally passed to the window
     , clientMask         :: !EventMask
     -- ^ The client events that xmonad is interested in
     , rootMask           :: !EventMask
@@ -206,6 +257,12 @@ data XConfig l = XConfig
     , handleExtraArgs    :: !([String] -> XConfig Layout -> IO (XConfig Layout))
     -- ^ Modify the configuration, complain about extra arguments etc. with arguments that are not handled by default
     }
+
+_clickJustFocuses :: Lens' (XConfig l) Bool
+_clickJustFocuses f s = (\ x' -> s{ clickJustFocuses = x' }) <$> f (clickJustFocuses s)
+
+_focusFollowsMouse :: Lens' (XConfig l) Bool
+_focusFollowsMouse f s = (\ x' -> s{ focusFollowsMouse = x' }) <$> f (focusFollowsMouse s)
 
 class HasXConfig a where _XConfig :: Lens' a (XConfig Layout)
 
@@ -230,6 +287,11 @@ instance HasClientMask XConf where
   _clientMask = _XConfig . _clientMask
 instance HasClientMask (XConfig Layout) where
   _clientMask f s = (\ x' -> s{ clientMask = x' }) <$> f (clientMask s)
+
+_layoutHook ::
+    (LayoutClass l Window, LayoutClass l' Window) =>
+    Lens (XConfig l) (XConfig l') (l Window) (l' Window)
+_layoutHook f s = (\ x' -> s{ layoutHook = x' }) <$> f (layoutHook s)
 
 class HasLogHook a where _logHook :: Lens' a (X ())
 
@@ -266,7 +328,7 @@ class HasFocusedBorderColor a where _focusedBorderColor :: Lens' a String
 instance HasFocusedBorderColor (XConfig Layout) where
   _focusedBorderColor f s = (\ x' -> s{ focusedBorderColor = x' }) <$> f (focusedBorderColor s)
 
-instance HasFocusedBorderColor (XConf) where
+instance HasFocusedBorderColor XConf where
   _focusedBorderColor = _XConfig . _focusedBorderColor
 
 class HasNormalBorderColor a where _normalBorderColor :: Lens' a String
@@ -274,7 +336,7 @@ class HasNormalBorderColor a where _normalBorderColor :: Lens' a String
 instance HasNormalBorderColor (XConfig Layout) where
   _normalBorderColor f s = (\ x' -> s{ normalBorderColor = x' }) <$> f (normalBorderColor s)
 
-instance HasNormalBorderColor (XConf) where
+instance HasNormalBorderColor XConf where
   _normalBorderColor = _XConfig . _normalBorderColor
 
 
@@ -376,7 +438,7 @@ withWindowSet f = gets windowset >>= f
 withWindowAttributes :: Display -> Window -> (WindowAttributes -> X ()) -> X ()
 withWindowAttributes dpy win f = do
     wa <- userCode (io $ getWindowAttributes dpy win)
-    catchX (whenJust wa f) (pure ())
+    catchX (for_ wa f) (pure ())
 
 -- | True if the given window is the root window
 isRoot :: Window -> X Bool
@@ -476,25 +538,25 @@ class Show (layout a) => LayoutClass layout a where
     -- 'handleMessage' (this restricts the risk of error, and makes
     -- testing much easier).
     handleMessage :: layout a -> SomeMessage -> X (Maybe (layout a))
-    handleMessage l  = pure . pureMessage l
+    handleMessage l = pure . pureMessage l
 
     -- | Respond to a message by (possibly) changing our layout, but
     -- taking no other action.  If the layout changes, the screen will
     -- be refreshed.
     pureMessage :: layout a -> SomeMessage -> Maybe (layout a)
-    pureMessage _ _  = Nothing
+    pureMessage _ _ = Nothing
 
     -- | This should be a human-readable string that is used when
     -- selecting layouts by name.  The default implementation is
     -- 'show', which is in some cases a poor default.
     description :: layout a -> String
-    description      = show
+    description = show
 
 instance LayoutClass Layout Window where
     runLayout (Workspace i (Layout l) ms) r = fmap (fmap Layout) `fmap` runLayout (Workspace i l ms) r
     doLayout (Layout l) r s  = fmap (fmap Layout) `fmap` doLayout l r s
     emptyLayout (Layout l) r = fmap (fmap Layout) `fmap` emptyLayout l r
-    handleMessage (Layout l) = fmap (fmap Layout) . handleMessage l
+    handleMessage (Layout l) = fmap (fmap Layout) `fmap` handleMessage l
     description (Layout l)   = description l
 
 instance Show (Layout a) where show (Layout l) = show l
@@ -597,10 +659,13 @@ xfork x = io . forkProcess . finally nullStdin $ do
 runOnWorkspaces :: (WindowSpace -> X WindowSpace) -> X ()
 runOnWorkspaces job = do
     ws <- gets windowset
-    h <- traverse job $ hidden ws
-    c:v <- traverse (\s -> (\w -> s { workspace = w}) <$> job (workspace s))
-             $ current ws : visible ws
-    modify $ \s -> s { windowset = ws { current = c, visible = v, hidden = h } }
+    -- h <- traverse job $ hidden ws
+    -- -- c:v <- traverse (\s -> (\w -> s { workspace = w}) <$> job (workspace s))
+    -- c:v <- traverse (_workspace job)
+    --          $ current ws : visible ws
+    -- -- modify $ \s -> s { windowset = ws { current = c, visible = v, hidden = h } }
+    ws' <- _workspaces job ws
+    modify $ Lens.set _windowSet ws'
 
 -- | Return the path to the xmonad configuration directory.  This
 -- directory is where user configuration files are stored (e.g, the
@@ -843,12 +908,15 @@ recompile force = io $ do
          runProcess script [bin] (Just dir) Nothing Nothing Nothing (Just errHandle)
 
 -- | Conditionally run an action, using a @Maybe a@ to decide.
-whenJust :: Monad m => Maybe a -> (a -> m ()) -> m ()
-whenJust mg f = traverse_ f mg
+-- whenJust :: Monad m => Maybe a -> (a -> m ()) -> m ()
+whenJust :: (Traversable m, Applicative n) => m a -> (a -> n ()) -> n ()
+whenJust = for_
 
 -- | Conditionally run an action, using a 'X' event to decide
-whenX :: X Bool -> X () -> X ()
-whenX a f = a >>= \b -> when b f
+-- whenX :: X Bool -> X () -> X ()
+whenX :: Monad m => m Bool -> m () -> m ()
+-- whenX a f = a >>= \b -> when b f
+whenX a f = a >>= flip when f
 
 -- | A 'trace' for the 'X' monad. Logs a string to stderr. The result may
 -- be found in your .xsession-errors file

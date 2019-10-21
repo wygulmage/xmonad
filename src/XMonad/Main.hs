@@ -15,22 +15,35 @@
 
 module XMonad.Main (xmonad, launch) where
 
-import System.Locale.SetLocale
 import qualified Control.Exception.Extensible as E
-import Data.Bits
-import Data.List ((\\))
-import Data.Function
-import qualified Data.Map as M
-import qualified Data.Set as S
 import Control.Monad.Reader
 import Control.Monad.State
+import Data.Bits
 import Data.Foldable (fold, for_, traverse_)
 import Data.Traversable (for)
+import Data.List ((\\))
 import Data.Maybe (fromMaybe)
 import Data.Monoid (getAll)
+import Data.Version (showVersion)
+import qualified Data.Map as M
+import qualified Data.Map as Map
+import qualified Data.Set as S
+import qualified Data.Set as Set
+
+import System.Directory
+import System.Environment
+import System.Exit (exitFailure)
+import System.FilePath
+import System.IO
+import System.Info
+import System.Locale.SetLocale
+import System.Posix.Process (executeFile)
 
 import Graphics.X11.Xlib hiding (refreshKeyboardMapping)
 import Graphics.X11.Xlib.Extras
+import Graphics.X11.Xinerama (compiledWithXinerama)
+
+import Paths_xmonad (version)
 
 import XMonad.Core
 import qualified XMonad.Config as Default
@@ -38,18 +51,9 @@ import XMonad.StackSet (new, floating, member)
 import qualified XMonad.StackSet as W
 import XMonad.Operations
 
-import System.IO
-import System.Directory
-import System.Info
-import System.Environment
-import System.Posix.Process (executeFile)
-import System.Exit (exitFailure)
-import System.FilePath
+import qualified Lens.Micro as Lens
+import qualified Lens.Micro.Mtl as Lens
 
-import Paths_xmonad (version)
-import Data.Version (showVersion)
-
-import Graphics.X11.Xinerama (compiledWithXinerama)
 
 ------------------------------------------------------------------------
 
@@ -64,7 +68,8 @@ xmonad conf = do
     let launch' args = do
               catchIO buildLaunch
               conf'@XConfig{ layoutHook = Layout l }
-                  <- handleExtraArgs conf args conf{ layoutHook = Layout (layoutHook conf) }
+                  -- <- handleExtraArgs conf args conf{ layoutHook = Layout (layoutHook conf) }
+                  <- handleExtraArgs conf args (Lens.over _layoutHook Layout conf)
               withArgs [] $ launch (conf' { layoutHook = l })
 
     args <- getArgs
@@ -147,6 +152,14 @@ sendReplace = do
     let dflt = defaultScreen dpy
     rootw  <- rootWindow dpy dflt
     replace dpy dflt rootw
+-- sendReplace = newRootWith replace
+
+-- newRootWith :: (Display -> ScreenNumber -> Window -> IO a) -> IO a
+-- newRootWith f = do
+--     d <- openDisplay ""
+--     let s = defaultScreen d
+--     w <- rootWindow d s
+--     f d s w
 
 -- | Entry point into xmonad for custom builds.
 --
@@ -177,9 +190,9 @@ launch initxmc = do
     -- First, wrap the layout in an existential, to keep things pretty:
     let xmc = initxmc { layoutHook = Layout $ layoutHook initxmc }
     dpy   <- openDisplay ""
-    let dflt = defaultScreen dpy
-
-    rootw  <- rootWindow dpy dflt
+    -- let dflt = defaultScreen dpy
+    -- rootw  <- rootWindow dpy dflt
+    rootw <- rootWindow dpy (defaultScreen dpy)
 
     -- If another WM is running, a BadAccess error will be returned.  The
     -- default error handler will write the exception to stderr and exit with
@@ -194,20 +207,23 @@ launch initxmc = do
 
     xinesc <- getCleanedScreenInfo dpy
 
-    nbc    <- do v            <- initColor dpy $ normalBorderColor  xmc
-                 ~(Just nbc_) <- initColor dpy $ normalBorderColor Default.def
-                 pure (fromMaybe nbc_ v)
+    nbc <- do
+        v            <- initColor dpy $ normalBorderColor xmc
+        ~(Just nbc_) <- initColor dpy $ normalBorderColor Default.def
+        pure (fromMaybe nbc_ v)
 
-    fbc    <- do v <- initColor dpy $ focusedBorderColor xmc
-                 ~(Just fbc_)  <- initColor dpy $ focusedBorderColor Default.def
-                 pure (fromMaybe fbc_ v)
+    fbc <- do
+        v            <- initColor dpy $ focusedBorderColor xmc
+        ~(Just fbc_) <- initColor dpy $ focusedBorderColor Default.def
+        pure (fromMaybe fbc_ v)
 
     hSetBuffering stdout NoBuffering
 
     let layout = layoutHook xmc
-        initialWinset = let padToLen n xs = take (max n (length xs)) $ xs <> repeat ""
-            in new layout (padToLen (length xinesc) (workspaces xmc)) $ fmap SD xinesc
-
+        initialWinset = new layout (padToMaxLen xinesc (workspaces xmc)) $ fmap SD xinesc
+            where
+            padToMaxLen :: [a] -> [String] -> [String]
+            padToMaxLen xs ss = take (max (length xs) (length ss)) $ ss <> repeat ""
         cf = XConf
             { display       = dpy
             , config        = xmc
@@ -223,10 +239,10 @@ launch initxmc = do
         st = XState
             { windowset       = initialWinset
             , numberlockMask  = 0
-            , mapped          = S.empty
-            , waitingUnmap    = M.empty
+            , mapped          = Set.empty
+            , waitingUnmap    = Map.empty
             , dragging        = Nothing
-            , extensibleState = M.empty
+            , extensibleState = Map.empty
             }
 
     allocaXEvent $ \e ->
@@ -238,8 +254,9 @@ launch initxmc = do
                 if exists then readStateFile initxmc else pure Nothing
 
             -- restore extensibleState if we read it from a file.
-            let extst = maybe M.empty extensibleState serializedSt
-            modify (\s -> s {extensibleState = extst})
+            let extst = maybe Map.empty extensibleState serializedSt
+            -- modify (\s -> s {extensibleState = extst})
+            modify (Lens.set _extensibleState extst)
 
             setNumlockMask
             grabKeys
@@ -268,10 +285,14 @@ launch initxmc = do
     pure ()
       where
         -- if the event gives us the position of the pointer, set mousePosition
-        prehandle e = let mouse = do guard (ev_event_type e `elem` evs)
-                                     pure (fromIntegral (ev_x_root e)
-                                            ,fromIntegral (ev_y_root e))
-                      in local (\c -> c { mousePosition = mouse, currentEvent = Just e }) (handleWithHook e)
+        -- prehandle e = let mouse = do guard (ev_event_type e `elem` evs)
+        --                              pure ( fromIntegral (ev_x_root e)
+        --                                   , fromIntegral (ev_y_root e))
+        --               in local (\c -> c { mousePosition = mouse, currentEvent = Just e }) (handleWithHook e)
+        prehandle e = local (Lens.set _currentEvent (Just e) . Lens.set _mousePosition mouse) (handleWithHook e)
+            where mouse = do guard (ev_event_type e `elem` evs)
+                             pure ( fromIntegral (ev_x_root e)
+                                  , fromIntegral (ev_y_root e))
         evs = [ keyPress, keyRelease, enterNotify, leaveNotify
               , buttonPress, buttonRelease]
 
@@ -281,7 +302,7 @@ launch initxmc = do
 handleWithHook :: Event -> X ()
 handleWithHook e = do
   evHook <- asks (handleEventHook . config)
-  whenX (userCodeDef True $ getAll `fmap` evHook e) (handle e)
+  whenX (userCodeDef True $ getAll <$> evHook e) (handle e)
 
 -- ---------------------------------------------------------------------
 -- | Event handler. Map X events onto calls into Operations.hs, which
@@ -301,10 +322,10 @@ handle KeyEvent {ev_event_type = t, ev_state = m, ev_keycode = code}
         s  <- io $ keycodeToKeysym dpy code 0
         mClean <- cleanMask m
         ks <- asks keyActions
-        userCodeDef () $ whenJust (M.lookup (mClean, s) ks) id
+        userCodeDef () $ whenJust (Map.lookup (mClean, s) ks) id
 
 -- manage a new window
-handle MapRequestEvent    {ev_window = w} = withDisplay $ \dpy ->
+handle MapRequestEvent{ ev_window = w } = withDisplay $ \dpy ->
     withWindowAttributes dpy w $ \wa -> do -- ignore override windows
   -- need to ignore mapping requests by managed windows not on the current workspace
   managed <- isClient w
@@ -312,10 +333,11 @@ handle MapRequestEvent    {ev_window = w} = withDisplay $ \dpy ->
 
 -- window destroyed, unmanage it
 -- window gone,      unmanage it
-handle DestroyWindowEvent {ev_window = w} = whenX (isClient w) $ do
+handle DestroyWindowEvent{ ev_window = w } = whenX (isClient w) $ do
     unmanage w
-    modify (\s -> s { mapped       = S.delete w (mapped s)
-                    , waitingUnmap = M.delete w (waitingUnmap s)})
+    -- modify (\s -> s { mapped       = S.delete w (mapped s)
+    --                 , waitingUnmap = M.delete w (waitingUnmap s)})
+    modify (Lens.over _mapped (Set.delete w) . Lens.over _waitingUnmap (Map.delete w))
 
 -- We track expected unmap events in waitingUnmap.  We ignore this event unless
 -- it is synthetic or we are not expecting an unmap notification from a window.
@@ -323,7 +345,8 @@ handle UnmapEvent {ev_window = w, ev_send_event = synthetic} = whenX (isClient w
     e <- gets (fromMaybe 0 . M.lookup w . waitingUnmap)
     if synthetic || e == 0
         then unmanage w
-        else modify (\s -> s { waitingUnmap = M.update mpred w (waitingUnmap s) })
+        -- else modify (\s -> s { waitingUnmap = M.update mpred w (waitingUnmap s) })
+        else modify (Lens.over _waitingUnmap (Map.update mpred w))
  where mpred 1 = Nothing
        mpred n = Just $ pred n
 
@@ -340,30 +363,34 @@ handle e@ButtonEvent {ev_event_type = t}
     drag <- gets dragging
     case drag of
         -- we're done dragging and have released the mouse:
-        Just (_,f) -> modify (\s -> s { dragging = Nothing }) *> f
+        -- Just (_,f) -> modify (\s -> s { dragging = Nothing }) *> f
+        Just (_,f) -> modify (Lens.set _dragging Nothing) *> f
         Nothing    -> broadcastMessage e
 
 -- handle motionNotify event, which may mean we are dragging.
-handle e@MotionEvent {ev_event_type = _t, ev_x = x, ev_y = y} = do
+handle e@MotionEvent{ ev_event_type = _t, ev_x = x, ev_y = y } = do
     drag <- gets dragging
     case drag of
         Just (d,_) -> d (fromIntegral x) (fromIntegral y) -- we're dragging
         Nothing -> broadcastMessage e
 
 -- click on an unfocused window, makes it focused on this workspace
-handle e@ButtonEvent {ev_window = w,ev_event_type = t,ev_button = b }
+handle e@ButtonEvent{ ev_window = w,ev_event_type = t,ev_button = b }
     | t == buttonPress = do
     -- If it's the root window, then it's something we
     -- grabbed in grabButtons. Otherwise, it's click-to-focus.
-    dpy <- asks display
+    -- dpy <- asks display
+    dpy <- Lens.view _display
     isr <- isRoot w
     m <- cleanMask $ ev_state e
-    mact <- asks (M.lookup (m, b) . buttonActions)
+    -- mact <- asks (M.lookup (m, b) . buttonActions)
+    mact <- M.lookup (m, b) <$> Lens.view _buttonActions
     case mact of
         Just act | isr -> act $ ev_subwindow e
         _              -> do
             focus w
-            ctf <- asks (clickJustFocuses . config)
+            -- ctf <- asks (clickJustFocuses . config)
+            ctf <- Lens.view (_XConfig . _clickJustFocuses)
             unless ctf $ io (allowEvents dpy replayPointer currentTime)
     broadcastMessage e -- Always send button events.
 
@@ -371,7 +398,8 @@ handle e@ButtonEvent {ev_window = w,ev_event_type = t,ev_button = b }
 -- True in the user's config.
 handle e@CrossingEvent {ev_window = w, ev_event_type = t}
     | t == enterNotify && ev_mode   e == notifyNormal
-    = whenX (asks $ focusFollowsMouse . config) $ do
+    -- = whenX (asks $ focusFollowsMouse . config) $ do
+    = whenX (Lens.view $ _XConfig . _focusFollowsMouse) $ do
         dpy <- asks display
         root <- asks theRoot
         (_, _, w', _, _, _, _, _) <- io $ queryPointer dpy root

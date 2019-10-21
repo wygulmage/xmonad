@@ -35,7 +35,9 @@ import Data.List            (nub, (\\), find)
 import Data.Bits            ((.|.), (.&.), complement, testBit)
 import Data.Ratio
 import qualified Data.Map as M
+import qualified Data.Map as Map
 import qualified Data.Set as S
+import qualified Data.Set as Set
 
 import Graphics.X11.Xlib
 import Graphics.X11.Xinerama (getScreenInfo)
@@ -156,7 +158,7 @@ windows f = do
 
         let m   = W.floating ws
             flt = [(fw, scaleRationalRect viewrect r)
-                    | fw <- filter (flip M.member m) (W.index this)
+                    | fw <- filter (`M.member` m) (W.index this)
                     , Just r <- [M.lookup fw m]]
             vs = flt <> rs
 
@@ -183,7 +185,7 @@ windows f = do
     -- all windows that are no longer in the windowset are marked as
     -- withdrawn, it is important to do this after the above, otherwise 'hide'
     -- will overwrite withdrawnState with iconicState
-    traverse_ (flip setWMState withdrawnState) (W.allWindows old \\ W.allWindows ws)
+    traverse_ (`setWMState` withdrawnState) (W.allWindows old \\ W.allWindows ws)
 
     -- isMouseFocused <- asks mouseFocused
     isMouseFocused <- Lens.view _mouseFocused
