@@ -150,29 +150,35 @@ windows f = do
     let
         allscreens = Lens.toListOf W._screens ws
         -- summed_visible = scanl (<>) [] $ fmap (W.integrate' . W.stack . W.workspace) allscreens
-        summed_visible = scanl (<>) [] $ fmap (foldMap toList <$> Lens.view (W._workspace . W._stack)) allscreens
+        summed_visible = scanl (<>) [] $ fmap (foldMap toList <$> Lens.view W._stack) allscreens
     rects <- fmap fold . for (zip allscreens summed_visible) $ \ (w, vis) -> do
         let
             -- wsp   = W.workspace w
             wsp = Lens.view W._workspace w
             this = W.view n ws
             -- n     = W.tag wsp
-            n = Lens.view W._tag wsp
+            n = Lens.view W._tag w
             -- tiled = (W.stack . W.workspace . W.current $ this)
             --         >>= W.filter (`M.notMember` W.floating ws)
             --         >>= W.filter (`notElem` vis)
-            tiled = Lens.view (W._current . W._workspace . W._stack) this
+            tiled = Lens.view (W._current . W._stack) this
                     >>= W.filter (`M.notMember` W.floating ws)
                     >>= W.filter (`notElem` vis)
-            viewrect = screenRect $ W.screenDetail w
+            wspTiled = Lens.set W._stack tiled wsp
+            -- viewrect = screenRect $ W.screenDetail w
+            viewrect = Lens.view _screenRect w
 
         -- just the tiled windows:
         -- now tile the windows on this workspace, modified by the gap
-        (rs, ml') <- runLayout wsp { W.stack = tiled } viewrect `catchX`
-                     runLayout wsp { W.stack = tiled, W.layout = Layout Full } viewrect
+        -- (rs, ml') <- runLayout wsp{ W.stack = tiled } viewrect `catchX`
+        --              runLayout wsp{ W.stack = tiled, W.layout = Layout Full } viewrect
+        (rs, ml') <- runLayout wspTiled viewrect `catchX`
+                     runLayout (Lens.set W._layout (Layout Full) wspTiled) viewrect
         updateLayout n ml'
 
-        let m   = W.floating ws
+        let
+            -- m =   W.floating ws
+            m = Lens.view W._floating ws
             flt = [(fw, scaleRationalRect viewrect r)
                     | fw <- filter (`M.member` m) (W.index this)
                     , Just r <- [M.lookup fw m]]

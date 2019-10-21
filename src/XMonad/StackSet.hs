@@ -58,7 +58,9 @@ module XMonad.StackSet (
         -- for testing
         abort
         -- Optics
-        , _current, _visible, _hidden
+        , HasLayout (_layout)
+        , _current, _visible, _hidden, _floating
+        , _screenDetail
         , _stack, _tag
         , _screens
         , _workspace
@@ -160,6 +162,7 @@ import qualified XMonad.Zipper as Stack
 -- that are produced are used to track those workspaces visible as
 -- Xinerama screens, and those workspaces not visible anywhere.
 -- This type is too polymorphic. Should be 'StackSet a' or 'StackSet', with 'i', 'l', 'sid', and 'sd' instantiated as their usual types, and possibly with 'a' instantiated as Window.
+
 data StackSet i l a sid sd = StackSet
     { current  :: !(Screen i l a sid sd)    -- ^ currently focused workspace
     , visible  :: [Screen i l a sid sd]     -- ^ non-focused workspaces, visible in xinerama
@@ -431,7 +434,8 @@ workspaces s = workspace (current s) : fmap workspace (visible s) <> hidden s
 
 -- | Get a list of all windows in the 'StackSet' in no particular order
 allWindows :: Eq a => StackSet i l a s sd -> [a]
-allWindows = L.nub . foldMap (integrate' . stack) . workspaces
+-- allWindows = L.nub . foldMap (integrate' . stack) . workspaces
+allWindows = L.nub . foldMap (foldMap toList . stack) . workspaces
 
 -- | Get the tag of the currently focused workspace.
 currentTag :: StackSet i l a s sd -> i
@@ -440,22 +444,28 @@ currentTag = Lens.view (_current . _tag)
 
 -- | Is the given tag present in the 'StackSet'?
 tagMember :: Eq i => i -> StackSet i l a s sd -> Bool
-tagMember t = elem t . fmap tag . workspaces
+-- tagMember t = elem t . fmap tag . workspaces
+tagMember t = elem t . Lens.toListOf (_workspaces . _tag)
 
 -- | Rename a given tag if present in the 'StackSet'.
 renameTag :: Eq i => i -> i -> StackSet i l a s sd -> StackSet i l a s sd
-renameTag o n = mapWorkspace rename
-    where rename w = if tag w == o then w { tag = n } else w
+-- renameTag o n = mapWorkspace rename
+--     where rename w = if tag w == o then w{ tag = n } else w
+renameTag oldT newT = Lens.over (_workspaces . _tag) rename
+    where rename x = if oldT == x then newT else x
 
 -- | Ensure that a given set of workspace tags is present by renaming
 -- existing workspaces and\/or creating new hidden workspaces as
 -- necessary.
 ensureTags :: Eq i => l -> [i] -> StackSet i l a s sd -> StackSet i l a s sd
-ensureTags l allt st = et allt (fmap tag (workspaces st) \\ allt) st
-    where et [] _ s = s
-          et (i:is) rn s | i `tagMember` s = et is rn s
-          et (i:is) [] s = et is [] (s { hidden = Workspace i l Nothing : hidden s })
-          et (i:is) (r:rs) s = et is rs $ renameTag r i s
+-- ensureTags l allt st = et allt (fmap tag (workspaces st) \\ allt) st
+ensureTags l allt st = et allt (Lens.toListOf (_workspaces . _tag) st \\ allt) st
+    where
+    et [] _ s = s
+    et (i:is) rn s | i `tagMember` s = et is rn s
+    -- et (i:is) [] s = et is [] (s { hidden = Workspace i l Nothing : hidden s })
+    et (i:is) [] s = et is [] (Lens.over _hidden (Workspace i l Nothing :) s)
+    et (i:is) (r:rs) s = et is rs $ renameTag r i s
 
 -- | Map a function on all the workspaces in the 'StackSet'.
 mapWorkspace :: (Workspace i l a -> Workspace i l a) -> StackSet i l a s sd -> StackSet i l a s sd
@@ -538,22 +548,27 @@ delete w = sink w . delete' w
 -- | Only temporarily remove the window from the stack, thereby not destroying special
 -- information saved in the 'Stackset'
 delete' :: (Eq a) => a -> StackSet i l a s sd -> StackSet i l a s sd
-delete' w s = s { current = removeFromScreen        (current s)
-                , visible = fmap removeFromScreen    (visible s)
-                , hidden  = fmap removeFromWorkspace (hidden  s) }
-    where removeFromWorkspace ws = ws { stack = stack ws >>= Stack.filter (/=w) }
-          removeFromScreen scr   = scr { workspace = removeFromWorkspace (workspace scr) }
+delete' w = Lens.over (_workspaces . _stack) (>>= Stack.filter (/= w))
+-- delete' w = Lens.over _workspaces removeFromWorkspace
+-- delete' w s = s { current = removeFromScreen        (current s)
+--                 , visible = fmap removeFromScreen    (visible s)
+--                 , hidden  = fmap removeFromWorkspace (hidden  s) }
+    -- where
+    -- removeFromWorkspace ws = ws{ stack = stack ws >>= Stack.filter (/=w) }
+    -- removeFromScreen scr   = scr{ workspace = removeFromWorkspace (workspace scr) }
 
 ------------------------------------------------------------------------
 
 -- | Given a window, and its preferred rectangle, set it as floating
 -- A floating window should already be managed by the 'StackSet'.
 float :: Ord a => a -> RationalRect -> StackSet i l a s sd -> StackSet i l a s sd
-float w r s = s { floating = M.insert w r (floating s) }
+-- float w r s = s { floating = M.insert w r (floating s) }
+float w r = Lens.over _floating (M.insert w r)
 
 -- | Clear the floating status of a window
 sink :: Ord a => a -> StackSet i l a s sd -> StackSet i l a s sd
-sink w s = s { floating = M.delete w (floating s) }
+-- sink w s = s { floating = M.delete w (floating s) }
+sink = Lens.over _floating . M.delete
 
 ------------------------------------------------------------------------
 -- $settingMW
@@ -610,7 +625,8 @@ shiftWin n w s = case findTag w s of
 
 onWorkspace :: (Eq i, Eq s) => i -> (StackSet i l a s sd -> StackSet i l a s sd)
             -> (StackSet i l a s sd -> StackSet i l a s sd)
-onWorkspace n f s = view (currentTag s) . f . view n $ s
+-- onWorkspace n f s = view (currentTag s) . f . view n $ s
+onWorkspace n f s = view (Lens.view (_current . _tag) s) . f . view n $ s
 
 
 ------------------------------------------

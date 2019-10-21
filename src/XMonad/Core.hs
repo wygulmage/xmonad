@@ -50,6 +50,7 @@ module XMonad.Core
   , HasFocusedBorderColor (_focusedBorderColor)
   , HasXConfig (..)
   , HasManageHook (_manageHook)
+  , HasScreenRect (_screenRect)
   , _clickJustFocuses, _focusFollowsMouse
   , _buttonActions, _dragging, _mapped, _numberlockMask, _keyActions, _waitingUnmap
   , _layoutHook
@@ -358,6 +359,15 @@ newtype ScreenId    = S Int deriving (Eq,Ord,Show,Read,Enum,Num,Integral,Real)
 
 -- | The 'Rectangle' with screen dimensions
 newtype ScreenDetail   = SD { screenRect :: Rectangle } deriving (Eq,Show, Read)
+
+class HasScreenRect a where
+    _screenRect :: Lens' a Rectangle
+
+instance HasScreenRect ScreenDetail where
+    _screenRect f = fmap SD . f . screenRect
+
+instance HasScreenRect (XMonad.StackSet.Screen i l a sid ScreenDetail) where
+   _screenRect = _screenDetail . _screenRect
 
 ------------------------------------------------------------------------
 
