@@ -27,7 +27,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 
 import Data.Functor (($>))
-import Data.Foldable (fold, for_, traverse_)
+import Data.Foldable (fold, toList, for_, traverse_)
 import Data.Traversable (for)
 import Data.Maybe
 import Data.Monoid          (Endo(..),Any(..))
@@ -45,6 +45,7 @@ import Graphics.X11.Xlib.Extras
 
 import qualified Lens.Micro as Lens
 import qualified Lens.Micro.Mtl as Lens
+import qualified Lens.Micro.Internal as Lens
 
 import System.Directory
 import System.IO
@@ -76,13 +77,13 @@ manage w = whenX (not <$> isClient w) . withDisplay $ \d -> do
              | otherwise                  = W.insertUp w ws
             where i = W.tag . W.workspace $ W.current ws
 
-    mh <- asks (manageHook . config)
+    -- mh <- asks (manageHook . config)
+    mh <- Lens.view (_XConfig . _manageHook)
     g <- appEndo <$> userCodeDef (Endo id) (runQuery mh w)
     windows (g . f)
 
 -- | unmanage. A window no longer exists, remove it from the window
--- list, on whatever workspace it is.
---
+-- list of whatever workspace it is in.
 unmanage :: Window -> X ()
 unmanage = windows . W.delete
 
@@ -114,8 +115,11 @@ kill = withFocused killWindow
 -- | windows. Modify the current window list with a pure function, and refresh
 windows :: (WindowSet -> WindowSet) -> X ()
 windows f = do
-    XState { windowset = old } <- get
-    let oldvisible = foldMap (W.integrate' . W.stack . W.workspace) $ W.current old : W.visible old
+    -- XState { windowset = old } <- get
+    old <- gets windowset
+    let
+        -- oldvisible = foldMap (W.integrate' . W.stack . W.workspace) $ W.current old : W.visible old
+        oldvisible = foldMap (foldMap toList <$> Lens.view (W._workspace . W._stack)) $ Lens.toListOf W._screens old
         newwindows = W.allWindows ws \\ W.allWindows old
         ws = f old
     -- XConf { display = d, normalBorder = nbc, focusedBorder = fbc } <- ask
@@ -134,18 +138,30 @@ windows f = do
     modify $ Lens.set _windowSet ws
 
     -- notify non visibility
-    let tags_oldvisible = W.tag . W.workspace <$> W.current old : W.visible old
-        gottenhidden    = filter (flip elem tags_oldvisible . W.tag) $ W.hidden ws
+    let
+        -- tags_oldvisible = W.tag . W.workspace <$> W.current old : W.visible old
+        tags_oldvisible = Lens.toListOf (W._screens . W._workspace . W._tag) old
+        -- gottenhidden = filter (flip elem tags_oldvisible . W.tag) $ W.hidden ws
+        gottenhidden = filter (flip elem tags_oldvisible . Lens.view W._tag) $ Lens.view W._hidden ws
     traverse_ (sendMessageWithNoRefresh Hide) gottenhidden
 
     -- for each workspace, layout the currently visible workspaces
-    let allscreens     = W.screens ws
-        summed_visible = scanl (<>) [] $ fmap (W.integrate' . W.stack . W.workspace) allscreens
+    -- let allscreens = W.screens ws
+    let
+        allscreens = Lens.toListOf W._screens ws
+        -- summed_visible = scanl (<>) [] $ fmap (W.integrate' . W.stack . W.workspace) allscreens
+        summed_visible = scanl (<>) [] $ fmap (foldMap toList <$> Lens.view (W._workspace . W._stack)) allscreens
     rects <- fmap fold . for (zip allscreens summed_visible) $ \ (w, vis) -> do
-        let wsp   = W.workspace w
-            this  = W.view n ws
-            n     = W.tag wsp
-            tiled = (W.stack . W.workspace . W.current $ this)
+        let
+            -- wsp   = W.workspace w
+            wsp = Lens.view W._workspace w
+            this = W.view n ws
+            -- n     = W.tag wsp
+            n = Lens.view W._tag wsp
+            -- tiled = (W.stack . W.workspace . W.current $ this)
+            --         >>= W.filter (`M.notMember` W.floating ws)
+            --         >>= W.filter (`notElem` vis)
+            tiled = Lens.view (W._current . W._workspace . W._stack) this
                     >>= W.filter (`M.notMember` W.floating ws)
                     >>= W.filter (`notElem` vis)
             viewrect = screenRect $ W.screenDetail w

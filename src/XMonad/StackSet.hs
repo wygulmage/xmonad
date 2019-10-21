@@ -1,6 +1,12 @@
 {-# LANGUAGE
     FlexibleContexts
-  , PatternGuards #-}
+  , FlexibleInstances
+  , FunctionalDependencies
+  , MultiParamTypeClasses
+  , PatternGuards
+  , ScopedTypeVariables
+  , TypeFamilies
+  #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -53,6 +59,8 @@ module XMonad.StackSet (
         abort
         -- Optics
         , _current, _visible, _hidden
+        , _stack, _tag
+        , _screens
         , _workspace
         , _workspaces
     ) where
@@ -160,18 +168,14 @@ data StackSet i l a sid sd = StackSet
     }
     deriving (Show, Read, Eq)
 
+--- StackSet Optics:
+
 _current :: Lens' (StackSet i l a sid sd) (Screen i l a sid sd)
 _current f s = (\ x' -> s{ current = x' }) <$> f (current s)
 
 _visible :: Lens' (StackSet i l a sid sd) [Screen i l a sid sd]
 _visible f s = (\ x' -> s{ visible = x' }) <$> f (visible s)
 
--- _screens :: Lens
---   (StackSet i l a sid sd) (StackSet i l a sid' sd')
---   (NonEmpty (Screen i l a sid sd)) (NonEmpty (Screen i l a sid' sd'))
--- _screens f s =
---   (\ (x' :| xs') -> s{ current = x', visible = xs' })
---   <$> f (current s :| visible s)
 _screens :: Lens.Traversal
   (StackSet i l a sid sd) (StackSet i l a sid' sd')
   (Screen i l a sid sd) (Screen i l a sid' sd')
@@ -193,7 +197,11 @@ _workspaces f s =
   <*> traverse f (hidden s)
 
 _floating :: Lens' (StackSet i l a sid sd) (Map a RationalRect)
-_floating f s = (\ x' -> s{ floating = x' }) <$> f (floating s)
+_floating f s = (\ x -> s{ floating = x }) <$> f (floating s)
+
+_layouts :: Lens.Traversal
+  (StackSet i l a s sd) (StackSet i l' a s sd) l l'
+_layouts = _workspaces . _layout
 
 -- | Visible workspaces, and their Xinerama screens.
 -- This type is too polymorphic. Should be 'Screen a', with 'i', 'l', 'sid', and 'sd' instantiated as their usual types, or 'Screen', with 'a' instantiated as 'Window'.
@@ -205,7 +213,22 @@ data Screen i l a sid sd = Screen
     deriving (Show, Read, Eq)
 
 _workspace :: Lens (Screen i l a sid sd) (Screen j l' b sid sd) (Workspace i l a) (Workspace j l' b)
-_workspace f s = (\ x' -> s{ workspace = x' }) <$> f (workspace s)
+_workspace f s = (\ x -> s{ workspace = x }) <$> f (workspace s)
+
+_screen :: Lens (Screen i l a sid sd) (Screen i l a sid' sd) sid sid'
+_screen f s = (\ x -> s{ screen = x }) <$> f (screen s)
+
+_screenDetail :: Lens (Screen i l a sid sd) (Screen i l a sid sd') sd sd'
+_screenDetail f s = (\ x -> s{ screenDetail = x }) <$> f (screenDetail s)
+
+instance HasStack (Screen i l a sid sd) (Screen i l b sid sd) a b where
+    _stack = _workspace . _stack
+
+instance HasTag (Screen i l a sid sd) (Screen i' l a sid sd) i i' where
+    _tag = _workspace . _tag
+
+instance HasLayout (Screen i l a sid sd) (Screen i l' a sid sd) l l' where
+    _layout = _workspace . _layout
 
 -- |
 -- A workspace is just a tag, a layout, and a stack.
@@ -217,15 +240,27 @@ data Workspace i l a = Workspace
     }
     deriving (Show, Read, Eq)
 
-_tag :: Lens (Workspace i l a) (Workspace j l a) i j
-_tag f s = (\ x' -> s{ tag = x' }) <$> f (tag s)
+--- Workspace Optics:
 
-_layout :: Lens (Workspace i l a) (Workspace i l' a) l l'
-_layout f s = (\ x' -> s{ layout = x' }) <$> f (layout s)
+class HasTag ma mb a b | ma -> a, mb -> b, ma b -> mb, mb a -> ma where
+    _tag :: Lens ma mb a b
 
-_stack :: Lens (Workspace i l a) (Workspace i l b) (Maybe (Stack a)) (Maybe (Stack b))
--- This should be a Prism, but that would require the 'dreaded profunctors dependency'.
-_stack f s = (\ x' -> s{ stack = x' }) <$> f (stack s)
+instance HasTag (Workspace i l a) (Workspace i' l a) i i' where
+    _tag f s = (\ x -> s{ tag = x }) <$> f (tag s)
+
+class HasLayout ml ml' l l' | ml -> l, ml' -> l', ml l' -> ml', ml' l -> ml where
+    _layout :: Lens ml ml' l l'
+
+instance HasLayout (Workspace i l a) (Workspace i l' a) l l' where
+    _layout f s = (\ x -> s{ layout = x }) <$> f (layout s)
+
+-- -- This should be a Prism, but that would require the 'dreaded profunctors dependency'.
+class HasStack ma mb a b | ma -> a, mb -> b, ma b -> mb, mb a -> ma where
+    _stack :: Lens ma mb (Maybe (Stack a)) (Maybe (Stack b))
+
+instance HasStack (Workspace i l a) (Workspace i l b) a b where
+    _stack f s = (\ x -> s{ stack = x }) <$> f (stack s)
+
 
 -- | A structure for window geometries
 data RationalRect = RationalRect Rational Rational Rational Rational
@@ -401,10 +436,7 @@ allWindows = L.nub . foldMap (integrate' . stack) . workspaces
 -- | Get the tag of the currently focused workspace.
 currentTag :: StackSet i l a s sd -> i
 -- currentTag = tag . workspace . current
-currentTag = Lens.view _currentTag
-
-_currentTag :: Lens' (StackSet i l a s sd) i
-_currentTag = _current . _workspace . _tag
+currentTag = Lens.view (_current . _tag)
 
 -- | Is the given tag present in the 'StackSet'?
 tagMember :: Eq i => i -> StackSet i l a s sd -> Bool
@@ -441,10 +473,6 @@ mapLayout :: (l -> l') -> StackSet i l a s sd -> StackSet i l' a s sd
 --     fScreen (Screen ws s sd) = Screen (fWorkspace ws) s sd
 --     fWorkspace (Workspace t l s) = Workspace t (f l) s
 mapLayout = Lens.over _layouts
-
-_layouts :: Lens.Traversal
-  (StackSet i l a s sd) (StackSet i l' a s sd) l l'
-_layouts = _workspaces . _layout
 
 -- | /O(n)/. Is a window in the 'StackSet'?
 member :: Eq a => a -> StackSet i l a s sd -> Bool

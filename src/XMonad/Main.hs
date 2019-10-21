@@ -410,13 +410,15 @@ handle e@CrossingEvent {ev_window = w, ev_event_type = t}
 -- left a window, check if we need to focus root
 handle e@CrossingEvent {ev_event_type = t}
     | t == leaveNotify
-    = do rootw <- asks theRoot
+    -- = do rootw <- asks theRoot
+    = do rootw <- Lens.view _theRoot
          when (ev_window e == rootw && not (ev_same_screen e)) $ setFocusX rootw
 
 -- configure a window
 handle e@ConfigureRequestEvent {ev_window = w} = withDisplay $ \dpy -> do
     ws <- gets windowset
-    bw <- asks (borderWidth . config)
+    -- bw <- asks (borderWidth . config)
+    bw <- Lens.view (_XConfig . _borderWidth)
 
     if M.member w (floating ws)
         || not (member w ws)
@@ -442,7 +444,8 @@ handle ConfigureEvent {ev_window = w} = whenX (isRoot w) rescreen
 
 -- property notify
 handle event@PropertyEvent { ev_event_type = t, ev_atom = a }
-    | t == propertyNotify && a == wM_NAME = (asks (logHook . config) >>= userCodeDef ()) *> broadcastMessage event
+    -- | t == propertyNotify && a == wM_NAME = (asks (logHook . config) >>= userCodeDef ()) *> broadcastMessage event
+    | t == propertyNotify && a == wM_NAME = (Lens.view _logHook >>= userCodeDef ()) *> broadcastMessage event
 
 handle e@ClientMessageEvent { ev_message_type = mt } = do
     a <- getAtom "XMONAD_RESTART"
@@ -479,7 +482,8 @@ scan dpy rootw = do
 
 setNumlockMask :: X ()
 setNumlockMask = do
-    dpy <- asks display
+    -- dpy <- asks display
+    dpy <- Lens.view _display
     ms <- io $ getModifierMapping dpy
     xs <- sequence [ do
                         ks <- io $ keycodeToKeysym dpy kc 0
@@ -487,21 +491,25 @@ setNumlockMask = do
                             then pure (setBit 0 (fromIntegral m))
                             else pure (0 :: KeyMask)
                         | (m, kcs) <- ms, kc <- kcs, kc /= 0]
-    modify (\s -> s { numberlockMask = foldr (.|.) 0 xs })
+    -- modify (\s -> s { numberlockMask = foldr (.|.) 0 xs })
+    modify $ Lens.set _numberlockMask (foldr (.|.) 0 xs)
 
 -- | Grab the keys back
 grabKeys :: X ()
 grabKeys = do
-    XConf { display = dpy, theRoot = rootw } <- ask
+    -- XConf { display = dpy, theRoot = rootw } <- ask
+    dpy <- Lens.view _display
+    rootw <- Lens.view _theRoot
     let grab kc m = io $ grabKey dpy kc m rootw True grabModeAsync grabModeAsync
         (minCode, maxCode) = displayKeycodes dpy
         allCodes = [fromIntegral minCode .. fromIntegral maxCode]
     io $ ungrabKey dpy anyKey anyModifier rootw
-    ks <- asks keyActions
+    -- ks <- asks keyActions
+    ks <- Lens.view _keyActions
     -- build a map from keysyms to lists of keysyms (doing what
     -- XGetKeyboardMapping would do if the X11 package bound it)
     syms <- for allCodes $ \code -> io (keycodeToKeysym dpy code 0)
-    let keysymMap = M.fromListWith (++) (zip syms [[code] | code <- allCodes])
+    let keysymMap = M.fromListWith (<>) (zip syms [[code] | code <- allCodes])
         keysymToKeycodes sym = M.findWithDefault [] sym keysymMap
     for_ (M.keys ks) $ \(mask,sym) ->
          for_ (keysymToKeycodes sym) $ \kc ->
@@ -510,12 +518,15 @@ grabKeys = do
 -- | Grab the buttons
 grabButtons :: X ()
 grabButtons = do
-    XConf { display = dpy, theRoot = rootw } <- ask
+    -- XConf { display = dpy, theRoot = rootw } <- ask
+    dpy <- Lens.view _display
+    rootw <- Lens.view _theRoot
     let grab button mask = io $ grabButton dpy button mask rootw False buttonPressMask
                                            grabModeAsync grabModeSync none none
     io $ ungrabButton dpy anyButton anyModifier rootw
     ems <- extraModifiers
-    ba <- asks buttonActions
+    -- ba <- asks buttonActions
+    ba <- Lens.view _buttonActions
     traverse_ (\(m,b) -> traverse_ (grab b . (m .|.)) ems) (M.keys ba)
 
 -- | @replace@ to signals compliant window managers to exit.

@@ -1,5 +1,9 @@
 {-# LANGUAGE
     NoImplicitPrelude
+  , FlexibleContexts
+  , FlexibleInstances
+  , FunctionalDependencies
+  , MultiParamTypeClasses
   #-}
 
 module XMonad.Zipper
@@ -54,12 +58,23 @@ data Stack a = Stack { focus  :: !a        -- focused thing in this set
 
 ----- Optics and Accessors -----
 
-_focus :: Lens' (Stack a) a
-_focus f s = (\ x' -> s{ focus = x' }) <$> f (focus s)
+class HasFocus ta a | ta -> a where
+  _focus :: Lens' ta a
 
-_up, _dn :: Lens' (Stack a) [a]
-_up f s = (\ x' -> s{ up = x' }) <$> f (up s)
-_dn f s = (\ x' -> s{ down = x' }) <$> f (down s)
+instance HasFocus (Stack a) a where
+  _focus f s = (\ x' -> s{ focus = x' }) <$> f (focus s)
+
+class HasUp ta a | ta -> a where
+  _up :: Lens' ta [a]
+
+instance HasUp (Stack a) a where
+  _up f s = (\ x' -> s{ up = x' }) <$> f (up s)
+
+class HasDn ta a | ta -> a where
+  _dn :: Lens' ta [a]
+
+instance HasDn (Stack a) a where
+  _dn f s = (\ x' -> s{ down = x' }) <$> f (down s)
 
 (!?) :: Alternative m => Stack a -> Int -> m a
 -- Safe indexing. Focus is at 0.

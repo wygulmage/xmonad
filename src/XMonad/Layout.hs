@@ -31,6 +31,7 @@ import qualified XMonad.StackSet as W
 import Control.Applicative (liftA2)
 import Control.Arrow ((***), second)
 import Control.Monad
+import Data.Foldable (toList, asum)
 import Data.Maybe (fromMaybe)
 
 ------------------------------------------------------------------------
@@ -51,26 +52,33 @@ instance LayoutClass Full a
 
 -- | The builtin tiling mode of xmonad. Supports 'Shrink', 'Expand' and
 -- 'IncMasterN'.
-data Tall a = Tall { tallNMaster :: !Int               -- ^ The default number of windows in the master pane (default: 1)
-                   , tallRatioIncrement :: !Rational   -- ^ Percent of screen to increment by when resizing panes (default: 3/100)
-                   , tallRatio :: !Rational            -- ^ Default proportion of screen occupied by master pane (default: 1/2)
-                   }
-                deriving (Show, Read)
-                        -- TODO should be capped [0..1] ..
+data Tall a = Tall
+    { tallNMaster :: !Int
+    -- ^ The default number of windows in the master pane (default: 1)
+    , tallRatioIncrement :: !Rational
+    -- ^ Percent of screen to increment by when resizing panes (default: 3/100)
+    , tallRatio :: !Rational
+    -- ^ Default proportion of screen occupied by master pane (default: 1/2)
+    }
+    deriving (Show, Read)
+    -- TODO should be capped [0..1] ..
 
 -- a nice pure layout, lots of properties for the layout, and its messages, in Properties.hs
 instance LayoutClass Tall a where
     pureLayout (Tall nmaster _ frac) r s = zip ws rs
-      where ws = W.integrate s
+      -- where ws = W.integrate s
+      where ws = toList s
             rs = tile frac r nmaster (length ws)
 
     pureMessage (Tall nmaster delta frac) m =
-            msum [fmap resize     (fromMessage m)
-                 ,fmap incmastern (fromMessage m)]
+            asum [ resize     <$> fromMessage m
+                 , incmastern <$> fromMessage m
+                 ]
 
-      where resize Shrink             = Tall nmaster delta (max 0 $ frac-delta)
-            resize Expand             = Tall nmaster delta (min 1 $ frac+delta)
-            incmastern (IncMasterN d) = Tall (max 0 (nmaster+d)) delta frac
+      where
+      resize Shrink = Tall nmaster delta (max 0 $ frac-delta)
+      resize Expand = Tall nmaster delta (min 1 (frac + delta))
+      incmastern (IncMasterN d) = Tall (max 0 (nmaster + d)) delta frac
 
     description _ = "Tall"
 
@@ -97,7 +105,7 @@ tile f r nmaster n = if n <= nmaster || nmaster == 0
 splitVertically, splitHorizontally :: Int -> Rectangle -> [Rectangle]
 splitVertically n r | n < 2 = [r]
 splitVertically n (Rectangle sx sy sw sh) = Rectangle sx sy sw smallh :
-    splitVertically (n-1) (Rectangle sx (sy+fromIntegral smallh) sw (sh-smallh))
+    splitVertically (n - 1) (Rectangle sx (sy + fromIntegral smallh) sw (sh - smallh))
   where smallh = sh `div` fromIntegral n --hmm, this is a fold or map.
 
 -- Not used in the core, but exported

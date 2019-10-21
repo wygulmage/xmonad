@@ -49,8 +49,9 @@ module XMonad.Core
   , HasNormalBorderColor (_normalBorderColor)
   , HasFocusedBorderColor (_focusedBorderColor)
   , HasXConfig (..)
+  , HasManageHook (_manageHook)
   , _clickJustFocuses, _focusFollowsMouse
-  , _buttonActions, _dragging, _mapped, _waitingUnmap
+  , _buttonActions, _dragging, _mapped, _numberlockMask, _keyActions, _waitingUnmap
   , _layoutHook
   ) where
 
@@ -114,6 +115,9 @@ data XState = XState
 _mapped :: Lens' XState (Set Window)
 _mapped f s = (\ x' -> s{ mapped = x' }) <$> f (mapped s)
 
+_numberlockMask :: Lens' XState (KeyMask)
+_numberlockMask f s = (\ x' -> s{ numberlockMask = x' }) <$> f (numberlockMask s)
+
 _waitingUnmap :: Lens' XState (Map Window Int)
 _waitingUnmap f s = (\ x' -> s{ waitingUnmap = x' }) <$> f (waitingUnmap s)
 
@@ -175,6 +179,9 @@ data XConf = XConf
 
 _buttonActions :: Lens' XConf (Map (KeyMask, Button) (Window -> X ()))
 _buttonActions f s = (\ x' -> s{ buttonActions = x' }) <$> f (buttonActions s)
+
+_keyActions :: Lens' XConf (Map (KeyMask, KeySym) (X ()))
+_keyActions f s = (\ x' -> s{ keyActions = x' }) <$> f (keyActions s)
 
 class HasCurrentEvent a where
    _currentEvent :: Lens' a (Maybe Event)
@@ -275,7 +282,7 @@ instance HasXConfig XConf where
 
 class HasBorderWidth a where _borderWidth :: Lens' a Dimension
 
-instance HasBorderWidth (XConfig Layout) where
+instance HasBorderWidth (XConfig l) where
   _borderWidth f s = (\ x' -> s{ borderWidth = x' }) <$> f (borderWidth s)
 
 instance HasBorderWidth XConf where
@@ -285,7 +292,7 @@ class HasClientMask a where _clientMask :: Lens' a EventMask
 
 instance HasClientMask XConf where
   _clientMask = _XConfig . _clientMask
-instance HasClientMask (XConfig Layout) where
+instance HasClientMask (XConfig l) where
   _clientMask f s = (\ x' -> s{ clientMask = x' }) <$> f (clientMask s)
 
 _layoutHook ::
@@ -304,7 +311,7 @@ class HasManageHook a where _manageHook :: Lens' a ManageHook
 instance HasManageHook ManageHook where
   _manageHook = id
 
-instance HasManageHook (XConfig Layout) where
+instance HasManageHook (XConfig l) where
   _manageHook f s@XConfig{ manageHook = x } =
     (\ x' -> s{ manageHook = x' }) <$> f x
 
