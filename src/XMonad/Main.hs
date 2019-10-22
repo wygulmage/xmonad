@@ -19,7 +19,7 @@ import qualified Control.Exception.Extensible as E
 import Control.Monad.Reader
 import Control.Monad.State
 import Data.Bits
-import Data.Foldable (fold, for_, traverse_)
+import Data.Foldable (fold, for_, sequenceA_, traverse_)
 import Data.Traversable (for)
 import Data.List ((\\))
 import Data.Maybe (fromMaybe)
@@ -322,7 +322,8 @@ handle KeyEvent {ev_event_type = t, ev_state = m, ev_keycode = code}
         s  <- io $ keycodeToKeysym dpy code 0
         mClean <- cleanMask m
         ks <- asks keyActions
-        userCodeDef () $ whenJust (Map.lookup (mClean, s) ks) id
+        -- userCodeDef () $ for_ (Map.lookup (mClean, s) ks) id
+        userCodeDef () $ sequenceA_ (Map.lookup (mClean, s) ks)
 
 -- manage a new window
 handle MapRequestEvent{ ev_window = w } = withDisplay $ \dpy ->

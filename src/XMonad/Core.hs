@@ -116,7 +116,7 @@ data XState = XState
 _mapped :: Lens' XState (Set Window)
 _mapped f s = (\ x' -> s{ mapped = x' }) <$> f (mapped s)
 
-_numberlockMask :: Lens' XState (KeyMask)
+_numberlockMask :: Lens' XState KeyMask
 _numberlockMask f s = (\ x' -> s{ numberlockMask = x' }) <$> f (numberlockMask s)
 
 _waitingUnmap :: Lens' XState (Map Window Int)
@@ -459,7 +459,7 @@ withWindowAttributes dpy win f = do
 
 -- | True if the given window is the root window
 isRoot :: Window -> X Bool
-isRoot w = (w==) <$> asks theRoot
+isRoot w = (w ==) <$> asks theRoot
 
 -- | Wrapper for the common case of atom internment
 getAtom :: String -> X Atom
@@ -530,14 +530,14 @@ class Show (layout a) => LayoutClass layout a where
     -- Layouts which do not need access to the 'X' monad ('IO', window
     -- manager state, or configuration) and do not keep track of their
     -- own state should implement 'pureLayout' instead of 'doLayout'.
-    doLayout    :: layout a -> Rectangle -> Stack a
+    doLayout :: layout a -> Rectangle -> Stack a
                 -> X ([(a, Rectangle)], Maybe (layout a))
-    doLayout l r s   = pure (pureLayout l r s, Nothing)
+    doLayout l r s = pure (pureLayout l r s, Nothing)
 
     -- | This is a pure version of 'doLayout', for cases where we
     -- don't need access to the 'X' monad to determine how to lay out
     -- the windows, and we don't need to modify the layout itself.
-    pureLayout  :: layout a -> Rectangle -> Stack a -> [(a, Rectangle)]
+    pureLayout :: layout a -> Rectangle -> Stack a -> [(a, Rectangle)]
     pureLayout _ r s = [(focus s, r)]
 
     -- | 'emptyLayout' is called when there are no windows.
@@ -661,10 +661,7 @@ spawnPID x = xfork $ executeFile "/bin/sh" False ["-c", x] Nothing
 
 -- | A replacement for 'forkProcess' which resets default signal handlers.
 xfork :: MonadIO m => IO () -> m ProcessID
-xfork x = io . forkProcess . finally nullStdin $ do
-                uninstallSignalHandlers
-                createSession
-                x
+xfork x = io . forkProcess . finally nullStdin $ uninstallSignalHandlers *> createSession *> x
  where
     nullStdin = do
         fd <- openFd "/dev/null" ReadOnly Nothing defaultFileFlags
@@ -787,17 +784,15 @@ getXDGDirectory :: XDGDirectory -> FilePath -> IO FilePath
 getXDGDirectory xdgDir suffix =
   normalise . (</> suffix) <$>
   case xdgDir of
-    XDGData   -> get "XDG_DATA_HOME"   ".local/share"
-    XDGConfig -> get "XDG_CONFIG_HOME" ".config"
-    XDGCache  -> get "XDG_CACHE_HOME"  ".cache"
+    XDGData   -> getDir "XDG_DATA_HOME"   ".local/share"
+    XDGConfig -> getDir "XDG_CONFIG_HOME" ".config"
+    XDGCache  -> getDir "XDG_CACHE_HOME"  ".cache"
   where
-    get name fallback = do
-      env <- lookupEnv name
-      case env of
-        Nothing -> fallback'
-        Just path
-          | isRelative path -> fallback'
-          | otherwise -> pure path
+    getDir name fallback = do
+      dir <- lookupEnv name
+      case dir of
+        Just path | not (isRelative path) -> pure path
+        _ -> fallback'
       where
         fallback' = (</> fallback) <$> getHomeDirectory
 data XDGDirectory = XDGData | XDGConfig | XDGCache
@@ -928,6 +923,7 @@ recompile force = io $ do
 -- whenJust :: Monad m => Maybe a -> (a -> m ()) -> m ()
 whenJust :: (Traversable m, Applicative n) => m a -> (a -> n ()) -> n ()
 whenJust = for_
+{-# DEPRECATED whenJust "Use 'for_'." #-}
 
 -- | Conditionally run an action, using a 'X' event to decide
 -- whenX :: X Bool -> X () -> X ()

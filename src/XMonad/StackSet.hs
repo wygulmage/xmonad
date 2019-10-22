@@ -308,9 +308,9 @@ view i s
 
     | Just x <- L.find ((i==).tag.workspace) (visible s)
     -- if it is visible, it is just raised
-    = s { current = x, visible = current s : L.deleteBy (equating screen) x (visible s) }
+    = s{ current = x, visible = current s : L.deleteBy (equating screen) x (visible s) }
 
-    | Just x <- L.find ((i==).tag)           (hidden  s) -- must be hidden then
+    | Just x <- L.find ((i==).tag) (hidden  s) -- must be hidden then
     -- if it was hidden, it is raised on the xine screen currently used
     = s{ current = (current s){ workspace = x }
        , hidden = workspace (current s) : L.deleteBy (equating tag) x (hidden s)
