@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -fno-warn-missing-signatures -fno-warn-orphans #-}
+{-# OPTIONS_GHC -fno-warn-missing-signatures -fno-warn-orphans -fno-warn-deprecations #-}
 {-# LANGUAGE TypeFamilies #-}
 -----------------------------------------------------------------------------
 -- |
@@ -25,22 +25,25 @@ module XMonad.Config (defaultConfig, Default(..)) where
 --
 -- Useful imports
 --
-import XMonad.Core as XMonad hiding
-    (workspaces,manageHook,keys,logHook,startupHook,borderWidth,mouseBindings
-    ,layoutHook,modMask,terminal,normalBorderColor,focusedBorderColor,focusFollowsMouse
-    ,handleEventHook,clickJustFocuses,rootMask,clientMask)
-import qualified XMonad.Core as XMonad
-    (workspaces,manageHook,keys,logHook,startupHook,borderWidth,mouseBindings
-    ,layoutHook,modMask,terminal,normalBorderColor,focusedBorderColor,focusFollowsMouse
-    ,handleEventHook,clickJustFocuses,rootMask,clientMask)
+-- import XMonad.Core as XMonad hiding
+--     (workspaces,manageHook,keys,logHook,startupHook,borderWidth,mouseBindings
+--     ,layoutHook,modMask,terminal,normalBorderColor,focusedBorderColor,focusFollowsMouse
+--     ,handleEventHook,clickJustFocuses,rootMask,clientMask)
+import XMonad.Core
+    ( Layout, ManageHook, WorkspaceId, X, XConfig (XConfig)
+    , io, spawn)
+import qualified XMonad.Core as XMonad (XConfig (..))
+    -- (borderWidth, clickJustFocuses, clientMask, focusFollowsMouse, focusedBorderColor, handleEventHook, handleExtraArgs, keys, layoutHook, logHook, manageHook, modMask, mouseBindings, normalBorderColor, rootMask, startupHook, terminal, workspaces)
 
 import XMonad.Layout
 import XMonad.Operations
 import XMonad.ManageHook
 import qualified XMonad.StackSet as W
+import Data.Foldable (fold, traverse_)
 import Data.Bits ((.|.))
 import Data.Default
 import Data.Monoid
+import Data.Map (Map)
 import qualified Data.Map as M
 import System.Exit
 import Graphics.X11.Xlib
@@ -90,7 +93,7 @@ focusedBorderColor = "red"  -- "#ff0000" don't use hex, not <24 bit safe
 -- and click on the client you're interested in.
 --
 manageHook :: ManageHook
-manageHook = composeAll
+manageHook = fold
                 [ className =? "MPlayer"        --> doFloat
                 , className =? "mplayer2"       --> doFloat ]
 
@@ -133,19 +136,22 @@ startupHook = pure ()
 
 -- | The available layouts.  Note that each layout is separated by |||, which
 -- denotes layout choice.
-layout = tiled ||| Mirror tiled ||| Full
-  where
-     -- default tiling algorithm partitions the screen into two panes
-     tiled   = Tall nmaster delta ratio
+layout = tall ||| wide ||| Full
+    where
+    -- Partition the screen into two panes, one beside the other.
+    tall = Tall nmaster delta ratio
 
-     -- The default number of windows in the master pane
-     nmaster = 1
+    -- Partition the screen into two panes, one above the other.
+    wide = Mirror tall
 
-     -- Default proportion of screen occupied by master pane
-     ratio   = 1/2
+    -- The default number of windows in the master pane
+    nmaster = 1
 
-     -- Percent of screen to increment by when resizing panes
-     delta   = 3/100
+    -- Default proportion of screen occupied by master pane
+    ratio   = 1/2
+
+    -- Percent of screen to increment by when resizing panes
+    delta   = 3/100
 
 ------------------------------------------------------------------------
 -- Event Masks:
@@ -181,7 +187,7 @@ clickJustFocuses = True
 --
 -- (The comment formatting character is used when generating the manpage)
 --
-keys :: XConfig Layout -> M.Map (KeyMask, KeySym) (X ())
+keys :: XConfig Layout -> Map (KeyMask, KeySym) (X ())
 keys conf@XConfig {XMonad.modMask = modMask} = M.fromList $
     -- launching and killing programs
     [ ((modMask .|. shiftMask, xK_Return), spawn $ XMonad.terminal conf) -- %! Launch terminal
@@ -232,7 +238,7 @@ keys conf@XConfig {XMonad.modMask = modMask} = M.fromList $
         , (f, m) <- [(W.greedyView, 0), (W.shift, shiftMask)]] <>
     -- mod-{w,e,r} %! Switch to physical/Xinerama screens 1, 2, or 3
     -- mod-shift-{w,e,r} %! Move client to screen 1, 2, or 3
-    [((m .|. modMask, key), screenWorkspace sc >>= flip whenJust (windows . f))
+    [((m .|. modMask, key), screenWorkspace sc >>= traverse_ (windows . f))
         | (key, sc) <- zip [xK_w, xK_e, xK_r] [0..]
         , (f, m) <- [(W.view, 0), (W.shift, shiftMask)]]
   where
@@ -240,7 +246,7 @@ keys conf@XConfig {XMonad.modMask = modMask} = M.fromList $
     helpCommand = spawn ("echo " <> show help <> " | xmessage -file -")
 
 -- | Mouse bindings: default actions bound to mouse events
-mouseBindings :: XConfig Layout -> M.Map (KeyMask, Button) (Window -> X ())
+mouseBindings :: XConfig Layout -> Map (KeyMask, Button) (Window -> X ())
 mouseBindings XConfig {XMonad.modMask = modMask} = M.fromList
     -- mod-button1 %! Set the window to floating mode and move by dragging
     [ ((modMask, button1), \w -> focus w *> mouseMoveWindow w *> windows W.shiftMaster)
@@ -267,7 +273,7 @@ instance (a ~ Choose Tall (Choose (Mirror Tall) Full)) => Default (XConfig a) wh
     , XMonad.manageHook         = manageHook
     , XMonad.handleEventHook    = handleEventHook
     , XMonad.focusFollowsMouse  = focusFollowsMouse
-    , XMonad.clickJustFocuses       = clickJustFocuses
+    , XMonad.clickJustFocuses   = clickJustFocuses
     , XMonad.clientMask         = clientMask
     , XMonad.rootMask           = rootMask
     , XMonad.handleExtraArgs = \ xs theConf -> case xs of
