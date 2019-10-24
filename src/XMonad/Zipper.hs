@@ -4,6 +4,7 @@
   , FlexibleInstances
   , FunctionalDependencies
   , MultiParamTypeClasses
+  , ScopedTypeVariables
   #-}
 
 module XMonad.Zipper
@@ -17,6 +18,7 @@ import Prelude
   , Bool (..), Int
   , ($), flip, uncurry
   , (||), otherwise
+  , error
   )
 import Control.Applicative
 import Control.Category
@@ -28,6 +30,7 @@ import Data.Foldable
 import Data.Traversable
 import qualified Data.List as List
 import Data.List.NonEmpty (NonEmpty ((:|)))
+import qualified Data.List.NonEmpty as NonEmpty
 import Data.Maybe
 import Lens.Micro (Lens')
 import qualified Lens.Micro as Lens
@@ -57,36 +60,44 @@ data Stack a = Stack { focus  :: !a        -- focused thing in this set
                      , down   :: [a] }     -- jokers to the right
     deriving (Show, Read, Eq)
 
+-- Alternate formulation without invariants 'baked in':
+data IZipper a = Unchecked !Int [a]
+    deriving (Show, Read, Eq)
+
 ----- Optics and Accessors -----
 
-class HasFocus ta a | ta -> a where
+class IsZipper ta a | ta -> a where
+  _up :: Lens' ta [a]
+  _dn :: Lens' ta [a]
   _focus :: Lens' ta a
 
-instance HasFocus (Zipper a) a where
+instance IsZipper (Zipper a) a where
   _focus f s = (\ x' -> s{ focus = x' }) <$> f (focus s)
-
-class HasUp ta a | ta -> a where
-  _up :: Lens' ta [a]
-
-instance HasUp (Zipper a) a where
   _up f s = (\ x' -> s{ up = x' }) <$> f (up s)
-
-class HasDn ta a | ta -> a where
-  _dn :: Lens' ta [a]
-
-instance HasDn (Zipper a) a where
   _dn f s = (\ x' -> s{ down = x' }) <$> f (down s)
 
-(!?) :: Alternative m => Zipper a -> Int -> m a
--- Safe indexing. Focus is at 0.
-Stack x xu xd !? i
-  | i == 0 = pure x
-  | i < 0 = xu @? abs i
-  | otherwise = xd @? (i - 1)
-  where
-  [] @? _ = empty
-  (x' : _) @? 0 = pure x'
-  (_ : xs) @? i' = xs @? (i' - 1)
+instance IsZipper (IZipper a) a where
+  _focus f = fromIZipperWith (\ i x xu xd -> Unchecked i . xu . (: xd) <$> f x) consDL id
+  _up f = fromIZipperWith (\ i x xu xd -> Unchecked i . List.foldl' (flip (:)) (x : xd) <$> f xu) (:) []
+  _dn f = fromIZipperWith (\ i x xu xd -> Unchecked i . xu . (x :) <$> f xd) consDL id
+
+class Indexed m where
+    (!?) :: Alternative n => m a -> Int -> n a
+
+instance Indexed [] where
+    (x : xs) !? i
+      | 0 <  i = xs !? (i - 1)
+      | 0 == i = pure x
+    _ !? _ = empty
+
+instance Indexed Zipper where
+    Stack x xu xd !? i
+      | i == 0 = pure x
+      | i < 0 = xu !? abs i
+      | otherwise = xd !? (i - 1)
+
+instance Indexed IZipper where
+    Unchecked o xs !? i = xs !? (o + i)
 
 ----- Constructors and Converters -----
 
@@ -139,6 +150,45 @@ instance Monad Zipper where
         (xd' <> foldMap (toList . f) xd)
 
 
+instance Foldable IZipper where
+  foldr f z = foldr f z . toList
+  toList (Unchecked _ xs) = xs
+
+instance Functor IZipper where
+  fmap f (Unchecked i xs) = Unchecked i (fmap f xs)
+
+instance Traversable IZipper where
+  traverse f (Unchecked i xs) = Unchecked i <$> traverse f xs
+
+instance Semigroup (IZipper a) where
+  (<>) (Unchecked i xs) = Unchecked i . (xs <>) . toList
+
+-- instance Applicative IZipper where
+-- Need to keep track of current and initial indices to return the index of the focused f applied to the focused f. (This will depend of the lengths of fs and xs, but we don't want to loop through the lists an extra time.)
+-- Unchecked i fs <*> Unchecked j xs = loop i k fs xs
+
+zipperToIZipper :: Zipper a -> IZipper a
+zipperToIZipper (Stack x xu xd) = loop 0 id xu
+   where
+   loop i a (y : ys) = loop (i + 1) (a . (y :)) ys
+   loop i a _ = Unchecked i (a (x : xd))
+
+iZipperToZipper :: IZipper a -> Zipper a
+iZipperToZipper (Unchecked i xs) =
+   fromIZipperWith (pure Stack) (:) [] (Unchecked i xs)
+
+fromIZipperWith ::
+   (Int -> a -> b -> [a] -> c) -> -- Combine focus, accumulated up, and down.
+   (a -> b -> b) -> -- Accumulate up.
+   b -> -- empty up accumulator
+   IZipper a -> c
+fromIZipperWith f g z (Unchecked i xs) =
+   loop i z xs
+   where
+   loop 0 xu (x : xd) = f i x xu xd -- i is the initial index of the focus.
+   loop j xu (x : xd) = loop (j - 1) (g x xu) xd
+   loop _ _ _ = error "out-of-bounds or empty"
+
 ----- Specialized Methods -----
 
 zipWith :: (a -> b -> c) -> Zipper a -> Zipper b -> Zipper c
@@ -149,7 +199,7 @@ zipWith f (Stack x xu xd) (Stack y yu yd) = Stack
   (List.zipWith f xd yd)
 
 --- Comonad:
--- extract = focus
+-- extract = Lens.view _focus
 
 extend :: (Zipper a -> b) -> Zipper a -> Zipper b
 -- A stack of all the possible refocusings of s, with s focused.
@@ -160,10 +210,17 @@ extend f s = Stack (f s) (goUp s) (goDn s)
   goDn (Stack x xu (x' : xd')) = let s' = Stack x' (x : xu) xd' in f s' : goDn s'
   goDn _ = []
 
-
 duplicate :: Zipper a -> Zipper (Zipper a)
 -- A stack of all the possible refocusings of s, with s focused.
 duplicate = extend id
+
+--- Nonempty Foldable
+foldr1By :: (a -> b) -> (a -> b -> b) -> Stack a -> b
+foldr1By f g (Stack x xu xd) = foldl (flip g) (foldrList x xd) xu
+   where
+   foldrList y (y' : ys) = g y (foldrList y' ys)
+   foldrList y _ = f y
+
 
 ----- Functions -----
 
@@ -235,12 +292,6 @@ deleteTop (Stack x xu xd) =
 -- 'True'.  Order is preserved, and focus moves as described for 'delete'.
 --
 filter :: Alternative m => (a -> Bool) -> Zipper a -> m (Zipper a)
--- filter :: (a -> Bool) -> Zipper a -> Maybe (Zipper a)
--- filter p (Stack f ls rs) = case List.filter p (f:rs) of
---     f':rs' -> Just (Stack f' (List.filter p ls) rs')   -- maybe move focus down
---     []     -> case List.filter p ls of                  -- filter back up
---                     f':ls' -> Just (Stack f' ls' []) -- else up
---                     []     -> Nothing
 filter p (Stack x xu xd) =
   case xd' of
   x' : xd'' -> pure (Stack x' xu' xd'')
@@ -266,20 +317,30 @@ differentiate = dx . toList
   dx _ = empty
 
 
--- mDeleteFocus :: Maybe (Zipper a) -> Maybe (Zipper a)
-mDeleteFocus :: (Monad m, Alternative m) => m (Zipper a) -> m (Zipper a)
-mDeleteFocus = (=<<) deleteFocus
+-- -- mDeleteFocus :: Maybe (Zipper a) -> Maybe (Zipper a)
+-- mDeleteFocus :: (Monad m, Alternative m) => m (Zipper a) -> m (Zipper a)
+-- mDeleteFocus = (=<<) deleteFocus
 
--- mDeleteTop :: Maybe (Zipper a) -> Maybe (Zipper a)
-mDeleteTop :: (Monad m, Alternative m) => m (Zipper a) -> m (Zipper a)
-mDeleteTop = (=<<) deleteTop
+-- -- mDeleteTop :: Maybe (Zipper a) -> Maybe (Zipper a)
+-- mDeleteTop :: (Monad m, Alternative m) => m (Zipper a) -> m (Zipper a)
+-- mDeleteTop = (=<<) deleteTop
 
--- mFilter :: (a -> Bool) -> Maybe (Zipper a) -> Maybe (Zipper a)
-mFilter :: (Monad m, Alternative m) => (a -> Bool) -> m (Zipper a) -> m (Zipper a)
-mFilter p = (=<<) (filter p)
+-- -- mFilter :: (a -> Bool) -> Maybe (Zipper a) -> Maybe (Zipper a)
+-- mFilter :: (Monad m, Alternative m) => (a -> Bool) -> m (Zipper a) -> m (Zipper a)
+-- mFilter p = (=<<) (filter p)
 
+
+------- Non-exported Utilities ------
+
+consDL :: a -> ([a] -> [a]) -> [a] -> [a]
+consDL x fxs = fxs . (x :)
+
+-- snocDL :: a -> ([a] -> [a]) -> [a] -> [a]
+-- snocDL x fxs = (x :) . fxs
 
 ------- Cruft -------
 
 integrate :: Zipper a -> [a]
 integrate = toList
+
+{-# DEPRECATED integrate "Use 'Data.Foldable.toList'." #-}
