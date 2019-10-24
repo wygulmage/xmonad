@@ -380,11 +380,11 @@ instance HasScreenRect (XMonad.StackSet.Screen i l a sid ScreenDetail) where
 -- instantiated on 'XConf' and 'XState' automatically.
 --
 newtype X a = X (ReaderT XConf (StateT XState IO) a)
-    deriving (Functor, Monad, MonadFail, MonadIO, MonadState XState, MonadReader XConf, Typeable)
+    deriving (Functor, Applicative, Monad, MonadFail, MonadIO, MonadState XState, MonadReader XConf, Typeable)
 
-instance Applicative X where
-  pure = return
-  (<*>) = ap
+-- instance Applicative X where
+  -- pure = return
+  -- (<*>) = ap
 
 instance Semigroup a => Semigroup (X a) where
     (<>) = liftA2 (<>)

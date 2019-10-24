@@ -393,7 +393,7 @@ peek = with Nothing (pure . focus)
 -- integration of a one-hole list cursor, back to a list.
 --
 index :: StackSet i l a s sd -> [a]
-index = with [] integrate
+index = with [] toList
 
 -- |
 -- /O(1), O(w) on the wrapping case/.

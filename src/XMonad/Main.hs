@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fno-warn-deprecations #-}
 {-# LANGUAGE MultiParamTypeClasses, FlexibleContexts #-}
 ----------------------------------------------------------------------------
 -- |
@@ -25,9 +26,7 @@ import Data.List ((\\))
 import Data.Maybe (fromMaybe)
 import Data.Monoid (getAll)
 import Data.Version (showVersion)
-import qualified Data.Map as M
 import qualified Data.Map as Map
-import qualified Data.Set as S
 import qualified Data.Set as Set
 
 import System.Directory
@@ -336,17 +335,17 @@ handle MapRequestEvent{ ev_window = w } = withDisplay $ \dpy ->
 -- window gone,      unmanage it
 handle DestroyWindowEvent{ ev_window = w } = whenX (isClient w) $ do
     unmanage w
-    -- modify (\s -> s { mapped       = S.delete w (mapped s)
-    --                 , waitingUnmap = M.delete w (waitingUnmap s)})
+    -- modify (\s -> s { mapped       = Set.delete w (mapped s)
+    --                 , waitingUnmap = Map.delete w (waitingUnmap s)})
     modify (Lens.over _mapped (Set.delete w) . Lens.over _waitingUnmap (Map.delete w))
 
 -- We track expected unmap events in waitingUnmap.  We ignore this event unless
 -- it is synthetic or we are not expecting an unmap notification from a window.
 handle UnmapEvent {ev_window = w, ev_send_event = synthetic} = whenX (isClient w) $ do
-    e <- gets (fromMaybe 0 . M.lookup w . waitingUnmap)
+    e <- gets (fromMaybe 0 . Map.lookup w . waitingUnmap)
     if synthetic || e == 0
         then unmanage w
-        -- else modify (\s -> s { waitingUnmap = M.update mpred w (waitingUnmap s) })
+        -- else modify (\s -> s { waitingUnmap = Map.update mpred w (waitingUnmap s) })
         else modify (Lens.over _waitingUnmap (Map.update mpred w))
  where mpred 1 = Nothing
        mpred n = Just $ pred n
@@ -384,8 +383,8 @@ handle e@ButtonEvent{ ev_window = w,ev_event_type = t,ev_button = b }
     dpy <- Lens.view _display
     isr <- isRoot w
     m <- cleanMask $ ev_state e
-    -- mact <- asks (M.lookup (m, b) . buttonActions)
-    mact <- M.lookup (m, b) <$> Lens.view _buttonActions
+    -- mact <- asks (Map.lookup (m, b) . buttonActions)
+    mact <- Map.lookup (m, b) <$> Lens.view _buttonActions
     case mact of
         Just act | isr -> act $ ev_subwindow e
         _              -> do
@@ -421,7 +420,7 @@ handle e@ConfigureRequestEvent {ev_window = w} = withDisplay $ \dpy -> do
     -- bw <- asks (borderWidth . config)
     bw <- Lens.view (_XConfig . _borderWidth)
 
-    if M.member w (floating ws)
+    if Map.member w (floating ws)
         || not (member w ws)
         then do io . configureWindow dpy w (ev_value_mask e) $ WindowChanges
                     { wc_x            = ev_x e
@@ -510,9 +509,9 @@ grabKeys = do
     -- build a map from keysyms to lists of keysyms (doing what
     -- XGetKeyboardMapping would do if the X11 package bound it)
     syms <- for allCodes $ \code -> io (keycodeToKeysym dpy code 0)
-    let keysymMap = M.fromListWith (<>) (zip syms [[code] | code <- allCodes])
-        keysymToKeycodes sym = M.findWithDefault [] sym keysymMap
-    for_ (M.keys ks) $ \(mask,sym) ->
+    let keysymMap = Map.fromListWith (<>) (zip syms [[code] | code <- allCodes])
+        keysymToKeycodes sym = Map.findWithDefault [] sym keysymMap
+    for_ (Map.keys ks) $ \(mask,sym) ->
          for_ (keysymToKeycodes sym) $ \kc ->
               traverse_ (grab kc . (mask .|.)) =<< extraModifiers
 
@@ -528,7 +527,7 @@ grabButtons = do
     ems <- extraModifiers
     -- ba <- asks buttonActions
     ba <- Lens.view _buttonActions
-    traverse_ (\(m,b) -> traverse_ (grab b . (m .|.)) ems) (M.keys ba)
+    traverse_ (\(m,b) -> traverse_ (grab b . (m .|.)) ems) (Map.keys ba)
 
 -- | @replace@ to signals compliant window managers to exit.
 replace :: Display -> ScreenNumber -> Window -> IO ()

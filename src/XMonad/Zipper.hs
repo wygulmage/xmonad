@@ -119,9 +119,11 @@ toNonEmpty (Stack x xu xd) =
 
 instance Foldable Zipper where
   foldMap = foldMapDefault
+  foldr f z = foldr f z . toList
+  toList (Stack x xu xd) = foldl (flip (:)) (x : xd) xu
 
 instance Functor Zipper where
-  fmap = fmapDefault
+  fmap f (Stack x xu xd) = Stack (f x) (fmap f xu) (fmap f xd)
 
 instance Traversable Zipper where
   -- Traverse a zipper from top to bottom.
@@ -138,8 +140,9 @@ instance Applicative Zipper where
   pure x = Stack x [] []
   Stack f fu fd <*> xs@(Stack x xu xd) =
     Stack (f x)
-      (fmap f xu <> (fu <*> toList xs))
-      (fmap f xd <> (fd <*> toList xs))
+      (mapPrepend f xu (fu <*> toList (reverse xs)))
+      (mapPrepend f xd (fd <*> toList xs))
+      where
 
 instance Monad Zipper where
   Stack x xu xd >>= f =
@@ -337,6 +340,9 @@ consDL x fxs = fxs . (x :)
 
 -- snocDL :: a -> ([a] -> [a]) -> [a] -> [a]
 -- snocDL x fxs = (x :) . fxs
+
+mapPrepend :: (a -> b) -> [a] -> [b] -> [b]
+mapPrepend g = flip (foldr ((:) . g))
 
 ------- Cruft -------
 
