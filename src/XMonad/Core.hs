@@ -46,7 +46,7 @@ module XMonad.Core
   , HasTheRoot (_theRoot)
   , HasNormalBorder (_normalBorder)
   , HasFocusedBorder (_focusedBorder)
-  , HasNormalBorderColor (_normalBorderColor)
+  , _normalBorderColor
   , HasFocusedBorderColor (_focusedBorderColor)
   , HasXConfig (..)
   , HasManageHook (_manageHook)
@@ -324,7 +324,7 @@ instance HasLogHook XConf where
 
 class HasStartupHook a where _startupHook :: Lens' a (X ())
 
-instance HasStartupHook (XConfig Layout) where
+instance HasStartupHook (XConfig l) where
   _startupHook f s@XConfig{ startupHook = x } =
     (\ x' -> s{ startupHook = x' }) <$> f x
 
@@ -333,16 +333,16 @@ instance HasStartupHook XConf where
 
 class HasFocusedBorderColor a where _focusedBorderColor :: Lens' a String
 
-instance HasFocusedBorderColor (XConfig Layout) where
-  _focusedBorderColor f s = (\ x' -> s{ focusedBorderColor = x' }) <$> f (focusedBorderColor s)
+instance HasFocusedBorderColor (XConfig l) where
+  _focusedBorderColor f s = (\ x -> s{ focusedBorderColor = x }) <$> f (focusedBorderColor s)
 
 instance HasFocusedBorderColor XConf where
   _focusedBorderColor = _XConfig . _focusedBorderColor
 
 class HasNormalBorderColor a where _normalBorderColor :: Lens' a String
 
-instance HasNormalBorderColor (XConfig Layout) where
-  _normalBorderColor f s = (\ x' -> s{ normalBorderColor = x' }) <$> f (normalBorderColor s)
+instance HasNormalBorderColor (XConfig l) where
+  _normalBorderColor f s = (\ x -> s{ normalBorderColor = x }) <$> f (normalBorderColor s)
 
 instance HasNormalBorderColor XConf where
   _normalBorderColor = _XConfig . _normalBorderColor

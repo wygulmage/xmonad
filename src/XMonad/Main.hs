@@ -1,5 +1,5 @@
 {-# OPTIONS_GHC -fno-warn-deprecations #-}
-{-# LANGUAGE MultiParamTypeClasses, FlexibleContexts #-}
+{-# LANGUAGE MultiParamTypeClasses, RankNTypes, FlexibleContexts #-}
 ----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Main
@@ -17,11 +17,13 @@
 module XMonad.Main (xmonad, launch) where
 
 import qualified Control.Exception.Extensible as E
+import Control.Monad (join)
 import Control.Monad.Reader
 import Control.Monad.State
 import Data.Bits
 import Data.Foldable (fold, for_, sequenceA_, traverse_)
 import Data.Traversable (for)
+import Data.Bifunctor (bimap)
 import Data.List ((\\))
 import Data.Maybe (fromMaybe)
 import Data.Monoid (getAll)
@@ -50,6 +52,7 @@ import XMonad.StackSet (new, floating, member)
 import qualified XMonad.StackSet as W
 import XMonad.Operations
 
+import Lens.Micro ((.~), (%~)) -- (.~) = set; (%~) = over
 import qualified Lens.Micro as Lens
 import qualified Lens.Micro.Mtl as Lens
 
@@ -66,10 +69,10 @@ xmonad conf = do
 
     let launch' args = do
               catchIO buildLaunch
+              -- Wrap layout, handle extra args, unwrap layout.
               conf'@XConfig{ layoutHook = Layout l }
-                  -- <- handleExtraArgs conf args conf{ layoutHook = Layout (layoutHook conf) }
                   <- handleExtraArgs conf args (Lens.over _layoutHook Layout conf)
-              withArgs [] $ launch (conf' { layoutHook = l })
+              withArgs [] . launch $ Lens.set _layoutHook l conf'
 
     args <- getArgs
     case args of
@@ -187,10 +190,8 @@ launch initxmc = do
     -- ignore SIGPIPE and SIGCHLD
     installSignalHandlers
     -- First, wrap the layout in an existential, to keep things pretty:
-    let xmc = initxmc { layoutHook = Layout $ layoutHook initxmc }
+    let xmc = Lens.over _layoutHook Layout initxmc
     dpy   <- openDisplay ""
-    -- let dflt = defaultScreen dpy
-    -- rootw  <- rootWindow dpy dflt
     rootw <- rootWindow dpy (defaultScreen dpy)
 
     -- If another WM is running, a BadAccess error will be returned.  The
@@ -208,7 +209,9 @@ launch initxmc = do
 
     nbc <- do
         v            <- initColor dpy $ normalBorderColor xmc
+        -- v            <- initColor dpy $ Lens.view _normalBorderColor xmc
         ~(Just nbc_) <- initColor dpy $ normalBorderColor Default.def
+        -- ~(Just nbc_) <- initColor dpy $ Lens.view _normalBorderColor Default.def
         pure (fromMaybe nbc_ v)
 
     fbc <- do
@@ -219,10 +222,10 @@ launch initxmc = do
     hSetBuffering stdout NoBuffering
 
     let layout = layoutHook xmc
-        initialWinset = new layout (padToMaxLen xinesc (workspaces xmc)) $ fmap SD xinesc
+        initialWinset = new layout (padToMaxLen xinesc (workspaces xmc)) (fmap SD xinesc)
             where
-            padToMaxLen :: [a] -> [String] -> [String]
-            padToMaxLen xs ss = take (max (length xs) (length ss)) $ ss <> repeat ""
+            padToMaxLen :: Monoid b => [a] -> [b] -> [b]
+            padToMaxLen xs ss = take (length xs `max` length ss) (ss <> repeat mempty)
         cf = XConf
             { display       = dpy
             , config        = xmc
@@ -233,7 +236,8 @@ launch initxmc = do
             , buttonActions = mouseBindings xmc xmc
             , mouseFocused  = False
             , mousePosition = Nothing
-            , currentEvent  = Nothing }
+            , currentEvent  = Nothing
+            }
 
         st = XState
             { windowset       = initialWinset
@@ -253,9 +257,8 @@ launch initxmc = do
                 if exists then readStateFile initxmc else pure Nothing
 
             -- restore extensibleState if we read it from a file.
-            let extst = maybe Map.empty extensibleState serializedSt
-            -- modify (\s -> s {extensibleState = extst})
-            modify (Lens.set _extensibleState extst)
+            let extst = Lens.view (traverse . _extensibleState) serializedSt
+            modify (_extensibleState .~ extst)
 
             setNumlockMask
             grabKeys
@@ -284,16 +287,11 @@ launch initxmc = do
     pure ()
       where
         -- if the event gives us the position of the pointer, set mousePosition
-        -- prehandle e = let mouse = do guard (ev_event_type e `elem` evs)
-        --                              pure ( fromIntegral (ev_x_root e)
-        --                                   , fromIntegral (ev_y_root e))
-        --               in local (\c -> c { mousePosition = mouse, currentEvent = Just e }) (handleWithHook e)
         prehandle e = local (Lens.set _currentEvent (Just e) . Lens.set _mousePosition mouse) (handleWithHook e)
-            where mouse = do guard (ev_event_type e `elem` evs)
-                             pure ( fromIntegral (ev_x_root e)
-                                  , fromIntegral (ev_y_root e))
-        evs = [ keyPress, keyRelease, enterNotify, leaveNotify
-              , buttonPress, buttonRelease]
+            where mouse = do
+                     guard (ev_event_type e `elem` evs)
+                     pure (join bimap fromIntegral (ev_x_root e, ev_y_root e))
+        evs = [ keyPress, keyRelease, enterNotify, leaveNotify , buttonPress, buttonRelease]
 
 
 -- | Runs handleEventHook from the configuration and runs the default handler
@@ -335,9 +333,7 @@ handle MapRequestEvent{ ev_window = w } = withDisplay $ \dpy ->
 -- window gone,      unmanage it
 handle DestroyWindowEvent{ ev_window = w } = whenX (isClient w) $ do
     unmanage w
-    -- modify (\s -> s { mapped       = Set.delete w (mapped s)
-    --                 , waitingUnmap = Map.delete w (waitingUnmap s)})
-    modify (Lens.over _mapped (Set.delete w) . Lens.over _waitingUnmap (Map.delete w))
+    modify ((_mapped %~ Set.delete w) . (_waitingUnmap %~ Map.delete w))
 
 -- We track expected unmap events in waitingUnmap.  We ignore this event unless
 -- it is synthetic or we are not expecting an unmap notification from a window.
@@ -345,8 +341,7 @@ handle UnmapEvent {ev_window = w, ev_send_event = synthetic} = whenX (isClient w
     e <- gets (fromMaybe 0 . Map.lookup w . waitingUnmap)
     if synthetic || e == 0
         then unmanage w
-        -- else modify (\s -> s { waitingUnmap = Map.update mpred w (waitingUnmap s) })
-        else modify (Lens.over _waitingUnmap (Map.update mpred w))
+        else modify (_waitingUnmap %~ Map.update mpred w)
  where mpred 1 = Nothing
        mpred n = Just $ pred n
 
@@ -364,7 +359,7 @@ handle e@ButtonEvent {ev_event_type = t}
     case drag of
         -- we're done dragging and have released the mouse:
         -- Just (_,f) -> modify (\s -> s { dragging = Nothing }) *> f
-        Just (_,f) -> modify (Lens.set _dragging Nothing) *> f
+        Just (_,f) -> modify (_dragging .~ Nothing) *> f
         Nothing    -> broadcastMessage e
 
 -- handle motionNotify event, which may mean we are dragging.
@@ -400,8 +395,8 @@ handle e@CrossingEvent {ev_window = w, ev_event_type = t}
     | t == enterNotify && ev_mode   e == notifyNormal
     -- = whenX (asks $ focusFollowsMouse . config) $ do
     = whenX (Lens.view $ _XConfig . _focusFollowsMouse) $ do
-        dpy <- asks display
-        root <- asks theRoot
+        dpy <- Lens.view _display
+        root <- Lens.view _theRoot
         (_, _, w', _, _, _, _, _) <- io $ queryPointer dpy root
         -- when Xlib cannot find a child that contains the pointer,
         -- it returns None(0)
@@ -410,14 +405,12 @@ handle e@CrossingEvent {ev_window = w, ev_event_type = t}
 -- left a window, check if we need to focus root
 handle e@CrossingEvent {ev_event_type = t}
     | t == leaveNotify
-    -- = do rootw <- asks theRoot
     = do rootw <- Lens.view _theRoot
          when (ev_window e == rootw && not (ev_same_screen e)) $ setFocusX rootw
 
 -- configure a window
 handle e@ConfigureRequestEvent {ev_window = w} = withDisplay $ \dpy -> do
     ws <- gets windowset
-    -- bw <- asks (borderWidth . config)
     bw <- Lens.view (_XConfig . _borderWidth)
 
     if Map.member w (floating ws)
@@ -491,8 +484,7 @@ setNumlockMask = do
                             then pure (setBit 0 (fromIntegral m))
                             else pure (0 :: KeyMask)
                         | (m, kcs) <- ms, kc <- kcs, kc /= 0]
-    -- modify (\s -> s { numberlockMask = foldr (.|.) 0 xs })
-    modify $ Lens.set _numberlockMask (foldr (.|.) 0 xs)
+    modify $ _numberlockMask .~ foldr (.|.) 0 xs
 
 -- | Grab the keys back
 grabKeys :: X ()
@@ -512,22 +504,20 @@ grabKeys = do
     let keysymMap = Map.fromListWith (<>) (zip syms [[code] | code <- allCodes])
         keysymToKeycodes sym = Map.findWithDefault [] sym keysymMap
     for_ (Map.keys ks) $ \(mask,sym) ->
-         for_ (keysymToKeycodes sym) $ \kc ->
-              traverse_ (grab kc . (mask .|.)) =<< extraModifiers
+        for_ (keysymToKeycodes sym) $ \kc ->
+            traverse_ (grab kc . (mask .|.)) =<< extraModifiers
 
 -- | Grab the buttons
 grabButtons :: X ()
 grabButtons = do
-    -- XConf { display = dpy, theRoot = rootw } <- ask
     dpy <- Lens.view _display
     rootw <- Lens.view _theRoot
     let grab button mask = io $ grabButton dpy button mask rootw False buttonPressMask
                                            grabModeAsync grabModeSync none none
     io $ ungrabButton dpy anyButton anyModifier rootw
-    ems <- extraModifiers
-    -- ba <- asks buttonActions
     ba <- Lens.view _buttonActions
-    traverse_ (\(m,b) -> traverse_ (grab b . (m .|.)) ems) (Map.keys ba)
+    for_ (Map.keys ba) $ \(mask, b) ->
+        traverse_ (grab b . (mask .|.)) =<< extraModifiers
 
 -- | @replace@ to signals compliant window managers to exit.
 replace :: Display -> ScreenNumber -> Window -> IO ()
