@@ -77,13 +77,14 @@ import qualified Data.List as L (deleteBy, find, splitAt, filter, nub)
 import Data.List ( (\\) )
 import Data.Map (Map)
 import qualified Data.Map  as M (Map, insert, delete, empty)
-import Data.List.NonEmpty (NonEmpty ((:|)))
-import qualified Data.List.NonEmpty as NonEmpty
+import qualified Data.Map  as Map (Map, insert, delete, empty)
+-- import Data.List.NonEmpty (NonEmpty ((:|)))
+-- import qualified Data.List.NonEmpty as NonEmpty
 
-import Lens.Micro (Lens, Lens')
+import Lens.Micro (Lens, Lens', (.~), (%~))
 import qualified Lens.Micro as Lens
 import qualified Lens.Micro.Mtl as Lens
-import qualified Lens.Micro.Internal as Lens
+-- import qualified Lens.Micro.Internal as Lens
 
 import XMonad.Zipper (Stack (..), filter, integrate, integrate', differentiate)
 import qualified XMonad.Zipper as Stack
@@ -370,7 +371,7 @@ with dflt f = maybe dflt f <$> Lens.view (_current . _workspace . _stack)
 --
 modify :: Maybe (Stack a) -> (Stack a -> Maybe (Stack a)) -> StackSet i l a s sd -> StackSet i l a s sd
 -- modify d f s = s{ current = (current s){ workspace = (workspace (current s)){ stack = with d f s }}}
-modify d f = Lens.over (_current . _workspace . _stack) (maybe d f)
+modify d f = _current . _workspace . _stack %~ maybe d f
 
 -- |
 -- Apply a function to modify the current stack if it isn't empty, and we don't
@@ -425,64 +426,48 @@ focusWindow w s | Just w == peek s = s
 
 -- | Get a list of all screens in the 'StackSet'.
 screens :: StackSet i l a s sd -> [Screen i l a s sd]
--- screens s = current s : visible s
 screens = Lens.toListOf _screens
 
 -- | Get a list of all workspaces in the 'StackSet'.
 workspaces :: StackSet i l a s sd -> [Workspace i l a]
-workspaces s = workspace (current s) : fmap workspace (visible s) <> hidden s
+workspaces = Lens.toListOf _workspaces
 
 -- | Get a list of all windows in the 'StackSet' in no particular order
 allWindows :: Eq a => StackSet i l a s sd -> [a]
--- allWindows = L.nub . foldMap (integrate' . stack) . workspaces
-allWindows = L.nub . foldMap (foldMap toList . stack) . workspaces
+allWindows = L.nub . Lens.toListOf (_workspaces . _stack . traverse . traverse)
 
 -- | Get the tag of the currently focused workspace.
 currentTag :: StackSet i l a s sd -> i
--- currentTag = tag . workspace . current
 currentTag = Lens.view (_current . _tag)
 
 -- | Is the given tag present in the 'StackSet'?
 tagMember :: Eq i => i -> StackSet i l a s sd -> Bool
--- tagMember t = elem t . fmap tag . workspaces
 tagMember t = elem t . Lens.toListOf (_workspaces . _tag)
 
 -- | Rename a given tag if present in the 'StackSet'.
 renameTag :: Eq i => i -> i -> StackSet i l a s sd -> StackSet i l a s sd
--- renameTag o n = mapWorkspace rename
---     where rename w = if tag w == o then w{ tag = n } else w
-renameTag oldT newT = Lens.over (_workspaces . _tag) rename
+renameTag oldT newT = _workspaces . _tag %~ rename
     where rename x = if oldT == x then newT else x
 
 -- | Ensure that a given set of workspace tags is present by renaming
 -- existing workspaces and\/or creating new hidden workspaces as
 -- necessary.
 ensureTags :: Eq i => l -> [i] -> StackSet i l a s sd -> StackSet i l a s sd
--- ensureTags l allt st = et allt (fmap tag (workspaces st) \\ allt) st
 ensureTags l allt st = et allt (Lens.toListOf (_workspaces . _tag) st \\ allt) st
     where
     et [] _ s = s
     et (i:is) rn s | i `tagMember` s = et is rn s
-    -- et (i:is) [] s = et is [] (s { hidden = Workspace i l Nothing : hidden s })
-    et (i:is) [] s = et is [] (Lens.over _hidden (Workspace i l Nothing :) s)
+    et (i:is) [] s = et is [] (_hidden %~ (Workspace i l Nothing :) $ s)
     et (i:is) (r:rs) s = et is rs $ renameTag r i s
 
 -- | Map a function on all the workspaces in the 'StackSet'.
 mapWorkspace :: (Workspace i l a -> Workspace i l a) -> StackSet i l a s sd -> StackSet i l a s sd
--- mapWorkspace f s = s { current = updScr (current s)
---                      , visible = fmap updScr (visible s)
---                      , hidden  = fmap f (hidden s) }
---     where updScr scr = scr { workspace = f (workspace scr) }
-mapWorkspace = Lens.over _workspaces
+mapWorkspace = (_workspaces %~)
 
 -- | Map a function on all the layouts in the 'StackSet'.
--- Don't use this; use Lens.over _layouts
+-- Don't use this; use (_layouts %~)
 mapLayout :: (l -> l') -> StackSet i l a s sd -> StackSet i l' a s sd
--- mapLayout f (StackSet v vs hs m) = StackSet (fScreen v) (fmap fScreen vs) (fmap fWorkspace hs) m
---  where
---     fScreen (Screen ws s sd) = Screen (fWorkspace ws) s sd
---     fWorkspace (Workspace t l s) = Workspace t (f l) s
-mapLayout = Lens.over _layouts
+mapLayout = (_layouts %~)
 
 -- | /O(n)/. Is a window in the 'StackSet'?
 member :: Eq a => a -> StackSet i l a s sd -> Bool
@@ -496,9 +481,6 @@ findTag a s = listToMaybe
     [ tag w | w <- workspaces s, has a (stack w) ]
     where has _ Nothing         = False
           has x (Just (Stack t l r)) = x `elem` (t : l <> r)
--- findTag x = Lens.foldrOf _workspaces
---   (\ w ws -> if any (x ==) (stack w) then Just tag w else ws)
---   Nothing
 
 -- ---------------------------------------------------------------------
 -- $modifyStackset
@@ -548,27 +530,19 @@ delete w = sink w . delete' w
 -- | Only temporarily remove the window from the stack, thereby not destroying special
 -- information saved in the 'Stackset'
 delete' :: (Eq a) => a -> StackSet i l a s sd -> StackSet i l a s sd
-delete' w = Lens.over (_workspaces . _stack) (>>= Stack.filter (/= w))
--- delete' w = Lens.over _workspaces removeFromWorkspace
--- delete' w s = s { current = removeFromScreen        (current s)
---                 , visible = fmap removeFromScreen    (visible s)
---                 , hidden  = fmap removeFromWorkspace (hidden  s) }
-    -- where
-    -- removeFromWorkspace ws = ws{ stack = stack ws >>= Stack.filter (/=w) }
-    -- removeFromScreen scr   = scr{ workspace = removeFromWorkspace (workspace scr) }
+delete' w = _workspaces . _stack  %~ (>>= Stack.filter (/= w))
 
 ------------------------------------------------------------------------
 
 -- | Given a window, and its preferred rectangle, set it as floating
 -- A floating window should already be managed by the 'StackSet'.
 float :: Ord a => a -> RationalRect -> StackSet i l a s sd -> StackSet i l a s sd
--- float w r s = s { floating = M.insert w r (floating s) }
-float w r = Lens.over _floating (M.insert w r)
+float w r = _floating %~ M.insert w r
 
 -- | Clear the floating status of a window
 sink :: Ord a => a -> StackSet i l a s sd -> StackSet i l a s sd
 -- sink w s = s { floating = M.delete w (floating s) }
-sink = Lens.over _floating . M.delete
+sink w = _floating %~ Map.delete w
 
 ------------------------------------------------------------------------
 -- $settingMW

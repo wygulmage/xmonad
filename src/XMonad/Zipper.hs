@@ -1,5 +1,7 @@
 {-# LANGUAGE
     NoImplicitPrelude
+  , DataKinds
+  , KindSignatures
   , FlexibleContexts
   , FlexibleInstances
   , FunctionalDependencies
@@ -61,8 +63,10 @@ data Stack a = Stack { focus  :: !a        -- focused thing in this set
     deriving (Show, Read, Eq)
 
 -- Alternate formulation without invariants 'baked in':
-data IZipper a = Unchecked !Int [a]
+data IZipper (emptiability :: Emptiability) a = Unchecked !Int [a]
     deriving (Show, Read, Eq)
+
+data Emptiability = Monoidal | NonEmpty
 
 ----- Optics and Accessors -----
 
@@ -76,7 +80,7 @@ instance IsZipper (Zipper a) a where
   _up f s = (\ x' -> s{ up = x' }) <$> f (up s)
   _dn f s = (\ x' -> s{ down = x' }) <$> f (down s)
 
-instance IsZipper (IZipper a) a where
+instance IsZipper (IZipper 'NonEmpty a) a where
   _focus f = fromIZipperWith (\ i x xu xd -> Unchecked i . xu . (: xd) <$> f x) consDL id
   _up f = fromIZipperWith (\ i x xu xd -> Unchecked i . List.foldl' (flip (:)) (x : xd) <$> f xu) (:) []
   _dn f = fromIZipperWith (\ i x xu xd -> Unchecked i . xu . (x :) <$> f xd) consDL id
@@ -96,7 +100,7 @@ instance Indexed Zipper where
       | i < 0 = xu !? abs i
       | otherwise = xd !? (i - 1)
 
-instance Indexed IZipper where
+instance Indexed (IZipper any) where
     Unchecked o xs !? i = xs !? (o + i)
 
 ----- Constructors and Converters -----
@@ -107,6 +111,7 @@ singleton x = Stack x [] []
 fromNonEmpty :: NonEmpty a -> Zipper a
 -- This is the true form of 'integrate'.
 fromNonEmpty (x :| xs) = Stack x [] xs
+{-# INLINABLE [2] fromNonEmpty #-}
 
 toNonEmpty :: Zipper a -> NonEmpty a
 -- This is the hypothetical 'differentiate''.
@@ -114,6 +119,7 @@ toNonEmpty (Stack x xu xd) =
   case List.reverse xu of
   (x' : xs) -> x' :| xs <> (x : xd)
   _ -> x :| xd
+{-# INLINABLE [1] toNonEmpty #-}
 
 ----- Instances -----
 
@@ -142,7 +148,6 @@ instance Applicative Zipper where
     Stack (f x)
       (mapPrepend f xu (fu <*> toList (reverse xs)))
       (mapPrepend f xd (fd <*> toList xs))
-      where
 
 instance Monad Zipper where
   Stack x xu xd >>= f =
@@ -153,44 +158,51 @@ instance Monad Zipper where
         (xd' <> foldMap (toList . f) xd)
 
 
-instance Foldable IZipper where
+instance Foldable (IZipper any) where
   foldr f z = foldr f z . toList
   toList (Unchecked _ xs) = xs
 
-instance Functor IZipper where
+instance Functor (IZipper any) where
   fmap f (Unchecked i xs) = Unchecked i (fmap f xs)
 
-instance Traversable IZipper where
+instance Traversable (IZipper any) where
   traverse f (Unchecked i xs) = Unchecked i <$> traverse f xs
 
-instance Semigroup (IZipper a) where
+instance Semigroup (IZipper any a) where
   (<>) (Unchecked i xs) = Unchecked i . (xs <>) . toList
 
--- instance Applicative IZipper where
+instance Monoid (IZipper 'Monoidal a) where
+  mempty = Unchecked 0 []
+
+instance Applicative (IZipper 'NonEmpty) where
 -- Need to keep track of current and initial indices to return the index of the focused f applied to the focused f. (This will depend of the lengths of fs and xs, but we don't want to loop through the lists an extra time.)
 -- Unchecked i fs <*> Unchecked j xs = loop i k fs xs
+    pure = Unchecked 0 . pure
+    fs <*> xs = zipperToIZipper (iZipperToZipper fs <*> iZipperToZipper xs)
 
-zipperToIZipper :: Zipper a -> IZipper a
+zipperToIZipper :: Zipper a -> IZipper any a
 zipperToIZipper (Stack x xu xd) = loop 0 id xu
    where
-   loop i a (y : ys) = loop (i + 1) (a . (y :)) ys
+   loop i a (y : ys) = loop (i + 1) (consDL y a) ys
    loop i a _ = Unchecked i (a (x : xd))
 
-iZipperToZipper :: IZipper a -> Zipper a
-iZipperToZipper (Unchecked i xs) =
-   fromIZipperWith (pure Stack) (:) [] (Unchecked i xs)
+iZipperToZipper :: IZipper 'NonEmpty a -> Zipper a
+iZipperToZipper =
+   fromIZipperWith (pure Stack) (:) []
 
 fromIZipperWith ::
    (Int -> a -> b -> [a] -> c) -> -- Combine focus, accumulated up, and down.
    (a -> b -> b) -> -- Accumulate up.
    b -> -- empty up accumulator
-   IZipper a -> c
-fromIZipperWith f g z (Unchecked i xs) =
-   loop i z xs
-   where
-   loop 0 xu (x : xd) = f i x xu xd -- i is the initial index of the focus.
-   loop j xu (x : xd) = loop (j - 1) (g x xu) xd
-   loop _ _ _ = error "out-of-bounds or empty"
+   IZipper 'NonEmpty a -> c
+fromIZipperWith f g z0 (Unchecked i (x : xs)) =
+    loop z0 i x xs
+    where
+    loop z j y (y' : ys')
+        | j > 0 = loop (g y z) (j - 1) y' ys'
+    loop z j y ys = f j y z ys
+fromIZipperWith _ _ _ _ = error "empty IZipper "
+
 
 ----- Specialized Methods -----
 
@@ -257,16 +269,30 @@ swapUp :: Zipper a -> Zipper a
 swapUp  (Stack t (l:ls) rs) = Stack t ls (l:rs)
 swapUp  (Stack t []     rs) = Stack t (List.reverse rs) []
 
+swapTop :: Zipper a -> Zipper a
+-- Swap the top and the focus, keeping focus on the focus.
+swapTop s@(Stack _ [] _) = s
+swapTop (Stack x xu xd) = Stack x [] (xs <> (t : xd)) where (t : xs) = List.reverse xu
+
+moveToTop :: Zipper a -> Zipper a
+moveToTop (Stack x xu xd) = Stack x [] (List.reverse xu <> xd)
+
+focusOnTop :: Zipper a -> Zipper a
+focusOnTop s = fromNonEmpty . toNonEmpty $ s
+
 -- | reverse a stack: up becomes down and down becomes up.
 reverse :: Zipper a -> Zipper a
 reverse (Stack t ls rs) = Stack t rs ls
 
 ------- Maybe (Zipper a) -> Zipper a: adding items ------
+mInsertBy :: Applicative m => (b -> a -> m b) -> b -> Maybe a -> m b
+mInsertBy f x = maybe (pure x) (f x)
+
 mInsert :: a -> Maybe (Zipper a) -> Zipper a
-mInsert x' = maybe (singleton x') (insert x')
+mInsert = mInsertBy insert
 
 mCons :: a -> Maybe (Zipper a) -> Zipper a
-mCons x' = maybe (singleton x') (cons x')
+mCons = mInsertBy cons
 
 ------ Zipper a -> Maybe (Zipper a): deleting items ------
 
@@ -343,6 +369,13 @@ consDL x fxs = fxs . (x :)
 
 mapPrepend :: (a -> b) -> [a] -> [b] -> [b]
 mapPrepend g = flip (foldr ((:) . g))
+
+------- Laws -------
+
+{-# RULES
+  "toNonEmpty . fromNonEmpty = id"
+  forall x. toNonEmpty (fromNonEmpty x) = x
+  #-}
 
 ------- Cruft -------
 

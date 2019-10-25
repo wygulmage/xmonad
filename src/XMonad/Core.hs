@@ -79,7 +79,7 @@ import Data.Set (Set)
 -- import qualified Data.Set as S
 import Graphics.X11.Xlib
 import Graphics.X11.Xlib.Extras (getWindowAttributes, WindowAttributes, Event)
-import Lens.Micro (Lens, Lens')
+import Lens.Micro (Lens, Lens', (.~), (%~))
 import qualified Lens.Micro as Lens
 import System.Directory
 import System.FilePath
@@ -673,13 +673,8 @@ xfork x = io . forkProcess . finally nullStdin $ uninstallSignalHandlers *> crea
 runOnWorkspaces :: (WindowSpace -> X WindowSpace) -> X ()
 runOnWorkspaces job = do
     ws <- gets windowset
-    -- h <- traverse job $ hidden ws
-    -- -- c:v <- traverse (\s -> (\w -> s { workspace = w}) <$> job (workspace s))
-    -- c:v <- traverse (_workspace job)
-    --          $ current ws : visible ws
-    -- -- modify $ \s -> s { windowset = ws { current = c, visible = v, hidden = h } }
     ws' <- _workspaces job ws
-    modify $ Lens.set _windowSet ws'
+    modify $ _windowSet .~ ws'
 
 -- | Return the path to the xmonad configuration directory.  This
 -- directory is where user configuration files are stored (e.g, the
