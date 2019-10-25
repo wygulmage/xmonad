@@ -148,8 +148,8 @@ instance HasWindowSet XState where
   _windowSet f s@XState{ windowset = x } =
     (\ x' -> s{ windowset = x' }) <$> f x
 
-instance HasWindowSet WindowSet where
-  _windowSet = id
+-- instance HasWindowSet WindowSet where
+--   _windowSet = id
 
 
 -- | XConf, the (read-only) window manager configuration.

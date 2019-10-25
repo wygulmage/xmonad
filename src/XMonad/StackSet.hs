@@ -59,12 +59,15 @@ module XMonad.StackSet (
         abort
         -- Optics
         , HasLayout (_layout)
+        , _layouts
         , _current, _visible, _hidden, _floating
         , _screenDetail
         , _stack, _tag
+        , _screen
         , _screens
         , _workspace
         , _workspaces
+        , _index
     ) where
 
 import Prelude hiding (filter)
@@ -378,7 +381,8 @@ modify d f = _current . _workspace . _stack %~ maybe d f
 --  want to empty it.
 --
 modify' :: (Stack a -> Stack a) -> StackSet i l a s sd -> StackSet i l a s sd
-modify' f = modify Nothing (Just . f)
+-- modify' f = modify Nothing (Just . f)
+modify' = (_current . _workspace . _stack . traverse %~)
 
 -- |
 -- /O(1)/. Extract the focused element of the current stack.
@@ -394,7 +398,11 @@ peek = with Nothing (pure . focus)
 -- integration of a one-hole list cursor, back to a list.
 --
 index :: StackSet i l a s sd -> [a]
-index = with [] toList
+-- index = with [] toList
+index = Lens.toListOf (_current . _workspace . _stack . traverse . traverse)
+
+_index :: Lens.Traversal' (StackSet i l a s sd) a
+_index = _current . _workspace . _stack . traverse . traverse
 
 -- |
 -- /O(1), O(w) on the wrapping case/.
