@@ -59,13 +59,13 @@ module XMonad.Core
 import XMonad.StackSet hiding (modify)
 
 -- import Prelude
-import Control.Applicative (Applicative, pure, (<$>), (<*>), liftA2)
+import Control.Applicative (Applicative, pure, (<$>), liftA2)
 import Control.Exception.Extensible (fromException, try, bracket, throw, finally, SomeException(..))
 import qualified Control.Exception.Extensible as E
 import Control.Monad.Fail (MonadFail)
 import Control.Monad.State
 import Control.Monad.Reader
-import Data.Foldable (fold, for_, traverse_)
+import Data.Foldable (fold, for_)
 import Data.Functor (($>))
 import Data.Monoid hiding ((<>))
 import Data.Semigroup
@@ -74,9 +74,7 @@ import Data.Typeable
 import Data.List ((\\))
 import Data.Maybe (isJust,fromMaybe)
 import Data.Map (Map)
--- import qualified Data.Map as M
 import Data.Set (Set)
--- import qualified Data.Set as S
 import Graphics.X11.Xlib
 import Graphics.X11.Xlib.Extras (getWindowAttributes, WindowAttributes, Event)
 import Lens.Micro (Lens, Lens', (.~), (%~))
@@ -793,7 +791,7 @@ getXDGDirectory xdgDir suffix =
 data XDGDirectory = XDGData | XDGConfig | XDGCache
 
 -- | Get the name of the file used to store the xmonad window state.
-stateFileName :: (Functor m, MonadIO m) => m FilePath
+stateFileName :: MonadIO m => m FilePath
 stateFileName = (</> "xmonad.state") <$> getXMonadDataDir
 
 -- | 'recompile force', recompile the xmonad configuration file when
@@ -915,16 +913,16 @@ recompile force = io $ do
          runProcess script [bin] (Just dir) Nothing Nothing Nothing (Just errHandle)
 
 -- | Conditionally run an action, using a @Maybe a@ to decide.
--- whenJust :: Monad m => Maybe a -> (a -> m ()) -> m ()
 whenJust :: (Traversable m, Applicative n) => m a -> (a -> n ()) -> n ()
 whenJust = for_
 {-# DEPRECATED whenJust "Use 'for_'." #-}
 
 -- | Conditionally run an action, using a 'X' event to decide
--- whenX :: X Bool -> X () -> X ()
-whenX :: Monad m => m Bool -> m () -> m ()
--- whenX a f = a >>= \b -> when b f
-whenX a f = a >>= flip when f
+whenX :: X Bool -> X () -> X ()
+whenX = whenM
+
+whenM :: Monad m => m Bool -> m () -> m ()
+whenM mb m = mb >>= (`when` m)
 
 -- | A 'trace' for the 'X' monad. Logs a string to stderr. The result may
 -- be found in your .xsession-errors file
