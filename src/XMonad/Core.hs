@@ -42,7 +42,7 @@ module XMonad.Core
   , HasCurrentEvent (_currentEvent)
   , HasDisplay (_display)
   , HasExtensibleState (_extensibleState)
-  , HasWindowSet (_windowSet)
+  , HasWindowSet (_windowset)
   , HasLogHook (_logHook)
   , HasMouseFocused, _mouseFocused
   , HasMousePosition (_mousePosition)
@@ -144,14 +144,14 @@ instance HasExtensibleState XState where
     (\ x' -> s{ extensibleState = x' }) <$> f x
 
 class HasWindowSet a where
-  _windowSet :: Lens' a WindowSet
+  _windowset :: Lens' a WindowSet
 
 instance HasWindowSet XState where
-  _windowSet f s@XState{ windowset = x } =
+  _windowset f s@XState{ windowset = x } =
     (\ x' -> s{ windowset = x' }) <$> f x
 
 -- instance HasWindowSet WindowSet where
---   _windowSet = id
+--   _windowset = id
 
 
 -- | XConf, the (read-only) window manager configuration.
@@ -448,7 +448,7 @@ withDisplay f = Lens.view _display >>= f
 
 -- | Run a monadic action with the current stack set
 withWindowSet :: (WindowSet -> X a) -> X a
-withWindowSet f = gets windowset >>= f
+withWindowSet f = gets (Lens.view _windowset) >>= f
 
 -- | Safely access window attributes.
 withWindowAttributes :: Display -> Window -> (WindowAttributes -> X ()) -> X ()
@@ -673,7 +673,7 @@ runOnWorkspaces :: (WindowSpace -> X WindowSpace) -> X ()
 runOnWorkspaces job = do
     ws <- gets windowset
     ws' <- _workspaces job ws
-    modify $ _windowSet .~ ws'
+    modify $ _windowset .~ ws'
 
 -- | Return the path to the xmonad configuration directory.  This
 -- directory is where user configuration files are stored (e.g, the

@@ -557,7 +557,7 @@ delete w = sink w . delete' w
 -- | Only temporarily remove the window from the stack, thereby not destroying special
 -- information saved in the 'Stackset'
 delete' :: (Eq a) => a -> StackSet i l a s sd -> StackSet i l a s sd
-delete' w = _workspaces . _stack  %~ (>>= Stack.filter (/= w))
+delete' w = _workspaces . _stack %~ (>>= Stack.filter (/= w))
 
 ------------------------------------------------------------------------
 
@@ -625,7 +625,6 @@ shiftWin n w s = case findTag w s of
 
 onWorkspace :: (Eq i, Eq s) => i -> (StackSet i l a s sd -> StackSet i l a s sd)
             -> (StackSet i l a s sd -> StackSet i l a s sd)
--- onWorkspace n f s = view (currentTag s) . f . view n $ s
 onWorkspace n f s = view (Lens.view (_current . _tag) s) . f . view n $ s
 
 
