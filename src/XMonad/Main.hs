@@ -1,5 +1,7 @@
 {-# OPTIONS_GHC -fno-warn-deprecations #-}
-{-# LANGUAGE MultiParamTypeClasses, RankNTypes, FlexibleContexts #-}
+{-# LANGUAGE MultiParamTypeClasses, RankNTypes, FlexibleContexts
+  #-}
+
 ----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Main
@@ -13,23 +15,25 @@
 -- xmonad, a minimalist, tiling window manager for X11
 --
 -----------------------------------------------------------------------------
-
-module XMonad.Main (xmonad, launch) where
+module XMonad.Main
+    ( xmonad
+    , launch
+    ) where
 
 import qualified Control.Exception.Extensible as E
 import Control.Monad (join)
 import Control.Monad.Reader
 import Control.Monad.State
+import Data.Bifunctor (bimap)
 import Data.Bits
 import Data.Foldable (fold, for_, sequenceA_, traverse_)
-import Data.Traversable (for)
-import Data.Bifunctor (bimap)
 import Data.List ((\\))
+import qualified Data.Map as Map
 import Data.Maybe (fromMaybe)
 import Data.Monoid (getAll)
-import Data.Version (showVersion)
-import qualified Data.Map as Map
 import qualified Data.Set as Set
+import Data.Traversable (for)
+import Data.Version (showVersion)
 
 import System.Directory
 import System.Environment
@@ -40,57 +44,58 @@ import System.Info
 import System.Locale.SetLocale
 import System.Posix.Process (executeFile)
 
+import Graphics.X11.Xinerama (compiledWithXinerama)
 import Graphics.X11.Xlib hiding (refreshKeyboardMapping)
 import Graphics.X11.Xlib.Extras
-import Graphics.X11.Xinerama (compiledWithXinerama)
 
 import Paths_xmonad (version)
 
-import XMonad.Core
 import qualified XMonad.Config as Default
-import XMonad.StackSet (new, floating, member)
-import qualified XMonad.StackSet as W
-import XMonad.Operations
+import XMonad.Core
 import XMonad.Internal.Optic as Lens
+import XMonad.Operations
+import XMonad.StackSet (floating, member, new)
+import qualified XMonad.StackSet as W
 
-import Lens.Micro ((.~), (%~)) -- (.~) = set; (%~) = over
+import Lens.Micro ((%~), (.~)) -- (.~) = set; (%~) = over
 import qualified Lens.Micro as Lens
 import qualified Lens.Micro.Mtl as Lens
 
-
 ------------------------------------------------------------------------
-
-
 -- |
 -- | The entry point into xmonad. Attempts to compile any custom main
 -- for xmonad, and if it doesn't find one, just launches the default.
 xmonad :: (LayoutClass l Window, Read (l Window)) => XConfig l -> IO ()
 xmonad conf = do
     installSignalHandlers -- important to ignore SIGCHLD to avoid zombies
-
     let launch' args = do
-              catchIO buildLaunch
+            catchIO buildLaunch
               -- Wrap layout, handle extra args, unwrap layout.
-              conf'@XConfig{ layoutHook = Layout l }
-                  <- handleExtraArgs conf args (Lens.over _layoutHook Layout conf)
-              withArgs [] . launch $ Lens.set _layoutHook l conf'
-
+            conf'@XConfig {layoutHook = Layout l} <-
+                handleExtraArgs conf args (Lens.over _layoutHook Layout conf)
+            withArgs [] . launch $ Lens.set _layoutHook l conf'
     args <- getArgs
     case args of
-        ("--resume": ws : xs : args') -> migrateState ws xs *> launch' args'
-        ["--help"]            -> usage
-        ["--recompile"]       -> recompile True >>= flip unless exitFailure
-        ["--restart"]         -> sendRestart
-        ["--version"]         -> putStrLn $ unwords shortVersion
-        ["--verbose-version"] -> putStrLn . unwords $ shortVersion <> longVersion
-        "--replace" : args'   -> sendReplace *> launch' args'
-        _                     -> launch' args
- where
+        ("--resume":ws:xs:args') -> migrateState ws xs *> launch' args'
+        ["--help"] -> usage
+        ["--recompile"] -> recompile True >>= flip unless exitFailure
+        ["--restart"] -> sendRestart
+        ["--version"] -> putStrLn $ unwords shortVersion
+        ["--verbose-version"] ->
+            putStrLn . unwords $ shortVersion <> longVersion
+        "--replace":args' -> sendReplace *> launch' args'
+        _ -> launch' args
+  where
     shortVersion = ["xmonad", showVersion version]
-    longVersion  = [ "compiled by", compilerName, showVersion compilerVersion
-                   , "for",  arch <> "-" <> os
-                   , "\nXinerama:", show compiledWithXinerama ]
-
+    longVersion =
+        [ "compiled by"
+        , compilerName
+        , showVersion compilerVersion
+        , "for"
+        , arch <> "-" <> os
+        , "\nXinerama:"
+        , show compiledWithXinerama
+        ]
 
 usage :: IO ()
 usage = do
@@ -121,21 +126,22 @@ usage = do
 --
 --   * Missing XMonad\/XMonadContrib modules due to ghc upgrade
 --
-buildLaunch ::  IO ()
+buildLaunch :: IO ()
 buildLaunch = do
     whoami <- getProgName
     let compiledConfig = "xmonad-" <> arch <> "-" <> os
     unless (whoami == compiledConfig) $ do
-      trace $ fold
-        [ "XMonad is recompiling and replacing itself another XMonad process because the current process is called "
-        , show whoami
-        , " but the compiled configuration should be called "
-        , show compiledConfig
-        ]
-      recompile False
-      dir  <- getXMonadDataDir
-      args <- getArgs
-      executeFile (dir </> compiledConfig) False args Nothing
+        trace $
+            fold
+                [ "XMonad is recompiling and replacing itself another XMonad process because the current process is called "
+                , show whoami
+                , " but the compiled configuration should be called "
+                , show compiledConfig
+                ]
+        recompile False
+        dir <- getXMonadDataDir
+        args <- getArgs
+        executeFile (dir </> compiledConfig) False args Nothing
 
 sendRestart :: IO ()
 sendRestart = do
@@ -153,17 +159,16 @@ sendReplace :: IO ()
 sendReplace = do
     dpy <- openDisplay ""
     let dflt = defaultScreen dpy
-    rootw  <- rootWindow dpy dflt
+    rootw <- rootWindow dpy dflt
     replace dpy dflt rootw
--- sendReplace = newRootWith replace
 
+-- sendReplace = newRootWith replace
 -- newRootWith :: (Display -> ScreenNumber -> Window -> IO a) -> IO a
 -- newRootWith f = do
 --     d <- openDisplay ""
 --     let s = defaultScreen d
 --     w <- rootWindow d s
 --     f d s w
-
 -- | Entry point into xmonad for custom builds.
 --
 -- This function isn't meant to be called by the typical xmonad user
@@ -185,88 +190,81 @@ sendReplace = do
 -- binding to the 'XMonad.Operations.restart` function that restarts
 -- your custom binary with the resume flag set to @True@.
 launch :: (LayoutClass l Window, Read (l Window)) => XConfig l -> IO ()
-launch initxmc = do
+launch initxmc
     -- setup locale information from environment
+ = do
     setLocale LC_ALL (Just "")
     -- ignore SIGPIPE and SIGCHLD
     installSignalHandlers
     -- First, wrap the layout in an existential, to keep things pretty:
     let xmc = Lens.over _layoutHook Layout initxmc
-    dpy   <- openDisplay ""
+    dpy <- openDisplay ""
     rootw <- rootWindow dpy (defaultScreen dpy)
-
     -- If another WM is running, a BadAccess error will be returned.  The
     -- default error handler will write the exception to stderr and exit with
     -- an error.
     selectInput dpy rootw $ rootMask initxmc
-
     sync dpy False -- sync to ensure all outstanding errors are delivered
-
     -- turn off the default handler in favor of one that ignores all errors
     -- (ugly, I know)
     xSetErrorHandler -- in C, I'm too lazy to write the binding: dons
-
     xinesc <- getCleanedScreenInfo dpy
-
-    nbc <- do
-        v            <- initColor dpy $ normalBorderColor xmc
-        ~(Just nbc_) <- initColor dpy $ normalBorderColor Default.def
-        pure (fromMaybe nbc_ v)
-
-    fbc <- do
-        v            <- initColor dpy $ focusedBorderColor xmc
-        ~(Just fbc_) <- initColor dpy $ focusedBorderColor Default.def
-        pure (fromMaybe fbc_ v)
-
+    nbc <-
+        do v <- initColor dpy $ normalBorderColor xmc
+           ~(Just nbc_) <- initColor dpy $ normalBorderColor Default.def
+           pure (fromMaybe nbc_ v)
+    fbc <-
+        do v <- initColor dpy $ focusedBorderColor xmc
+           ~(Just fbc_) <- initColor dpy $ focusedBorderColor Default.def
+           pure (fromMaybe fbc_ v)
     hSetBuffering stdout NoBuffering
-
     let layout = layoutHook xmc
-        initialWinset = new layout (padToMaxLen xinesc (workspaces xmc)) (fmap SD xinesc)
-            where
+        initialWinset =
+            new layout (padToMaxLen xinesc (workspaces xmc)) (fmap SD xinesc)
+          where
             padToMaxLen :: Monoid b => [a] -> [b] -> [b]
-            padToMaxLen xs ss = take (length xs `max` length ss) (ss <> repeat mempty)
-        cf = XConf
-            { display       = dpy
-            , config        = xmc
-            , theRoot       = rootw
-            , normalBorder  = nbc
-            , focusedBorder = fbc
-            , keyActions    = keys xmc xmc
-            , buttonActions = mouseBindings xmc xmc
-            , mouseFocused  = False
-            , mousePosition = Nothing
-            , currentEvent  = Nothing
-            }
-
-        st = XState
-            { windowset       = initialWinset
-            , numberlockMask  = 0
-            , mapped          = Set.empty
-            , waitingUnmap    = Map.empty
-            , dragging        = Nothing
-            , extensibleState = Map.empty
-            }
-
+            padToMaxLen xs ss =
+                take (length xs `max` length ss) (ss <> repeat mempty)
+        cf =
+            XConf
+                { display = dpy
+                , config = xmc
+                , theRoot = rootw
+                , normalBorder = nbc
+                , focusedBorder = fbc
+                , keyActions = keys xmc xmc
+                , buttonActions = mouseBindings xmc xmc
+                , mouseFocused = False
+                , mousePosition = Nothing
+                , currentEvent = Nothing
+                }
+        st =
+            XState
+                { windowset = initialWinset
+                , numberlockMask = 0
+                , mapped = Set.empty
+                , waitingUnmap = Map.empty
+                , dragging = Nothing
+                , extensibleState = Map.empty
+                }
     allocaXEvent $ \e ->
-        runX cf st $ do
+        runX cf st $
             -- check for serialized state in a file.
-            serializedSt <- do
-                path <- stateFileName
-                exists <- io (doesFileExist path)
-                if exists then readStateFile initxmc else pure Nothing
-
+         do
+            serializedSt <-
+                do path <- stateFileName
+                   exists <- io (doesFileExist path)
+                   if exists
+                       then readStateFile initxmc
+                       else pure Nothing
             -- restore extensibleState if we read it from a file.
             let extst = Lens.view (traverse . _extensibleState) serializedSt
             modify (_extensibleState .~ extst)
-
             setNumlockMask
             grabKeys
             grabButtons
-
             io $ sync dpy False
-
             ws <- io $ scan dpy rootw
-
             -- bootstrap the windowset, Operations.windows will identify all
             -- the windows in winset as new and set initial properties for
             -- those windows.  Remove all windows that are no longer top-level
@@ -274,31 +272,37 @@ launch initxmc = do
             -- restarting.
             let winset = maybe initialWinset windowset serializedSt
             windows . const . foldr W.delete winset $ W.allWindows winset \\ ws
-
             -- manage the as-yet-unmanaged windows
             traverse_ manage (ws \\ W.allWindows winset)
-
             userCode $ startupHook initxmc
-
             -- main loop, for all you HOF/recursion fans out there.
             forever $ prehandle =<< io (nextEvent dpy e *> getEvent e)
-
     pure ()
-      where
         -- if the event gives us the position of the pointer, set mousePosition
-        prehandle e = local ((_currentEvent .~ Just e) . (_mousePosition .~ mouse)) (handleWithHook e)
-            where mouse = do
-                     guard (ev_event_type e `elem` evs)
-                     pure (join bimap fromIntegral (ev_x_root e, ev_y_root e))
-        evs = [ keyPress, keyRelease, enterNotify, leaveNotify , buttonPress, buttonRelease]
-
+  where
+    prehandle e =
+        local
+            ((_currentEvent .~ Just e) . (_mousePosition .~ mouse))
+            (handleWithHook e)
+      where
+        mouse = do
+            guard (ev_event_type e `elem` evs)
+            pure (join bimap fromIntegral (ev_x_root e, ev_y_root e))
+    evs =
+        [ keyPress
+        , keyRelease
+        , enterNotify
+        , leaveNotify
+        , buttonPress
+        , buttonRelease
+        ]
 
 -- | Runs handleEventHook from the configuration and runs the default handler
 -- function if it returned True.
 handleWithHook :: Event -> X ()
 handleWithHook e = do
-  evHook <- asks (handleEventHook . config)
-  whenX (userCodeDef True $ getAll <$> evHook e) (handle e)
+    evHook <- asks (handleEventHook . config)
+    whenX (userCodeDef True $ getAll <$> evHook e) (handle e)
 
 -- ---------------------------------------------------------------------
 -- | Event handler. Map X events onto calls into Operations.hs, which
@@ -311,141 +315,145 @@ handleWithHook e = do
 --    [PropertyNotify] = propertynotify,
 --
 handle :: Event -> X ()
-
 -- run window manager command
-handle KeyEvent{ ev_event_type = t, ev_state = m, ev_keycode = code }
-    | t == keyPress = withDisplay $ \dpy -> do
-        s  <- io $ keycodeToKeysym dpy code 0
-        mClean <- cleanMask m
-        ks <- asks keyActions
-        userCodeDef () $ sequenceA_ (Map.lookup (mClean, s) ks)
-
+handle KeyEvent {ev_event_type = t, ev_state = m, ev_keycode = code}
+    | t == keyPress =
+        withDisplay $ \dpy -> do
+            s <- io $ keycodeToKeysym dpy code 0
+            mClean <- cleanMask m
+            ks <- asks keyActions
+            userCodeDef () $ sequenceA_ (Map.lookup (mClean, s) ks)
 -- manage a new window
-handle MapRequestEvent{ ev_window = w } = withDisplay $ \dpy ->
-    withWindowAttributes dpy w $ \wa -> do -- ignore override windows
+handle MapRequestEvent {ev_window = w} =
+    withDisplay $ \dpy ->
+        withWindowAttributes dpy w $ \wa -- ignore override windows
   -- need to ignore mapping requests by managed windows not on the current workspace
-  managed <- isClient w
-  when (not (wa_override_redirect wa) && not managed) $ manage w
-
+         -> do
+            managed <- isClient w
+            when (not (wa_override_redirect wa) && not managed) $ manage w
 -- window destroyed, unmanage it
 -- window gone,      unmanage it
-handle DestroyWindowEvent{ ev_window = w } = whenX (isClient w) $ do
-    unmanage w
-    modify ((_mapped %~ Set.delete w) . (_waitingUnmap %~ Map.delete w))
-
+handle DestroyWindowEvent {ev_window = w} =
+    whenX (isClient w) $ do
+        unmanage w
+        modify ((_mapped %~ Set.delete w) . (_waitingUnmap %~ Map.delete w))
 -- We track expected unmap events in waitingUnmap.  We ignore this event unless
 -- it is synthetic or we are not expecting an unmap notification from a window.
-handle UnmapEvent {ev_window = w, ev_send_event = synthetic} = whenX (isClient w) $ do
-    e <- gets (fromMaybe 0 . Map.lookup w . waitingUnmap)
-    if synthetic || e == 0
-        then unmanage w
-        else modify (_waitingUnmap %~ Map.update mpred w)
- where mpred 1 = Nothing
-       mpred n = Just $ pred n
-
+handle UnmapEvent {ev_window = w, ev_send_event = synthetic} =
+    whenX (isClient w) $ do
+        e <- gets (fromMaybe 0 . Map.lookup w . waitingUnmap)
+        if synthetic || e == 0
+            then unmanage w
+            else modify (_waitingUnmap %~ Map.update mpred w)
+  where
+    mpred 1 = Nothing
+    mpred n = Just $ pred n
 -- set keyboard mapping
 handle e@MappingNotifyEvent {} = do
     io $ refreshKeyboardMapping e
     when (ev_request e `elem` [mappingKeyboard, mappingModifier]) $ do
         setNumlockMask
         grabKeys
-
 -- handle button release, which may finish dragging.
 handle e@ButtonEvent {ev_event_type = t}
     | t == buttonRelease = do
-    drag <- gets dragging
-    case drag of
+        drag <- gets dragging
+        case drag
         -- we're done dragging and have released the mouse:
-        Just (_,f) -> modify (_dragging .~ Nothing) *> f
-        Nothing    -> broadcastMessage e
-
+              of
+            Just (_, f) -> modify (_dragging .~ Nothing) *> f
+            Nothing -> broadcastMessage e
 -- handle motionNotify event, which may mean we are dragging.
-handle e@MotionEvent{ ev_event_type = _t, ev_x = x, ev_y = y } = do
+handle e@MotionEvent {ev_event_type = _t, ev_x = x, ev_y = y} = do
     drag <- gets dragging
     case drag of
-        Just (d,_) -> d (fromIntegral x) (fromIntegral y) -- we're dragging
+        Just (d, _) -> d (fromIntegral x) (fromIntegral y) -- we're dragging
         Nothing -> broadcastMessage e
-
 -- click on an unfocused window, makes it focused on this workspace
-handle e@ButtonEvent{ ev_window = w,ev_event_type = t,ev_button = b }
-    | t == buttonPress = do
+handle e@ButtonEvent {ev_window = w, ev_event_type = t, ev_button = b}
+    | t == buttonPress
     -- If it's the root window, then it's something we
     -- grabbed in grabButtons. Otherwise, it's click-to-focus.
-    dpy <- Lens.view _display
-    isr <- isRoot w
-    m <- cleanMask $ ev_state e
+     = do
+        dpy <- Lens.view _display
+        isr <- isRoot w
+        m <- cleanMask $ ev_state e
     -- mact <- Map.lookup (m, b) <$> Lens.view _buttonActions
-    mact <- Lens.views _buttonActions (Map.lookup (m, b))
-    case mact of
-        Just act | isr -> act $ ev_subwindow e
-        _              -> do
-            focus w
-            ctf <- Lens.view (_XConfig . _clickJustFocuses)
-            unless ctf $ io (allowEvents dpy replayPointer currentTime)
-    broadcastMessage e -- Always send button events.
-
+        mact <- Lens.views _buttonActions (Map.lookup (m, b))
+        case mact of
+            Just act
+                | isr -> act $ ev_subwindow e
+            _ -> do
+                focus w
+                ctf <- Lens.view (_XConfig . _clickJustFocuses)
+                unless ctf $ io (allowEvents dpy replayPointer currentTime)
+        broadcastMessage e -- Always send button events.
 -- entered a normal window: focus it if focusFollowsMouse is set to
 -- True in the user's config.
 handle e@CrossingEvent {ev_window = w, ev_event_type = t}
-    | t == enterNotify && ev_mode   e == notifyNormal
-    = whenX (Lens.view $ _XConfig . _focusFollowsMouse) $ do
-        dpy <- Lens.view _display
-        root <- Lens.view _theRoot
-        (_, _, w', _, _, _, _, _) <- io $ queryPointer dpy root
+    | t == enterNotify && ev_mode e == notifyNormal =
+        whenX (Lens.view $ _XConfig . _focusFollowsMouse) $ do
+            dpy <- Lens.view _display
+            root <- Lens.view _theRoot
+            (_, _, w', _, _, _, _, _) <- io $ queryPointer dpy root
         -- when Xlib cannot find a child that contains the pointer,
         -- it returns None(0)
-        when (w' == 0 || w == w') (focus w)
-
+            when (w' == 0 || w == w') (focus w)
 -- left a window, check if we need to focus root
 handle e@CrossingEvent {ev_event_type = t}
-    | t == leaveNotify
-    = do rootw <- Lens.view _theRoot
-         when (ev_window e == rootw && not (ev_same_screen e)) $ setFocusX rootw
-
+    | t == leaveNotify = do
+        rootw <- Lens.view _theRoot
+        when (ev_window e == rootw && not (ev_same_screen e)) $ setFocusX rootw
 -- configure a window
-handle e@ConfigureRequestEvent {ev_window = w} = withDisplay $ \dpy -> do
-    ws <- gets windowset
-    bw <- Lens.view (_XConfig . _borderWidth)
-
-    if Map.member w (floating ws)
-        || not (member w ws)
-        then do io . configureWindow dpy w (ev_value_mask e) $ WindowChanges
-                    { wc_x            = ev_x e
-                    , wc_y            = ev_y e
-                    , wc_width        = ev_width e
-                    , wc_height       = ev_height e
-                    , wc_border_width = fromIntegral bw
-                    , wc_sibling      = ev_above e
-                    , wc_stack_mode   = ev_detail e }
+handle e@ConfigureRequestEvent {ev_window = w} =
+    withDisplay $ \dpy -> do
+        ws <- gets windowset
+        bw <- Lens.view (_XConfig . _borderWidth)
+        if Map.member w (floating ws) || not (member w ws)
+            then do
+                io . configureWindow dpy w (ev_value_mask e) $
+                    WindowChanges
+                        { wc_x = ev_x e
+                        , wc_y = ev_y e
+                        , wc_width = ev_width e
+                        , wc_height = ev_height e
+                        , wc_border_width = fromIntegral bw
+                        , wc_sibling = ev_above e
+                        , wc_stack_mode = ev_detail e
+                        }
                 when (member w ws) (float w)
-        else withWindowAttributes dpy w $ \wa -> io . allocaXEvent $ \ev -> do
-                 setEventType ev configureNotify
-                 setConfigureEvent ev w w
-                     (wa_x wa) (wa_y wa) (wa_width wa)
-                     (wa_height wa) (ev_border_width e) none (wa_override_redirect wa)
-                 sendEvent dpy w False 0 ev
-    io $ sync dpy False
-
+            else withWindowAttributes dpy w $ \wa ->
+                     io . allocaXEvent $ \ev -> do
+                         setEventType ev configureNotify
+                         setConfigureEvent
+                             ev
+                             w
+                             w
+                             (wa_x wa)
+                             (wa_y wa)
+                             (wa_width wa)
+                             (wa_height wa)
+                             (ev_border_width e)
+                             none
+                             (wa_override_redirect wa)
+                         sendEvent dpy w False 0 ev
+        io $ sync dpy False
 -- configuration changes in the root may mean display settings have changed
-handle ConfigureEvent{ ev_window = w } = whenX (isRoot w) rescreen
-
+handle ConfigureEvent {ev_window = w} = whenX (isRoot w) rescreen
 -- property notify
-handle event@PropertyEvent{ ev_event_type = t, ev_atom = a }
-    | t == propertyNotify && a == wM_NAME = (Lens.view _logHook >>= userCodeDef ()) *> broadcastMessage event
-
-handle e@ClientMessageEvent { ev_message_type = mt } = do
+handle event@PropertyEvent {ev_event_type = t, ev_atom = a}
+    | t == propertyNotify && a == wM_NAME =
+        (Lens.view _logHook >>= userCodeDef ()) *> broadcastMessage event
+handle e@ClientMessageEvent {ev_message_type = mt} = do
     a <- getAtom "XMONAD_RESTART"
     if mt == a
         then restart "xmonad" True
         else broadcastMessage e
-
 handle e = broadcastMessage e -- trace (eventName e) -- ignoring
-
 
 -- ---------------------------------------------------------------------
 -- IO stuff. Doesn't require any X state
 -- Most of these things run only on startup (bar grabkeys)
-
 -- | scan for any new windows to manage. If they're already managed,
 -- this should be idempotent.
 scan :: Display -> Window -> IO [Window]
@@ -454,28 +462,35 @@ scan dpy rootw = do
     filterM (\w -> ok w `E.catch` skip) ws
   -- TODO: scan for windows that are either 'IsViewable' or where WM_STATE ==
   -- Iconic
-  where ok w = do wa <- getWindowAttributes dpy w
-                  a  <- internAtom dpy "WM_STATE" False
-                  p  <- getWindowProperty32 dpy a w
-                  let ic = case p of
-                            Just (3:_) -> True -- 3 for iconified
-                            _          -> False
-                  pure $ not (wa_override_redirect wa)
-                         && (wa_map_state wa == waIsViewable || ic)
-
-        skip :: E.SomeException -> IO Bool
-        skip _ = pure False
+  where
+    ok w = do
+        wa <- getWindowAttributes dpy w
+        a <- internAtom dpy "WM_STATE" False
+        p <- getWindowProperty32 dpy a w
+        let ic =
+                case p of
+                    Just (3:_) -> True -- 3 for iconified
+                    _ -> False
+        pure $
+            not (wa_override_redirect wa) &&
+            (wa_map_state wa == waIsViewable || ic)
+    skip :: E.SomeException -> IO Bool
+    skip _ = pure False
 
 setNumlockMask :: X ()
 setNumlockMask = do
     dpy <- Lens.view _display
     ms <- io $ getModifierMapping dpy
-    xs <- sequence [ do
-                        ks <- io $ keycodeToKeysym dpy kc 0
-                        if ks == xK_Num_Lock
-                            then pure (setBit 0 (fromIntegral m))
-                            else pure (0 :: KeyMask)
-                        | (m, kcs) <- ms, kc <- kcs, kc /= 0]
+    xs <-
+        sequence
+            [ do ks <- io $ keycodeToKeysym dpy kc 0
+                 if ks == xK_Num_Lock
+                     then pure (setBit 0 (fromIntegral m))
+                     else pure (0 :: KeyMask)
+            | (m, kcs) <- ms
+            , kc <- kcs
+            , kc /= 0
+            ]
     modify $ _numberlockMask .~ foldr (.|.) 0 xs
 
 -- | Grab the keys back
@@ -493,7 +508,7 @@ grabKeys = do
     syms <- for allCodes $ \code -> io (keycodeToKeysym dpy code 0)
     let keysymMap = Map.fromListWith (<>) (zip syms [[code] | code <- allCodes])
         keysymToKeycodes sym = Map.findWithDefault [] sym keysymMap
-    for_ (Map.keys ks) $ \(mask,sym) ->
+    for_ (Map.keys ks) $ \(mask, sym) ->
         for_ (keysymToKeycodes sym) $ \kc ->
             traverse_ (grab kc . (mask .|.)) =<< extraModifiers
 
@@ -502,8 +517,19 @@ grabButtons :: X ()
 grabButtons = do
     dpy <- Lens.view _display
     rootw <- Lens.view _theRoot
-    let grab button mask = io $ grabButton dpy button mask rootw False buttonPressMask
-                                           grabModeAsync grabModeSync none none
+    let grab button mask =
+            io $
+            grabButton
+                dpy
+                button
+                mask
+                rootw
+                False
+                buttonPressMask
+                grabModeAsync
+                grabModeSync
+                none
+                none
     io $ ungrabButton dpy anyButton anyModifier rootw
     ba <- Lens.view _buttonActions
     for_ (Map.keys ba) $ \(mask, b) ->
@@ -511,33 +537,44 @@ grabButtons = do
 
 -- | @replace@ to signals compliant window managers to exit.
 replace :: Display -> ScreenNumber -> Window -> IO ()
-replace dpy dflt rootw = do
+replace dpy dflt rootw
     -- check for other WM
+ = do
     wmSnAtom <- internAtom dpy ("WM_S" <> show dflt) False
     currentWmSnOwner <- xGetSelectionOwner dpy wmSnAtom
-    when (currentWmSnOwner /= 0) $ do
+    when (currentWmSnOwner /= 0) $
         -- prepare to receive destroyNotify for old WM
+     do
         selectInput dpy currentWmSnOwner structureNotifyMask
-
         -- create off-screen window
-        netWmSnOwner <- allocaSetWindowAttributes $ \attributes -> do
-            set_override_redirect attributes True
-            set_event_mask attributes propertyChangeMask
-            let screen = defaultScreenOfDisplay dpy
-                visual = defaultVisualOfScreen screen
-                attrmask = cWOverrideRedirect .|. cWEventMask
-            createWindow dpy rootw (-100) (-100) 1 1 0 copyFromParent copyFromParent visual attrmask attributes
-
+        netWmSnOwner <-
+            allocaSetWindowAttributes $ \attributes -> do
+                set_override_redirect attributes True
+                set_event_mask attributes propertyChangeMask
+                let screen = defaultScreenOfDisplay dpy
+                    visual = defaultVisualOfScreen screen
+                    attrmask = cWOverrideRedirect .|. cWEventMask
+                createWindow
+                    dpy
+                    rootw
+                    (-100)
+                    (-100)
+                    1
+                    1
+                    0
+                    copyFromParent
+                    copyFromParent
+                    visual
+                    attrmask
+                    attributes
         -- try to acquire wmSnAtom, this should signal the old WM to terminate
         xSetSelectionOwner dpy wmSnAtom netWmSnOwner currentTime
-
         -- SKIPPED: check if we acquired the selection
         -- SKIPPED: send client message indicating that we are now the WM
-
         -- wait for old WM to go away
         fix $ \again -> do
-            evt <- allocaXEvent $ \event -> do
-                windowEvent dpy currentWmSnOwner structureNotifyMask event
-                get_EventType event
-
+            evt <-
+                allocaXEvent $ \event -> do
+                    windowEvent dpy currentWmSnOwner structureNotifyMask event
+                    get_EventType event
             when (evt /= destroyNotify) again

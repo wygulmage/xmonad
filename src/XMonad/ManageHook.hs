@@ -1,5 +1,3 @@
-
-
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.ManageHook
@@ -13,20 +11,18 @@
 -- An EDSL for ManageHooks
 --
 -----------------------------------------------------------------------------
-
 -- XXX examples required
-
 module XMonad.ManageHook where
 
-import Graphics.X11.Xlib.Extras
-import Graphics.X11.Xlib (Display, Window, internAtom, wM_NAME)
 import Control.Applicative (liftA2)
-import Control.Exception.Extensible (bracket, SomeException(..))
+import Control.Exception.Extensible (SomeException(..), bracket)
 import qualified Control.Exception.Extensible as E
 import Control.Monad.Reader
 import Data.Foldable (fold)
 import Data.Maybe
 import Data.Monoid
+import Graphics.X11.Xlib (Display, Window, internAtom, wM_NAME)
+import Graphics.X11.Xlib.Extras
 import qualified Lens.Micro as Lens
 import qualified Lens.Micro.Mtl as Lens
 import XMonad.Core
@@ -50,11 +46,16 @@ composeAll :: Monoid m => [m] -> m
 composeAll = fold
 
 infix 0 -->
+
 -- | @p --> x@.  If @p@ returns 'True', execute the 'ManageHook'.
 --
 -- > (-->) :: Monoid m => Query Bool -> Query m -> Query m -- a simpler type
 (-->) :: (Monad m, Monoid a) => m Bool -> m a -> m a
-p --> f = p >>= \b -> if b then f else pure mempty
+p --> f =
+    p >>= \b ->
+        if b
+            then f
+            else pure mempty
 
 -- | @q =? x@. if the result of @q@ equals @x@, return 'True'.
 -- (=?) :: Eq a => Query a -> a -> Query Bool
@@ -63,34 +64,39 @@ q =? x = fmap (== x) q
 
 infixr 3 <&&>, <||>
 
--- -- | '&&' lifted to a 'Monad'.
 -- | '&&' lifted to an Applicative
--- (<&&>) :: Monad m => m Bool -> m Bool -> m Bool
 (<&&>) :: Applicative m => m Bool -> m Bool -> m Bool
 (<&&>) = liftA2 (&&)
 
--- -- | '||' lifted to a 'Monad'.
 -- | '||' lifted to an Applicative
--- (<||>) :: Monad m => m Bool -> m Bool -> m Bool
 (<||>) :: Applicative m => m Bool -> m Bool -> m Bool
 (<||>) = liftA2 (||)
 
 -- | Return the window title.
 title :: Query String
-title = ask >>= \w -> liftX $ do
-    -- d <- asks display
-    d <- Lens.view _display
-    let
-        getProp =
-            (internAtom d "_NET_WM_NAME" False >>= getTextProperty d w)
-                `E.catch` \(SomeException _) -> getTextProperty d w wM_NAME
-        extract prop = do l <- wcTextPropertyToTextList d prop
-                          pure $ if null l then "" else head l
-    io $ bracket getProp (xFree . tp_value) extract `E.catch` \(SomeException _) -> pure ""
+title =
+    ask >>= \w ->
+        liftX $
+         do
+            d <- Lens.view _display
+            let getProp =
+                    (internAtom d "_NET_WM_NAME" False >>= getTextProperty d w) `E.catch` \(SomeException _) ->
+                        getTextProperty d w wM_NAME
+                extract prop = do
+                    l <- wcTextPropertyToTextList d prop
+                    pure $
+                        if null l
+                            then ""
+                            else head l
+            io $
+                bracket getProp (xFree . tp_value) extract `E.catch` \(SomeException _) ->
+                    pure ""
 
 -- | Return the application name.
 appName :: Query String
-appName = ask >>= (\w -> liftX . withDisplay $ \d -> fmap resName . io $ getClassHint d w)
+appName =
+    ask >>=
+    (\w -> liftX . withDisplay $ \d -> fmap resName . io $ getClassHint d w)
 
 -- | Backwards compatible alias for 'appName'.
 resource :: Query String
@@ -98,19 +104,22 @@ resource = appName
 
 -- | Return the resource class.
 className :: Query String
-className = ask >>= (\w -> liftX . withDisplay $ \d -> fmap resClass . io $ getClassHint d w)
+className =
+    ask >>=
+    (\w -> liftX . withDisplay $ \d -> fmap resClass . io $ getClassHint d w)
 
 -- | A query that can return an arbitrary X property of type 'String',
 --   identified by name.
 stringProperty :: String -> Query String
 -- stringProperty p = ask >>= (\w -> liftX . withDisplay $ \d -> fromMaybe "" <$> getStringProperty d w p)
-stringProperty p = ask >>= (\w -> liftX . withDisplay $ \d -> fold <$> getStringProperty d w p)
+stringProperty p =
+    ask >>= (\w -> liftX . withDisplay $ \d -> fold <$> getStringProperty d w p)
 
 getStringProperty :: Display -> Window -> String -> X (Maybe String)
 getStringProperty d w p = do
-  a  <- getAtom p
-  md <- io $ getWindowProperty8 d a w
-  pure $ fmap (fmap (toEnum . fromIntegral)) md
+    a <- getAtom p
+    md <- io $ getWindowProperty8 d a w
+    pure $ fmap (fmap (toEnum . fromIntegral)) md
 
 -- | Modify the 'WindowSet' with a pure function.
 -- doF :: (s -> s) -> Query (Endo s)
