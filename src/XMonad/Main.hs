@@ -51,6 +51,7 @@ import qualified XMonad.Config as Default
 import XMonad.StackSet (new, floating, member)
 import qualified XMonad.StackSet as W
 import XMonad.Operations
+import XMonad.Internal.Optic as Lens
 
 import Lens.Micro ((.~), (%~)) -- (.~) = set; (%~) = over
 import qualified Lens.Micro as Lens
@@ -139,7 +140,7 @@ buildLaunch = do
 sendRestart :: IO ()
 sendRestart = do
     dpy <- openDisplay ""
-    rw <- rootWindow dpy $ defaultScreen dpy
+    rw <- rootWindow dpy (defaultScreen dpy)
     xmonad_restart <- internAtom dpy "XMONAD_RESTART" False
     allocaXEvent $ \e -> do
         setEventType e clientMessage
@@ -209,9 +210,7 @@ launch initxmc = do
 
     nbc <- do
         v            <- initColor dpy $ normalBorderColor xmc
-        -- v            <- initColor dpy $ Lens.view _normalBorderColor xmc
         ~(Just nbc_) <- initColor dpy $ normalBorderColor Default.def
-        -- ~(Just nbc_) <- initColor dpy $ Lens.view _normalBorderColor Default.def
         pure (fromMaybe nbc_ v)
 
     fbc <- do
@@ -287,7 +286,7 @@ launch initxmc = do
     pure ()
       where
         -- if the event gives us the position of the pointer, set mousePosition
-        prehandle e = local (Lens.set _currentEvent (Just e) . Lens.set _mousePosition mouse) (handleWithHook e)
+        prehandle e = local ((_currentEvent .~ Just e) . (_mousePosition .~ mouse)) (handleWithHook e)
             where mouse = do
                      guard (ev_event_type e `elem` evs)
                      pure (join bimap fromIntegral (ev_x_root e, ev_y_root e))
@@ -314,12 +313,11 @@ handleWithHook e = do
 handle :: Event -> X ()
 
 -- run window manager command
-handle KeyEvent {ev_event_type = t, ev_state = m, ev_keycode = code}
+handle KeyEvent{ ev_event_type = t, ev_state = m, ev_keycode = code }
     | t == keyPress = withDisplay $ \dpy -> do
         s  <- io $ keycodeToKeysym dpy code 0
         mClean <- cleanMask m
         ks <- asks keyActions
-        -- userCodeDef () $ for_ (Map.lookup (mClean, s) ks) id
         userCodeDef () $ sequenceA_ (Map.lookup (mClean, s) ks)
 
 -- manage a new window
@@ -358,7 +356,6 @@ handle e@ButtonEvent {ev_event_type = t}
     drag <- gets dragging
     case drag of
         -- we're done dragging and have released the mouse:
-        -- Just (_,f) -> modify (\s -> s { dragging = Nothing }) *> f
         Just (_,f) -> modify (_dragging .~ Nothing) *> f
         Nothing    -> broadcastMessage e
 
@@ -374,17 +371,15 @@ handle e@ButtonEvent{ ev_window = w,ev_event_type = t,ev_button = b }
     | t == buttonPress = do
     -- If it's the root window, then it's something we
     -- grabbed in grabButtons. Otherwise, it's click-to-focus.
-    -- dpy <- asks display
     dpy <- Lens.view _display
     isr <- isRoot w
     m <- cleanMask $ ev_state e
-    -- mact <- asks (Map.lookup (m, b) . buttonActions)
-    mact <- Map.lookup (m, b) <$> Lens.view _buttonActions
+    -- mact <- Map.lookup (m, b) <$> Lens.view _buttonActions
+    mact <- Lens.views _buttonActions (Map.lookup (m, b))
     case mact of
         Just act | isr -> act $ ev_subwindow e
         _              -> do
             focus w
-            -- ctf <- asks (clickJustFocuses . config)
             ctf <- Lens.view (_XConfig . _clickJustFocuses)
             unless ctf $ io (allowEvents dpy replayPointer currentTime)
     broadcastMessage e -- Always send button events.
@@ -393,7 +388,6 @@ handle e@ButtonEvent{ ev_window = w,ev_event_type = t,ev_button = b }
 -- True in the user's config.
 handle e@CrossingEvent {ev_window = w, ev_event_type = t}
     | t == enterNotify && ev_mode   e == notifyNormal
-    -- = whenX (asks $ focusFollowsMouse . config) $ do
     = whenX (Lens.view $ _XConfig . _focusFollowsMouse) $ do
         dpy <- Lens.view _display
         root <- Lens.view _theRoot
@@ -433,11 +427,10 @@ handle e@ConfigureRequestEvent {ev_window = w} = withDisplay $ \dpy -> do
     io $ sync dpy False
 
 -- configuration changes in the root may mean display settings have changed
-handle ConfigureEvent {ev_window = w} = whenX (isRoot w) rescreen
+handle ConfigureEvent{ ev_window = w } = whenX (isRoot w) rescreen
 
 -- property notify
-handle event@PropertyEvent { ev_event_type = t, ev_atom = a }
-    -- | t == propertyNotify && a == wM_NAME = (asks (logHook . config) >>= userCodeDef ()) *> broadcastMessage event
+handle event@PropertyEvent{ ev_event_type = t, ev_atom = a }
     | t == propertyNotify && a == wM_NAME = (Lens.view _logHook >>= userCodeDef ()) *> broadcastMessage event
 
 handle e@ClientMessageEvent { ev_message_type = mt } = do
@@ -475,7 +468,6 @@ scan dpy rootw = do
 
 setNumlockMask :: X ()
 setNumlockMask = do
-    -- dpy <- asks display
     dpy <- Lens.view _display
     ms <- io $ getModifierMapping dpy
     xs <- sequence [ do
@@ -489,14 +481,12 @@ setNumlockMask = do
 -- | Grab the keys back
 grabKeys :: X ()
 grabKeys = do
-    -- XConf { display = dpy, theRoot = rootw } <- ask
     dpy <- Lens.view _display
     rootw <- Lens.view _theRoot
     let grab kc m = io $ grabKey dpy kc m rootw True grabModeAsync grabModeAsync
         (minCode, maxCode) = displayKeycodes dpy
         allCodes = [fromIntegral minCode .. fromIntegral maxCode]
     io $ ungrabKey dpy anyKey anyModifier rootw
-    -- ks <- asks keyActions
     ks <- Lens.view _keyActions
     -- build a map from keysyms to lists of keysyms (doing what
     -- XGetKeyboardMapping would do if the X11 package bound it)

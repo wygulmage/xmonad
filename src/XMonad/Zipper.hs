@@ -13,6 +13,7 @@ module XMonad.Zipper
   -- For now just export what's needed to compile.
   ( Stack (..)
   , filter, integrate, integrate', differentiate, focusDown, focusUp, reverse, swapUp
+  , _focus
   ) where
 
 import Prelude
@@ -71,9 +72,9 @@ data Emptiability = Monoidal | NonEmpty
 ----- Optics and Accessors -----
 
 class IsZipper ta a | ta -> a where
+  _focus :: Lens' ta a
   _up :: Lens' ta [a]
   _dn :: Lens' ta [a]
-  _focus :: Lens' ta a
 
 instance IsZipper (Zipper a) a where
   _focus f s = (\ x' -> s{ focus = x' }) <$> f (focus s)
@@ -267,7 +268,7 @@ focusDown                   = reverse . focusUp . reverse
 
 swapUp :: Zipper a -> Zipper a
 swapUp  (Stack t (l:ls) rs) = Stack t ls (l:rs)
-swapUp  (Stack t []     rs) = Stack t (List.reverse rs) []
+swapUp  (Stack t _     rs) = Stack t (List.reverse rs) []
 
 swapTop :: Zipper a -> Zipper a
 -- Swap the top and the focus, keeping focus on the focus.
@@ -278,7 +279,7 @@ moveToTop :: Zipper a -> Zipper a
 moveToTop (Stack x xu xd) = Stack x [] (List.reverse xu <> xd)
 
 focusOnTop :: Zipper a -> Zipper a
-focusOnTop s = fromNonEmpty . toNonEmpty $ s
+focusOnTop = fromNonEmpty . toNonEmpty
 
 -- | reverse a stack: up becomes down and down becomes up.
 reverse :: Zipper a -> Zipper a

@@ -2,7 +2,6 @@
     FlexibleContexts
   , FlexibleInstances
   , FunctionalDependencies
-  , MultiParamTypeClasses
   , PatternGuards
   , ScopedTypeVariables
   , TypeFamilies
@@ -63,7 +62,7 @@ module XMonad.StackSet (
         , _current, _visible, _hidden, _floating
         , _screenDetail
         , _stack, _tag
-        , _screen
+        , _screenId
         , _screens
         , _workspace
         , _workspaces
@@ -71,24 +70,19 @@ module XMonad.StackSet (
     ) where
 
 import Prelude hiding (filter)
-import Control.Applicative ((<**>))
 import Control.Monad.Reader (MonadReader)
-import Data.Foldable (toList)
-import Data.Traversable (fmapDefault, foldMapDefault)
-import Data.Maybe (listToMaybe, isJust, fromMaybe)
+import Data.Maybe (isJust, fromMaybe)
 import qualified Data.List as L (deleteBy, find, splitAt, filter, nub)
 import Data.List ( (\\) )
 import Data.Map (Map)
-import qualified Data.Map  as M (Map, insert, delete, empty)
-import qualified Data.Map  as Map (Map, insert, delete, empty)
--- import Data.List.NonEmpty (NonEmpty ((:|)))
--- import qualified Data.List.NonEmpty as NonEmpty
+import qualified Data.Map as Map (insert, delete, empty)
 
-import Lens.Micro (Lens, Lens', (.~), (%~))
+import Lens.Micro (Lens, Lens', (.~), (%~), toListOf)
 import qualified Lens.Micro as Lens
 import qualified Lens.Micro.Mtl as Lens
 -- import qualified Lens.Micro.Internal as Lens
 
+import qualified XMonad.Internal.Optic as Lens
 import XMonad.Zipper (Stack (..), filter, integrate, integrate', differentiate)
 import qualified XMonad.Zipper as Stack
 
@@ -171,28 +165,33 @@ data StackSet i l a sid sd = StackSet
     { current  :: !(Screen i l a sid sd)    -- ^ currently focused workspace
     , visible  :: [Screen i l a sid sd]     -- ^ non-focused workspaces, visible in xinerama
     , hidden   :: [Workspace i l a]         -- ^ workspaces not visible anywhere
-    , floating :: M.Map a RationalRect      -- ^ floating windows
+    , floating :: Map a RationalRect      -- ^ floating windows
     }
     deriving (Show, Read, Eq)
 
 --- StackSet Optics:
 
+--- Lenses:
+
 _current :: Lens' (StackSet i l a sid sd) (Screen i l a sid sd)
-_current f s = (\ x' -> s{ current = x' }) <$> f (current s)
+_current f s = (\ x -> s{ current = x }) <$> f (current s)
 
 _visible :: Lens' (StackSet i l a sid sd) [Screen i l a sid sd]
-_visible f s = (\ x' -> s{ visible = x' }) <$> f (visible s)
+_visible f s = (\ x -> s{ visible = x }) <$> f (visible s)
+
+_hidden :: Lens' (StackSet i l a sid sd) [Workspace i l a]
+_hidden f s = (\ x -> s{ hidden = x }) <$> f (hidden s)
+
+_floating :: Lens' (StackSet i l a sid sd) (Map a RationalRect)
+_floating f s = (\ x -> s{ floating = x }) <$> f (floating s)
 
 _screens :: Lens.Traversal
   (StackSet i l a sid sd) (StackSet i l a sid' sd')
   (Screen i l a sid sd) (Screen i l a sid' sd')
 _screens f s =
-  (\ cur' vis' -> s{ current = cur', visible = vis' })
+  (\ cur vis -> s{ current = cur, visible = vis })
   <$> f (current s)
   <*> traverse f (visible s)
-
-_hidden :: Lens' (StackSet i l a sid sd) [Workspace i l a]
-_hidden f s = (\ x' -> s{ hidden = x' }) <$> f (hidden s)
 
 _workspaces :: Lens.Traversal
   (StackSet i l a sid sd) (StackSet i' l' a sid sd)
@@ -203,12 +202,17 @@ _workspaces f s =
   <*> (traverse . _workspace) f (visible s)
   <*> traverse f (hidden s)
 
-_floating :: Lens' (StackSet i l a sid sd) (Map a RationalRect)
-_floating f s = (\ x -> s{ floating = x }) <$> f (floating s)
-
 _layouts :: Lens.Traversal
   (StackSet i l a s sd) (StackSet i l' a s sd) l l'
 _layouts = _workspaces . _layout
+
+_tags :: Lens.Traversal (StackSet i l a s sd) (StackSet i' l a s sd) i i'
+_tags = _workspaces . _tag
+
+_index :: Lens.Traversal' (StackSet i l a s sd) a
+-- Named per `index`. Have to traverse a second time to get inside the 'Maybe'.
+_index = _current . _stack . traverse . traverse
+
 
 -- | Visible workspaces, and their Xinerama screens.
 -- This type is too polymorphic. Should be 'Screen a', with 'i', 'l', 'sid', and 'sd' instantiated as their usual types, or 'Screen', with 'a' instantiated as 'Window'.
@@ -219,11 +223,13 @@ data Screen i l a sid sd = Screen
     }
     deriving (Show, Read, Eq)
 
+--- Lenses:
+
 _workspace :: Lens (Screen i l a sid sd) (Screen j l' b sid sd) (Workspace i l a) (Workspace j l' b)
 _workspace f s = (\ x -> s{ workspace = x }) <$> f (workspace s)
 
-_screen :: Lens (Screen i l a sid sd) (Screen i l a sid' sd) sid sid'
-_screen f s = (\ x -> s{ screen = x }) <$> f (screen s)
+_screenId :: Lens (Screen i l a sid sd) (Screen i l a sid' sd) sid sid'
+_screenId f s = (\ x -> s{ screen = x }) <$> f (screen s)
 
 _screenDetail :: Lens (Screen i l a sid sd) (Screen i l a sid sd') sd sd'
 _screenDetail f s = (\ x -> s{ screenDetail = x }) <$> f (screenDetail s)
@@ -289,12 +295,13 @@ abort x = error $ "xmonad: StackSet: " <> x
 --
 -- Xinerama: Virtual workspaces are assigned to physical screens, starting at 0.
 --
+-- Should use List.NonEmpty.
 new :: (Integral s) => l -> [i] -> [sd] -> StackSet i l a s sd
 new l wids m | not (null wids) && length m <= length wids && not (null m)
-  = StackSet cur visi unseen M.empty
+  = StackSet cur visi unseen Map.empty
   where
-  (seen,unseen) = L.splitAt (length m) $ fmap (\i -> Workspace i l Nothing) wids
-  (cur:visi)    = [ Screen i s sd |  (i, s, sd) <- zip3 seen [0..] m ]
+  (seen, unseen) = L.splitAt (length m) $ fmap (\i -> Workspace i l Nothing) wids
+  (cur: visi)    = [ Screen i s sd |  (i, s, sd) <- zip3 seen [0..] m ]
                 -- now zip up visibles with their screen id
 new _ _ _ = abort "non-positive argument to StackSet.new"
 
@@ -308,17 +315,22 @@ new _ _ _ = abort "non-positive argument to StackSet.new"
 
 view :: (Eq s, Eq i) => i -> StackSet i l a s sd -> StackSet i l a s sd
 view i s
-    | i == currentTag s = s  -- current
+    -- | i == currentTag s = s  -- current
+    | Lens.views (_current . _tag) (i ==) s = s  -- current
 
-    | Just x <- L.find ((i==).tag.workspace) (visible s)
+    -- | Just x <- L.find ((i==).tag.workspace) (visible s)
+    | Just x <- L.find (Lens.views _tag (i ==)) . Lens.view _visible $ s
     -- if it is visible, it is just raised
-    = s{ current = x, visible = current s : L.deleteBy (equating screen) x (visible s) }
+    -- = s{ current = x, visible = current s : L.deleteBy (equating screen) x (visible s) }
+    = (_current .~ x) . (_visible %~ (Lens.view _current s :) . L.deleteBy (equating (Lens.view _screenId)) x) $ s
 
-    | Just x <- L.find ((i==).tag) (hidden  s) -- must be hidden then
+    -- | Just x <- L.find ((i==).tag) (hidden  s) -- must be hidden then
+    | Just x <- L.find (Lens.views _tag (i ==)) (Lens.view _hidden s) -- must be hidden then
     -- if it was hidden, it is raised on the xine screen currently used
-    = s{ current = (current s){ workspace = x }
-       , hidden = workspace (current s) : L.deleteBy (equating tag) x (hidden s)
-       }
+    = -- s{ current = (current s){ workspace = x }
+      --  , hidden = workspace (current s) : L.deleteBy (equating tag) x (hidden s)
+      --  }
+      (_current . _workspace .~ x) . (_hidden %~ (Lens.view (_current . _workspace) s :) . L.deleteBy (equating (Lens.view _tag)) x) $ s
 
     | otherwise = s -- not a member of the stackset
 
@@ -336,16 +348,22 @@ view i s
 -- current workspace to 'hidden'.  If that workspace is 'visible' on another
 -- screen, the workspaces of the current screen and the other screen are
 -- swapped.
-
 greedyView :: (Eq s, Eq i) => i -> StackSet i l a s sd -> StackSet i l a s sd
 greedyView w ws
-     | any wTag (hidden ws) = view w ws
-     | (Just s) <- L.find (wTag . workspace) (visible ws)
-                            = ws{ current = (current ws){ workspace = workspace s }
-                                , visible = s{ workspace = workspace (current ws) }
-                                           : L.filter (not . wTag . workspace) (visible ws) }
+     -- | any wTag (hidden ws) = view w ws
+     | any (Lens.views _tag (w ==)) (Lens.view _hidden ws) = view w ws
+     | (Just s) <- L.find (Lens.views _tag (w ==)) (Lens.view _visible ws)
+     -- | (Just s) <- L.find (wTag . workspace) (visible ws)
+                            -- = ws{ current = (current ws){ workspace = workspace s }
+                            --     , visible = s{ workspace = workspace (current ws) }
+                            --                : L.filter (not . wTag . workspace) (visible ws) }
+                            = (_current . _workspace .~ Lens.view _workspace s)
+                              . (_visible .~
+                                 (_workspace .~ Lens.view (_current . _workspace) ws) s
+                                 : L.filter (Lens.views _workspace (not . wTag)) (Lens.view _visible ws)) $ ws
      | otherwise = ws
-   where wTag = (w == ) . tag
+   where
+   wTag = Lens.views _tag (w ==)
 
 -- ---------------------------------------------------------------------
 -- $xinerama
@@ -353,7 +371,9 @@ greedyView w ws
 -- | Find the tag of the workspace visible on Xinerama screen 'sc'.
 -- 'Nothing' if screen is out of bounds.
 lookupWorkspace :: Eq s => s -> StackSet i l a s sd -> Maybe i
-lookupWorkspace sc w = listToMaybe [ tag i | Screen i s _ <- current w : visible w, s == sc ]
+-- lookupWorkspace sc w = listToMaybe [ tag i | Screen i s _ <- current w : visible w, s == sc ]
+-- lookupWorkspace sc = fmap (Lens.view _tag) . Lens.findOf _screens (Lens.views  _screenId (sc ==))
+lookupWorkspace sc = fmap (Lens.view _tag) . L.find (Lens.views _screenId (sc ==)) . toListOf _screens
 
 -- ---------------------------------------------------------------------
 -- $stackOperations
@@ -367,29 +387,28 @@ lookupWorkspace sc w = listToMaybe [ tag i | Screen i s _ <- current w : visible
 -- with :: b -> (Stack a -> b) -> StackSet i l a s sd -> b
 -- with dflt f = maybe dflt f . stack . workspace . current
 with :: MonadReader (StackSet i l a sid sd) m => b -> (Stack a -> b) -> m b
-with dflt f = maybe dflt f <$> Lens.view (_current . _workspace . _stack)
+with dflt f = Lens.views (_current . _stack) (maybe dflt f)
 
 -- |
 -- Apply a function, and a default value for 'Nothing', to modify the current stack.
 --
 modify :: Maybe (Stack a) -> (Stack a -> Maybe (Stack a)) -> StackSet i l a s sd -> StackSet i l a s sd
--- modify d f s = s{ current = (current s){ workspace = (workspace (current s)){ stack = with d f s }}}
-modify d f = _current . _workspace . _stack %~ maybe d f
+modify d f = _current . _stack %~ maybe d f
 
 -- |
 -- Apply a function to modify the current stack if it isn't empty, and we don't
 --  want to empty it.
 --
 modify' :: (Stack a -> Stack a) -> StackSet i l a s sd -> StackSet i l a s sd
--- modify' f = modify Nothing (Just . f)
-modify' = (_current . _workspace . _stack . traverse %~)
+modify' = (_current . _stack . traverse %~)
 
 -- |
 -- /O(1)/. Extract the focused element of the current stack.
 -- Return 'Just' that element, or 'Nothing' for an empty stack.
 --
 peek :: StackSet i l a s sd -> Maybe a
-peek = with Nothing (pure . focus)
+-- peek = with Nothing (pure . focus)
+peek = with Nothing (pure . Lens.view Stack._focus)
 
 -- |
 -- /O(s)/. Extract the stack on the current workspace, as a list.
@@ -398,11 +417,8 @@ peek = with Nothing (pure . focus)
 -- integration of a one-hole list cursor, back to a list.
 --
 index :: StackSet i l a s sd -> [a]
--- index = with [] toList
-index = Lens.toListOf (_current . _workspace . _stack . traverse . traverse)
+index = toListOf _index
 
-_index :: Lens.Traversal' (StackSet i l a s sd) a
-_index = _current . _workspace . _stack . traverse . traverse
 
 -- |
 -- /O(1), O(w) on the wrapping case/.
@@ -417,11 +433,11 @@ _index = _current . _workspace . _stack . traverse . traverse
 -- the current stack.
 --
 focusUp, focusDown, swapUp, swapDown :: StackSet i l a s sd -> StackSet i l a s sd
-focusUp   = modify' Stack.focusUp
-focusDown = modify' Stack.focusDown
+focusUp   = _current._stack.traverse %~ Stack.focusUp
+focusDown = _current._stack.traverse %~ Stack.focusDown
 
-swapUp    = modify' Stack.swapUp
-swapDown  = modify' (Stack.reverse . Stack.swapUp . Stack.reverse)
+swapUp    = _current._stack.traverse %~ Stack.swapUp
+swapDown  = _current._stack.traverse %~ (Stack.reverse . Stack.swapUp . Stack.reverse)
 
 -- | /O(1) on current window, O(n) in general/. Focus the window 'w',
 -- and set its workspace as current.
@@ -434,15 +450,15 @@ focusWindow w s | Just w == peek s = s
 
 -- | Get a list of all screens in the 'StackSet'.
 screens :: StackSet i l a s sd -> [Screen i l a s sd]
-screens = Lens.toListOf _screens
+screens = toListOf _screens
 
 -- | Get a list of all workspaces in the 'StackSet'.
 workspaces :: StackSet i l a s sd -> [Workspace i l a]
-workspaces = Lens.toListOf _workspaces
+workspaces = toListOf _workspaces
 
 -- | Get a list of all windows in the 'StackSet' in no particular order
 allWindows :: Eq a => StackSet i l a s sd -> [a]
-allWindows = L.nub . Lens.toListOf (_workspaces . _stack . traverse . traverse)
+allWindows = L.nub . toListOf (_workspaces . _stack . traverse . traverse)
 
 -- | Get the tag of the currently focused workspace.
 currentTag :: StackSet i l a s sd -> i
@@ -450,18 +466,18 @@ currentTag = Lens.view (_current . _tag)
 
 -- | Is the given tag present in the 'StackSet'?
 tagMember :: Eq i => i -> StackSet i l a s sd -> Bool
-tagMember t = elem t . Lens.toListOf (_workspaces . _tag)
+tagMember t = elem t . toListOf _tags
 
 -- | Rename a given tag if present in the 'StackSet'.
 renameTag :: Eq i => i -> i -> StackSet i l a s sd -> StackSet i l a s sd
-renameTag oldT newT = _workspaces . _tag %~ rename
+renameTag oldT newT = _tags %~ rename
     where rename x = if oldT == x then newT else x
 
 -- | Ensure that a given set of workspace tags is present by renaming
 -- existing workspaces and\/or creating new hidden workspaces as
 -- necessary.
 ensureTags :: Eq i => l -> [i] -> StackSet i l a s sd -> StackSet i l a s sd
-ensureTags l allt st = et allt (Lens.toListOf (_workspaces . _tag) st \\ allt) st
+ensureTags l allt st = et allt (toListOf _tags st \\ allt) st
     where
     et [] _ s = s
     et (i:is) rn s | i `tagMember` s = et is rn s
@@ -485,10 +501,13 @@ member a s = isJust (findTag a s)
 -- Return 'Just' the workspace tag of the given window, or 'Nothing'
 -- if the window is not in the 'StackSet'.
 findTag :: Eq a => a -> StackSet i l a s sd -> Maybe i
-findTag a s = listToMaybe
-    [ tag w | w <- workspaces s, has a (stack w) ]
-    where has _ Nothing         = False
-          has x (Just (Stack t l r)) = x `elem` (t : l <> r)
+findTag w = fmap (Lens.view _tag) . L.find hasW . toListOf _workspaces
+    where
+    hasW = elem w . toListOf (_stack . traverse . traverse)
+-- findTag a s = listToMaybe
+--     [ tag w | w <- workspaces s, has a (stack w) ]
+--     where has _ Nothing         = False
+--           has x (Just (Stack t l r)) = x `elem` (t : l <> r)
 
 -- ---------------------------------------------------------------------
 -- $modifyStackset
@@ -545,11 +564,10 @@ delete' w = _workspaces . _stack  %~ (>>= Stack.filter (/= w))
 -- | Given a window, and its preferred rectangle, set it as floating
 -- A floating window should already be managed by the 'StackSet'.
 float :: Ord a => a -> RationalRect -> StackSet i l a s sd -> StackSet i l a s sd
-float w r = _floating %~ M.insert w r
+float w r = _floating %~ Map.insert w r
 
 -- | Clear the floating status of a window
 sink :: Ord a => a -> StackSet i l a s sd -> StackSet i l a s sd
--- sink w s = s { floating = M.delete w (floating s) }
 sink w = _floating %~ Map.delete w
 
 ------------------------------------------------------------------------

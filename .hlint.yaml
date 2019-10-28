@@ -69,7 +69,7 @@
 - warn: {lhs: Control.Lens.over l f . Control.Lens.over l g, rhs: over l (f . g)}
 - warn: {lhs: Control.Lens.to f . Control.Lens.to g, rhs: to (f . g)}
 - warn: {lhs: Control.Lens.set l (Just x), rhs: "l ?~ x"}
-- warn: {lhs: "l .~ (Just x)", rhs: "l ?~ x"}
+# - warn: {lhs: "l .~ (Just x)", rhs: "l ?~ x"} # Seems like a bit much to have an operator for this; adds no extra power.
 - warn: {lhs: either Just (const Nothing), rhs: preview _Left}
 - warn: {lhs: either (const Nothing) Just, rhs: preview _Right}
 

@@ -1,10 +1,13 @@
-{-# LANGUAGE ExistentialQuantification,
-  GeneralizedNewtypeDeriving, MultiParamTypeClasses,
-  DeriveDataTypeable, ScopedTypeVariables
-  , TypeFamilies
+{-# LANGUAGE
+    DeriveDataTypeable
+  , ExistentialQuantification
   , FlexibleContexts
   , FlexibleInstances
-  , FunctionalDependencies #-}
+  , GeneralizedNewtypeDeriving
+  , MultiParamTypeClasses
+  , ScopedTypeVariables
+  , TypeFamilies
+  #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -78,7 +81,8 @@ import Data.Set (Set)
 import Graphics.X11.Xlib
 import Graphics.X11.Xlib.Extras (getWindowAttributes, WindowAttributes, Event)
 import Lens.Micro (Lens, Lens', (.~), (%~))
-import qualified Lens.Micro as Lens
+-- import qualified Lens.Micro as Lens
+import qualified Lens.Micro.Mtl as Lens
 import System.Directory
 import System.FilePath
 import System.Environment (lookupEnv)
@@ -177,16 +181,16 @@ data XConf = XConf
 -- XConf optics:
 
 _buttonActions :: Lens' XConf (Map (KeyMask, Button) (Window -> X ()))
-_buttonActions f s = (\ x' -> s{ buttonActions = x' }) <$> f (buttonActions s)
+_buttonActions f s = (\ x -> s{ buttonActions = x }) <$> f (buttonActions s)
 
 _keyActions :: Lens' XConf (Map (KeyMask, KeySym) (X ()))
-_keyActions f s = (\ x' -> s{ keyActions = x' }) <$> f (keyActions s)
+_keyActions f s = (\ x -> s{ keyActions = x }) <$> f (keyActions s)
 
 class HasCurrentEvent a where
    _currentEvent :: Lens' a (Maybe Event)
 
 instance HasCurrentEvent XConf where
-   _currentEvent f s = (\ x' -> s{ currentEvent = x' }) <$> f (currentEvent s)
+   _currentEvent f s = (\ x -> s{ currentEvent = x }) <$> f (currentEvent s)
 
 class HasDisplay a where
    _display :: Lens' a Display
@@ -195,33 +199,33 @@ instance HasDisplay Display where
   _display = id
 
 instance HasDisplay XConf where
-  _display f s = (\ x' -> s{ display = x' }) <$> f (display s)
+  _display f s = (\ x -> s{ display = x }) <$> f (display s)
 
 class HasFocusedBorder a where _focusedBorder :: Lens' a Pixel
 instance HasFocusedBorder XConf where
-  _focusedBorder f s = (\ x' -> s{ focusedBorder = x' }) <$> f (focusedBorder s)
+  _focusedBorder f s = (\ x -> s{ focusedBorder = x }) <$> f (focusedBorder s)
 
 class HasNormalBorder a where _normalBorder :: Lens' a Pixel
 instance HasNormalBorder XConf where
-  _normalBorder f s = (\ x' -> s{ normalBorder = x' }) <$> f (normalBorder s)
+  _normalBorder f s = (\ x -> s{ normalBorder = x }) <$> f (normalBorder s)
 
 class HasMouseFocused a where
   _mouseFocused :: Lens' a Bool
 
 instance HasMouseFocused XConf where
-  _mouseFocused f s = (\ x' -> s{ mouseFocused = x' }) <$> f (mouseFocused s)
+  _mouseFocused f s = (\ x -> s{ mouseFocused = x }) <$> f (mouseFocused s)
 
 class HasMousePosition a where
   _mousePosition :: Lens' a (Maybe (Position, Position))
 
 instance HasMousePosition XConf where
-  _mousePosition f s = (\ x' -> s{ mousePosition = x' }) <$> f (mousePosition s)
+  _mousePosition f s = (\ x -> s{ mousePosition = x }) <$> f (mousePosition s)
 
 class HasTheRoot a where
   _theRoot :: Lens' a Window
 
 instance HasTheRoot XConf where
-  _theRoot f s = (\ x' -> s{ theRoot = x' }) <$> f (theRoot s)
+  _theRoot f s = (\ x -> s{ theRoot = x }) <$> f (theRoot s)
 
 
 -- TODO: better name
@@ -265,10 +269,10 @@ data XConfig l = XConfig
     }
 
 _clickJustFocuses :: Lens' (XConfig l) Bool
-_clickJustFocuses f s = (\ x' -> s{ clickJustFocuses = x' }) <$> f (clickJustFocuses s)
+_clickJustFocuses f s = (\ x -> s{ clickJustFocuses = x }) <$> f (clickJustFocuses s)
 
 _focusFollowsMouse :: Lens' (XConfig l) Bool
-_focusFollowsMouse f s = (\ x' -> s{ focusFollowsMouse = x' }) <$> f (focusFollowsMouse s)
+_focusFollowsMouse f s = (\ x -> s{ focusFollowsMouse = x }) <$> f (focusFollowsMouse s)
 
 class HasXConfig a where _XConfig :: Lens' a (XConfig Layout)
 
@@ -276,13 +280,12 @@ instance HasXConfig (XConfig Layout) where
   _XConfig = id
 
 instance HasXConfig XConf where
-  _XConfig f s@XConf{ config = x } =
-    (\ x' -> s{ config = x' }) <$> f x
+  _XConfig f s = (\ x -> s{ config = x }) <$> f (config s)
 
 class HasBorderWidth a where _borderWidth :: Lens' a Dimension
 
 instance HasBorderWidth (XConfig l) where
-  _borderWidth f s = (\ x' -> s{ borderWidth = x' }) <$> f (borderWidth s)
+  _borderWidth f s = (\ x -> s{ borderWidth = x }) <$> f (borderWidth s)
 
 instance HasBorderWidth XConf where
   _borderWidth = _XConfig . _borderWidth
@@ -292,18 +295,17 @@ class HasClientMask a where _clientMask :: Lens' a EventMask
 instance HasClientMask XConf where
   _clientMask = _XConfig . _clientMask
 instance HasClientMask (XConfig l) where
-  _clientMask f s = (\ x' -> s{ clientMask = x' }) <$> f (clientMask s)
+  _clientMask f s = (\ x -> s{ clientMask = x }) <$> f (clientMask s)
 
 _layoutHook ::
     (LayoutClass l Window, LayoutClass l' Window) =>
     Lens (XConfig l) (XConfig l') (l Window) (l' Window)
-_layoutHook f s = (\ x' -> s{ layoutHook = x' }) <$> f (layoutHook s)
+_layoutHook f s = (\ x -> s{ layoutHook = x }) <$> f (layoutHook s)
 
 class HasLogHook a where _logHook :: Lens' a (X ())
 
 instance HasLogHook (XConfig Layout) where
-  _logHook f s@XConfig{ logHook = x } =
-    (\ x' -> s{ logHook = x' }) <$> f x
+  _logHook f s = (\ x -> s{ logHook = x }) <$> f (logHook s)
 
 class HasManageHook a where _manageHook :: Lens' a ManageHook
 
@@ -311,8 +313,7 @@ instance HasManageHook ManageHook where
   _manageHook = id
 
 instance HasManageHook (XConfig l) where
-  _manageHook f s@XConfig{ manageHook = x } =
-    (\ x' -> s{ manageHook = x' }) <$> f x
+  _manageHook f s = (\ x -> s{ manageHook = x }) <$> f (manageHook s)
 
 instance HasManageHook XConf where
   _manageHook = _XConfig . _manageHook
@@ -443,7 +444,7 @@ userCodeDef defValue a = fromMaybe defValue <$> userCode a
 
 -- | Run a monad action with the current display settings
 withDisplay :: (Display -> X a) -> X a
-withDisplay   f = asks display >>= f
+withDisplay f = Lens.view _display >>= f
 
 -- | Run a monadic action with the current stack set
 withWindowSet :: (WindowSet -> X a) -> X a
@@ -457,7 +458,7 @@ withWindowAttributes dpy win f = do
 
 -- | True if the given window is the root window
 isRoot :: Window -> X Bool
-isRoot w = (w ==) <$> asks theRoot
+isRoot w = (w ==) <$> Lens.view _theRoot
 
 -- | Wrapper for the common case of atom internment
 getAtom :: String -> X Atom
@@ -754,11 +755,11 @@ findFirstDirOf possibles = do
         pure primary
 
   where
-    go []     = pure Nothing
-    go (x:xs) = do
+  go (x:xs) = do
       dir    <- io x
       exists <- io (doesDirectoryExist dir)
       if exists then pure (Just dir) else go xs
+  go _      = pure Nothing
 
 -- | Simple wrapper around @findFirstDirOf@ that allows the primary
 -- path to be specified by an environment variable.
