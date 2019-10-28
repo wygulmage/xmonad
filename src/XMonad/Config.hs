@@ -1,5 +1,6 @@
 {-# OPTIONS_GHC -fno-warn-missing-signatures -fno-warn-orphans #-}
 {-# LANGUAGE TypeFamilies #-}
+
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Config
@@ -19,7 +20,6 @@
 -- examples on the xmonad wiki.
 --
 ------------------------------------------------------------------------
-
 module XMonad.Config
     ( defaultConfig
     , Default(..)
@@ -67,18 +67,18 @@ import qualified XMonad.Core as XMonad
     , workspaces
     )
 
-import XMonad.Layout
-import XMonad.Operations
-import XMonad.ManageHook
-import qualified XMonad.StackSet as W
 import Data.Bits ((.|.))
 import Data.Default
-import Data.Monoid
 import Data.Foldable (traverse_)
 import qualified Data.Map as M
-import System.Exit
+import Data.Monoid
 import Graphics.X11.Xlib
 import Graphics.X11.Xlib.Extras
+import System.Exit
+import XMonad.Layout
+import XMonad.ManageHook
+import XMonad.Operations
+import qualified XMonad.StackSet as W
 
 -- | The default number of workspaces (virtual screens) and their names.
 -- By default we use numeric strings, but any string may be used as a
@@ -108,12 +108,12 @@ borderWidth = 1
 -- | Border colors for unfocused and focused windows, respectively.
 --
 normalBorderColor, focusedBorderColor :: String
-normalBorderColor  = "gray" -- "#dddddd"
-focusedBorderColor = "red"  -- "#ff0000" don't use hex, not <24 bit safe
+normalBorderColor = "gray" -- "#dddddd"
+
+focusedBorderColor = "red" -- "#ff0000" don't use hex, not <24 bit safe
 
 ------------------------------------------------------------------------
 -- Window rules
-
 -- | Execute arbitrary actions and WindowSet manipulations when managing
 -- a new window. You can use this to, for example, always float a
 -- particular program, or have a client always appear on a particular
@@ -132,7 +132,6 @@ manageHook =
 
 ------------------------------------------------------------------------
 -- Logging
-
 -- | Perform an arbitrary action on each internal state change or X event.
 -- Examples include:
 --
@@ -147,7 +146,6 @@ logHook = pure ()
 
 ------------------------------------------------------------------------
 -- Event handling
-
 -- | Defines a custom handler function for X Events. The function should
 -- return (All True) if the default handler is to be run afterwards.
 -- To combine event hooks, use mappend or mconcat from Data.Monoid.
@@ -166,7 +164,6 @@ startupHook = pure ()
 -- restarting (with 'mod-q') to reset your layout state to the new
 -- defaults, as xmonad preserves your old layout settings by default.
 --
-
 -- | The available layouts.  Note that each layout is separated by |||, which
 -- denotes layout choice.
 layout = tiled ||| Mirror tiled ||| Full
@@ -182,7 +179,6 @@ layout = tiled ||| Mirror tiled ||| Full
 
 ------------------------------------------------------------------------
 -- Event Masks:
-
 -- | The client events that xmonad is interested in
 clientMask :: EventMask
 clientMask = structureNotifyMask .|. enterWindowMask .|. propertyChangeMask
@@ -197,7 +193,6 @@ rootMask =
 
 ------------------------------------------------------------------------
 -- Key bindings:
-
 -- | The preferred terminal program, which is used in a binding below and by
 -- certain contrib modules.
 terminal :: String
@@ -210,7 +205,6 @@ focusFollowsMouse = True
 -- | Whether a mouse click select the focus or is just passed to the window
 clickJustFocuses :: Bool
 clickJustFocuses = True
-
 
 -- | The xmonad key bindings. Add, modify or remove key bindings here.
 --
@@ -315,7 +309,10 @@ instance (a ~ Choose Tall (Choose (Mirror Tall) Full)) =>
             }
 
 -- | The default set of configuration values itself
-{-# DEPRECATED defaultConfig "Use def (from Data.Default, and re-exported by XMonad and XMonad.Config) instead." #-}
+{-# DEPRECATED
+defaultConfig "Use def (from Data.Default, and re-exported by XMonad and XMonad.Config) instead."
+ #-}
+
 defaultConfig :: XConfig (Choose Tall (Choose (Mirror Tall) Full))
 defaultConfig = def
 

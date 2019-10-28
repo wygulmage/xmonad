@@ -380,13 +380,10 @@ differentiate = dx . toList
     dx (x:xs) = pure (Stack x [] xs)
     dx _ = empty
 
--- -- mDeleteFocus :: Maybe (Zipper a) -> Maybe (Zipper a)
 -- mDeleteFocus :: (Monad m, Alternative m) => m (Zipper a) -> m (Zipper a)
 -- mDeleteFocus = (=<<) deleteFocus
--- -- mDeleteTop :: Maybe (Zipper a) -> Maybe (Zipper a)
 -- mDeleteTop :: (Monad m, Alternative m) => m (Zipper a) -> m (Zipper a)
 -- mDeleteTop = (=<<) deleteTop
--- -- mFilter :: (a -> Bool) -> Maybe (Zipper a) -> Maybe (Zipper a)
 -- mFilter :: (Monad m, Alternative m) => (a -> Bool) -> m (Zipper a) -> m (Zipper a)
 -- mFilter p = (=<<) (filter p)
 ------- Non-exported Utilities ------
