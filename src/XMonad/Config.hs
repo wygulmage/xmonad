@@ -186,10 +186,7 @@ clientMask = structureNotifyMask .|. enterWindowMask .|. propertyChangeMask
 -- | The root events that xmonad is interested in
 rootMask :: EventMask
 rootMask =
-    substructureRedirectMask .|. substructureNotifyMask .|. enterWindowMask .|.
-    leaveWindowMask .|.
-    structureNotifyMask .|.
-    buttonPressMask
+    substructureRedirectMask .|. substructureNotifyMask .|. enterWindowMask .|. leaveWindowMask .|. structureNotifyMask .|. buttonPressMask
 
 ------------------------------------------------------------------------
 -- Key bindings:

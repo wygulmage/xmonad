@@ -9,12 +9,14 @@
 - group: {name: generalise,                 enabled: true}
 - group: {name: generalise-for-conciseness, enabled: true}
 - group: {name: lens,                       enabled: true}
-- group: {name: use-lens,                   enabled: true}
 
+- ignore: {name: "Parse error"} # hlint can't keep up with GHC.
 - ignore: {name: Use tuple-section} # low signal-to-noise
 - ignore: {name: Use camelCase}
 - ignore: {name: Use list literal}
 - ignore: {name: Use void}
+- ignore: {name: "Use ?~"}
+
 - warn: {lhs: void, rhs: "(() <$)", name: Say what you mean}
 
 - warn: {lhs: pure x <* y, rhs: x <$ y, name: Generalize}
@@ -49,32 +51,24 @@
 - error: {lhs: mappend, rhs: (<>),   name: Generalize}
 
 # Lens
-- error: {lhs: Control.Lens.view l (Control.Lens.set l v s),   rhs: v}
-- error: {lhs: Control.Lens.set l (Control.Lens.view l s) s,   rhs: s}
-- error: {lhs: Control.Lens.set l v' (Control.Lens.set l v s), rhs: set l v' s}
+- error: {lhs: Lens.view l (Lens.set l v s),   rhs: v}
+- error: {lhs: set l (view l s) s,   rhs: s}
+- error: {lhs: set l v' (set l v s), rhs: set l v' s}
 - error: {lhs: "l <%@~ const f", rhs: "l <%~ f"}
-- error: {lhs: Control.Lens.preview l (Control.Lens.review l b), rhs: Just b}
+- error: {lhs: preview l (review l b), rhs: Just b}
 - error: {lhs: "mx ^? _Just", rhs: mx}
-- error: {lhs: "x ^. Control.Lens.to f", rhs: f x}
-- error: {lhs: Control.Lens.sets (Control.Lens.over l), rhs: l}
-- error: {lhs: Control.Lens.over (Control.Lens.sets l), rhs: l}
-- error: {lhs: "x & (Control.Lens.mapped .~ y)", rhs: "x $> y"}
-- error: {lhs: "ask . Control.Lens.view",      rhs: view, name: view already asks}
+- error: {lhs: "x ^. to f", rhs: f x}
+- error: {lhs: sets (over l), rhs: l}
+- error: {lhs: over (sets l), rhs: l}
+- error: {lhs: "x & (Lens.mapped .~ y)", rhs: "x $> y"}
+- error: {lhs: "ask . Lens.view",      rhs: Lens.view, name: view already asks}
 - error: {lhs: "ask (^. o)",      rhs: "(^. o)", name: view already asks}
-- error: {lhs: "asks . Control.Lens.view",     rhs: view, name: view already asks}
-- error: {lhs: "ask . Control.Lens.views",     rhs: views,   name: views already asks}
-- error: {lhs: "ask . Control.Lens.views o",   rhs: views o, name: views already asks}
-- error: {lhs: "asks . Control.Lens.views o",  rhs: views o, name: views already asks}
+- error: {lhs: "asks . Lens.view",     rhs: Lens.view, name: view already asks}
+- error: {lhs: "ask . views",     rhs: views,   name: views already asks}
+- error: {lhs: "ask . views o",   rhs: views o, name: views already asks}
+- error: {lhs: "asks . views o",  rhs: views o, name: views already asks}
 
-- warn: {lhs: Control.Lens.over l f . Control.Lens.over l g, rhs: over l (f . g)}
-- warn: {lhs: Control.Lens.to f . Control.Lens.to g, rhs: to (f . g)}
-# - warn: {lhs: Control.Lens.set l (Just x), rhs: "l ?~ x"}
-# - warn: {lhs: "l .~ (Just x)", rhs: "l ?~ x"} # Seems like a bit much to have an operator for this; adds no extra power.
+- warn: {lhs: over l f . over l g, rhs: over l (f . g)}
+- warn: {lhs: to f . to g, rhs: to (f . g)}
 - warn: {lhs: either Just (const Nothing), rhs: preview _Left}
 - warn: {lhs: either (const Nothing) Just, rhs: preview _Right}
-
-# warn: {lhs: "Data.Map.Strict.unionWith (<>)", rhs: "(<>)"}
-
-# Data.Functor.Apply
-- warn: {lhs: "Data.Map.Strict.intersectionWith", rhs: liftF2}
-- warn: {lhs: "Data.Map.Lazy.intersectionWith", rhs: liftF2}
