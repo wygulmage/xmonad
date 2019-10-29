@@ -305,7 +305,7 @@ instance (a ~ Choose Tall (Choose (Mirror Tall) Full)) =>
                   \xs theConf ->
                       case xs of
                           [] -> pure theConf
-                          _ -> fail ("unrecognized flags:" <> show xs)
+                          _  -> fail ("unrecognized flags:" <> show xs)
             }
 
 -- | The default set of configuration values itself

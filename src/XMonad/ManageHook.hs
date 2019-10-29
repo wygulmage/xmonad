@@ -15,7 +15,7 @@
 module XMonad.ManageHook where
 
 import Control.Applicative (liftA2)
-import Control.Exception.Extensible (SomeException(..), bracket)
+import Control.Exception.Extensible (SomeException (..), bracket)
 import qualified Control.Exception.Extensible as E
 import Control.Monad.Reader
 import Data.Foldable (fold)
@@ -76,8 +76,7 @@ infixr 3 <&&>, <||>
 title :: Query String
 title =
     ask >>= \w ->
-        liftX $
-         do
+        liftX $ do
             d <- Lens.view _display
             let getProp =
                     (internAtom d "_NET_WM_NAME" False >>= getTextProperty d w) `E.catch` \(SomeException _) ->
@@ -85,9 +84,9 @@ title =
                 extract prop = do
                     l <- wcTextPropertyToTextList d prop
                     pure $
-                        if null l
-                            then ""
-                            else head l
+                        case l of
+                            s:_ -> s
+                            _   -> ""
             io $
                 bracket getProp (xFree . tp_value) extract `E.catch` \(SomeException _) ->
                     pure ""
@@ -128,7 +127,6 @@ doF = pure . Endo
 
 -- | Move the window to the floating layer.
 doFloat :: ManageHook
--- doFloat = ask >>= \w -> doF . W.float w . snd =<< liftX (floatLocation w)
 doFloat = ask >>= \w -> liftX (floatLocation w) >>= doF . W.float w . snd
 
 -- | Map the window and remove it from the 'WindowSet'.

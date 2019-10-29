@@ -1,6 +1,9 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-{-# LANGUAGE FlexibleContexts, FlexibleInstances,
-  MultiParamTypeClasses, PatternGuards, ScopedTypeVariables #-}
+{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE PatternGuards         #-}
+{-# LANGUAGE ScopedTypeVariables   #-}
 
 -- --------------------------------------------------------------------------
 -- |
@@ -18,7 +21,7 @@
 module XMonad.Operations where
 
 import XMonad.Core
-import XMonad.Layout (Full(..))
+import XMonad.Layout (Full (..))
 import qualified XMonad.StackSet as W
 
 import Control.Applicative ((<$>), (<*>))
@@ -28,16 +31,14 @@ import Control.Monad.Reader
 import Control.Monad.State
 
 import Data.Bifunctor (bimap)
-import Data.Bits ((.&.), (.|.), complement, testBit)
+import Data.Bits (complement, testBit, (.&.), (.|.))
 import Data.Foldable (fold, for_, traverse_)
 import Data.Functor (($>))
-import Data.List ((\\), find, nub)
-import qualified Data.Map as M
+import Data.List (find, nub, (\\))
 import qualified Data.Map as Map
 import Data.Maybe
-import Data.Monoid (Any(..), Endo(..))
+import Data.Monoid (Any (..), Endo (..))
 import Data.Ratio
-import qualified Data.Set as S
 import qualified Data.Set as Set
 import Data.Traversable (for)
 
@@ -45,11 +46,9 @@ import Graphics.X11.Xinerama (getScreenInfo)
 import Graphics.X11.Xlib
 import Graphics.X11.Xlib.Extras
 
-import Lens.Micro ((%~), (.~), toListOf)
+import Lens.Micro (toListOf, (%~), (.~))
 import qualified Lens.Micro as Lens
-import qualified Lens.Micro.Internal as Lens
 import qualified Lens.Micro.Mtl as Lens
-import qualified XMonad.Internal.Optic as Lens
 
 import System.Directory
 import System.IO
@@ -162,7 +161,7 @@ windows f = do
                     Lens.view (W._current . W._stack) this >>= W.filter isHidden
                   where
                     isHidden x =
-                        x `M.notMember` Lens.view W._floating ws && x `notElem`
+                        x `Map.notMember` Lens.view W._floating ws && x `notElem`
                         vis
                 wspTiled = W._stack .~ tiled $ wsp
                 viewrect = Lens.view _screenRect w
@@ -175,8 +174,8 @@ windows f = do
             let m = Lens.view W._floating ws
                 flt =
                     [ (fw, scaleRationalRect viewrect r)
-                    | fw <- filter (`M.member` m) (toListOf W._index this)
-                    , Just r <- [M.lookup fw m]
+                    | fw <- filter (`Map.member` m) (toListOf W._index this)
+                    , Just r <- [Map.lookup fw m]
                     ]
                 vs = flt <> rs
             io $ restackWindows d (fmap fst vs)
@@ -255,7 +254,7 @@ setWindowBorderWithFallback dpy w color basic =
 -- | hide. Hide a window by unmapping it, and setting Iconified.
 hide :: Window -> X ()
 hide w =
-    whenX (gets (S.member w . mapped)) . withDisplay $ \d -> do
+    whenX (gets (Set.member w . mapped)) . withDisplay $ \d -> do
         cMask <- asks $ clientMask . config
         io $ do
             selectInput d w (cMask .&. complement structureNotifyMask)
@@ -264,8 +263,8 @@ hide w =
         setWMState w iconicState
     -- this part is key: we increment the waitingUnmap counter to distinguish
     -- between client and xmonad initiated unmaps.
-        modify $ (_waitingUnmap %~ M.insertWith (+) w 1) .
-            (_mapped %~ S.delete w)
+        modify $ (_waitingUnmap %~ Map.insertWith (+) w 1) .
+            (_mapped %~ Set.delete w)
 
 -- | reveal. Show a window by mapping it and setting Normal
 -- this is harmless if the window was already visible
@@ -274,7 +273,7 @@ reveal w =
     withDisplay $ \d -> do
         setWMState w normalState
         io $ mapWindow d w
-        whenX (isClient w) $ modify (_mapped %~ S.insert w)
+        whenX (isClient w) $ modify (_mapped %~ Set.insert w)
 
 -- | Set some properties when we initially gain control of a window
 setInitialProperties :: Window -> X ()
@@ -440,10 +439,9 @@ setFocusX w =
                 maybe currentTime event_time currevt
             sendEvent dpy w False noEventMask ev
   where
-    event_time ev =
-        if ev_event_type ev `elem` timedEvents
-            then ev_time ev
-            else currentTime
+    event_time ev
+        | ev_event_type ev `elem` timedEvents = ev_time ev
+        | otherwise = currentTime
     timedEvents =
         [ keyPress
         , keyRelease
@@ -546,7 +544,7 @@ initColor dpy c =
 data StateFile =
     StateFile
         { sfWins :: W.StackSet WorkspaceId String Window ScreenId ScreenDetail
-        , sfExt :: [(String, String)]
+        , sfExt  :: [(String, String)]
         }
     deriving (Show, Read)
 
@@ -555,10 +553,10 @@ data StateFile =
 writeStateToFile :: X ()
 writeStateToFile = do
     let maybeShow (t, Right (PersistentExtension ext)) = Just (t, show ext)
-        maybeShow (t, Left str) = Just (t, str)
-        maybeShow _ = Nothing
+        maybeShow (t, Left str)                        = Just (t, str)
+        maybeShow _                                    = Nothing
         wsData = (W._layouts %~ show) . windowset
-        extState = mapMaybe maybeShow . M.toList . Lens.view _extensibleState
+        extState = mapMaybe maybeShow . Map.toList . Lens.view _extensibleState
     path <- stateFileName
     stateData <- gets (\s -> StateFile (wsData s) (extState s))
     catchIO (writeFile path $ show stateData)
@@ -581,13 +579,13 @@ readStateFile xmc = do
         let winset =
                 W.ensureTags layout (workspaces xmc) $
                 W.mapLayout (fromMaybe layout . maybeRead lreads) (sfWins sf)
-            extState = M.fromList . fmap (second Left) $ sfExt sf
+            extState = Map.fromList . fmap (second Left) $ sfExt sf
         pure
             XState
                 { windowset = winset
                 , numberlockMask = 0
-                , mapped = S.empty
-                , waitingUnmap = M.empty
+                , mapped = Set.empty
+                , waitingUnmap = Map.empty
                 , dragging = Nothing
                 , extensibleState = extState
                 }
@@ -597,7 +595,7 @@ readStateFile xmc = do
     maybeRead reads' s =
         case reads' s of
             [(x, "")] -> Just x
-            _ -> Nothing
+            _         -> Nothing
     readStrict :: Handle -> IO String
     readStrict h = hGetContents h >>= \s -> length s `seq` pure s
 
@@ -618,7 +616,7 @@ migrateState ws xs = do
     maybeRead s =
         case reads s of
             [(x, "")] -> Just x
-            _ -> Nothing
+            _         -> Nothing
 
 -- | @restart name resume@. Attempt to restart xmonad by executing the program
 -- @name@.  If @resume@ is 'True', restart with the current window state.
@@ -813,14 +811,12 @@ applyAspectHint ((minx, miny), (maxx, maxy)) d@(w, h)
 
 -- | Reduce the dimensions so they are a multiple of the size increments.
 applyResizeIncHint :: D -> D -> D
-applyResizeIncHint (iw, ih) x@(w, h) =
-    if iw > 0 && ih > 0
-        then (w - w `mod` iw, h - h `mod` ih)
-        else x
+applyResizeIncHint (iw, ih) x@(w, h)
+    | iw > 0 && ih > 0 = (w - w `mod` iw, h - h `mod` ih)
+    | otherwise = x
 
 -- | Reduce the dimensions if they exceed the given maximum dimensions.
 applyMaxSizeHint :: D -> D -> D
-applyMaxSizeHint (mw, mh) x@(w, h) =
-    if mw > 0 && mh > 0
-        then (min w mw, min h mh)
-        else x
+applyMaxSizeHint (mw, mh) x@(w, h)
+    | mw > 0 && mh > 0 = (min w mw, min h mh)
+    | otherwise = x

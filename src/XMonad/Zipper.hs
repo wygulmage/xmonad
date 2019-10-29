@@ -1,11 +1,11 @@
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE DataKinds              #-}
+{-# LANGUAGE FlexibleContexts       #-}
+{-# LANGUAGE FlexibleInstances      #-}
 {-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE NoImplicitPrelude #-}
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE KindSignatures         #-}
+{-# LANGUAGE MultiParamTypeClasses  #-}
+{-# LANGUAGE NoImplicitPrelude      #-}
+{-# LANGUAGE ScopedTypeVariables    #-}
 
 module XMonad.Zipper
   -- For now just export what's needed to compile.
@@ -27,7 +27,7 @@ import Control.Monad
 import Data.Foldable
 import Data.Functor
 import qualified Data.List as List
-import Data.List.NonEmpty (NonEmpty((:|)))
+import Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Maybe
 import Data.Monoid
@@ -37,19 +37,19 @@ import Lens.Micro (Lens')
 import qualified Lens.Micro as Lens
 import qualified Lens.Micro.Internal as Lens
 import Prelude
-    ( Bool(..)
-    , Eq(..)
+    ( Bool (..)
+    , Eq (..)
     , Int
-    , Num(..)
-    , Ord(..)
-    , Read(..)
-    , Show(..)
-    , ($)
-    , (||)
+    , Num (..)
+    , Ord (..)
+    , Read (..)
+    , Show (..)
     , error
     , flip
     , otherwise
     , uncurry
+    , ($)
+    , (||)
     )
 
 -- |
@@ -75,8 +75,8 @@ type Zipper = Stack -- 'Zipper' is misnamed 'Stack', but it's too late to change
 data Stack a =
     Stack
         { focus :: !a -- focused thing in this set
-        , up :: [a] -- clowns to the left
-        , down :: [a] -- jokers to the right
+        , up    :: [a] -- clowns to the left
+        , down  :: [a] -- jokers to the right
         }
     deriving (Show, Read, Eq)
 
@@ -150,7 +150,7 @@ toNonEmpty :: Zipper a -> NonEmpty a
 toNonEmpty (Stack x xu xd) =
     case List.reverse xu of
         (x':xs) -> x' :| xs <> (x : xd)
-        _ -> x :| xd
+        _       -> x :| xd
 
 {-# INLINABLE [1] toNonEmpty #-}
 ----- Instances -----
@@ -217,7 +217,7 @@ zipperToIZipper :: Zipper a -> IZipper any a
 zipperToIZipper (Stack x xu xd) = loop 0 id xu
   where
     loop i a (y:ys) = loop (i + 1) (consDL y a) ys
-    loop i a _ = Unchecked i (a (x : xd))
+    loop i a _      = Unchecked i (a (x : xd))
 
 iZipperToZipper :: IZipper 'NonEmpty a -> Zipper a
 iZipperToZipper = fromIZipperWith (pure Stack) (:) []
@@ -268,7 +268,7 @@ foldr1By :: (a -> b) -> (a -> b -> b) -> Stack a -> b
 foldr1By f g (Stack x xu xd) = foldl (flip g) (foldrList x xd) xu
   where
     foldrList y (y':ys) = g y (foldrList y' ys)
-    foldrList y _ = f y
+    foldrList y _       = f y
 
 ----- Functions -----
 --- Endomorphisms ---
@@ -302,7 +302,7 @@ focusDown = reverse . focusUp . reverse
 
 swapUp :: Zipper a -> Zipper a
 swapUp (Stack t (l:ls) rs) = Stack t ls (l : rs)
-swapUp (Stack t _ rs) = Stack t (List.reverse rs) []
+swapUp (Stack t _ rs)      = Stack t (List.reverse rs) []
 
 swapTop :: Zipper a -> Zipper a
 -- Swap the top and the focus, keeping focus on the focus.
@@ -341,8 +341,8 @@ mCons = mInsertBy cons
 deleteFocus, deleteTop :: Alternative m => Zipper a -> m (Zipper a)
 -- Delete the focus and try to replace it from below, then above. (per StackSet delete behavior)
 deleteFocus (Stack _ xu (x':xd')) = pure (Stack x' xu xd')
-deleteFocus (Stack _ (x':xu') _) = pure (Stack x' xu' [])
-deleteFocus _ = empty
+deleteFocus (Stack _ (x':xu') _)  = pure (Stack x' xu' [])
+deleteFocus _                     = empty
 
 deleteTop (Stack x xu xd) =
     case List.reverse (List.drop 1 (List.reverse (x : xu))) of
@@ -350,7 +350,7 @@ deleteTop (Stack x xu xd) =
         _ ->
             case xd of
                 (x':xd') -> pure (Stack x' [] xd')
-                _ -> empty
+                _        -> empty
 
 -- |
 -- /O(n)/. 'filter p s' returns the elements of 's' such that 'p' evaluates to
@@ -363,7 +363,7 @@ filter p (Stack x xu xd) =
         _ ->
             case xu' of
                 x':xu'' -> pure (Stack x' xu'' [])
-                _ -> empty
+                _       -> empty
   where
     xu' = List.filter p xu
     xd' = List.filter p (x : xd)
@@ -372,13 +372,12 @@ filter p (Stack x xu xd) =
 integrate' :: Foldable m => m (Zipper a) -> [a]
 integrate' = foldMap toList
 
--- differentiate :: Alternative m => [a] -> m (Zipper a)
 differentiate :: (Foldable m, Alternative n) => m a -> n (Zipper a)
 differentiate = dx . toList
   where
     dx :: Alternative n => [a] -> n (Zipper a)
     dx (x:xs) = pure (Stack x [] xs)
-    dx _ = empty
+    dx _      = empty
 
 -- mDeleteFocus :: (Monad m, Alternative m) => m (Zipper a) -> m (Zipper a)
 -- mDeleteFocus = (=<<) deleteFocus

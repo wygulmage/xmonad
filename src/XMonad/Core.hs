@@ -1,6 +1,11 @@
-{-# LANGUAGE DeriveDataTypeable, ExistentialQuantification,
-  FlexibleContexts, FlexibleInstances, GeneralizedNewtypeDeriving,
-  MultiParamTypeClasses, ScopedTypeVariables, TypeFamilies #-}
+{-# LANGUAGE DeriveDataTypeable         #-}
+{-# LANGUAGE ExistentialQuantification  #-}
+{-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses      #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE TypeFamilies               #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -101,15 +106,9 @@ module XMonad.Core
 import XMonad.StackSet hiding (modify)
 
 -- import Prelude
-import Control.Applicative (Applicative, (<$>), liftA2, pure)
+import Control.Applicative (Applicative, liftA2, pure, (<$>))
 import Control.Exception.Extensible
-    ( SomeException(..)
-    , bracket
-    , finally
-    , fromException
-    , throw
-    , try
-    )
+    (SomeException (..), bracket, finally, fromException, throw, try)
 import qualified Control.Exception.Extensible as E
 import Control.Monad.Fail (MonadFail)
 import Control.Monad.Reader
@@ -132,18 +131,14 @@ import Lens.Micro (Lens, Lens', (%~), (.~))
 import qualified Lens.Micro.Mtl as Lens
 import System.Directory
 import System.Environment (lookupEnv)
-import System.Exit (ExitCode(..))
+import System.Exit (ExitCode (..))
 import System.FilePath
-import System.IO
 import System.Info (arch, os)
+import System.IO
 import System.Posix.Env (getEnv)
 import System.Posix.IO
 import System.Posix.Process
-    ( createSession
-    , executeFile
-    , forkProcess
-    , getAnyProcessStatus
-    )
+    (createSession, executeFile, forkProcess, getAnyProcessStatus)
 import System.Posix.Signals
 import System.Posix.Types (ProcessID)
 import System.Process
@@ -151,14 +146,14 @@ import System.Process
 -- | XState, the (mutable) window manager state.
 data XState =
     XState
-        { windowset :: !WindowSet
+        { windowset       :: !WindowSet
     -- ^ workspace list
-        , mapped :: !(Set Window)
+        , mapped          :: !(Set Window)
     -- ^ the Set of mapped windows
-        , waitingUnmap :: !(Map Window Int)
+        , waitingUnmap    :: !(Map Window Int)
     -- ^ the number of expected UnmapEvents
-        , dragging :: !(Maybe (Position -> Position -> X (), X ()))
-        , numberlockMask :: !KeyMask
+        , dragging        :: !(Maybe (Position -> Position -> X (), X ()))
+        , numberlockMask  :: !KeyMask
     -- ^ the numlock modifier
         , extensibleState :: !(Map String (Either String StateExtension))
     -- ^ stores custom state information.
@@ -206,25 +201,25 @@ instance HasWindowSet XState where
 -- | XConf, the (read-only) window manager configuration.
 data XConf =
     XConf
-        { display :: Display
+        { display       :: Display
     -- ^ the X11 display
-        , config :: !(XConfig Layout)
+        , config        :: !(XConfig Layout)
     -- ^ initial user configuration
-        , theRoot :: !Window
+        , theRoot       :: !Window
     -- ^ the root window
-        , normalBorder :: !Pixel
+        , normalBorder  :: !Pixel
     -- ^ border color of unfocused windows
         , focusedBorder :: !Pixel
     -- ^ border color of the focused window
-        , keyActions :: !(Map (KeyMask, KeySym) (X ()))
+        , keyActions    :: !(Map (KeyMask, KeySym) (X ()))
     -- ^ a mapping of key presses to actions
         , buttonActions :: !(Map (KeyMask, Button) (Window -> X ()))
     -- ^ a mapping of button presses to actions
-        , mouseFocused :: !Bool
+        , mouseFocused  :: !Bool
     -- ^ was refocus caused by mouse action?
         , mousePosition :: !(Maybe (Position, Position))
     -- ^ position of the mouse according to the event currently being processed
-        , currentEvent :: !(Maybe Event)
+        , currentEvent  :: !(Maybe Event)
     -- ^ event currently being processed
         }
 
@@ -460,7 +455,7 @@ newtype X a =
              , MonadState XState
              , MonadReader XConf
              , Typeable
-             )-- pure = return
+             ) -- pure = return
   -- (<*>) = ap
 
 -- instance Applicative X where
@@ -732,7 +727,7 @@ data StateExtension
                 StateExtension a
     -- ^ Non-persistent state extension
     | forall a. (Read a, Show a, ExtensionClass a) =>
-                PersistentExtension a-- ^ Persistent extension
+                PersistentExtension a -- ^ Persistent extension
 
 -- ---------------------------------------------------------------------
 -- | General utilities
@@ -773,7 +768,7 @@ xfork x =
 -- each workspace with the output of that function being the modified workspace.
 runOnWorkspaces :: (WindowSpace -> X WindowSpace) -> X ()
 runOnWorkspaces job = do
-    ws <- gets windowset
+    ws <- gets (Lens.view _windowset)
     ws' <- _workspaces job ws
     modify $ _windowset .~ ws'
 
@@ -866,7 +861,7 @@ findFirstDirWithEnv :: MonadIO m => String -> [IO FilePath] -> m FilePath
 findFirstDirWithEnv envName paths = do
     envPath' <- io (getEnv envName)
     case envPath' of
-        Nothing -> findFirstDirOf paths
+        Nothing      -> findFirstDirOf paths
         Just envPath -> findFirstDirOf (pure envPath : paths)
 
 -- | Helper function to retrieve the various XDG directories.
@@ -876,9 +871,9 @@ getXDGDirectory :: XDGDirectory -> FilePath -> IO FilePath
 getXDGDirectory xdgDir suffix =
     normalise . (</> suffix) <$>
     case xdgDir of
-        XDGData -> getDir "XDG_DATA_HOME" ".local/share"
+        XDGData   -> getDir "XDG_DATA_HOME" ".local/share"
         XDGConfig -> getDir "XDG_CONFIG_HOME" ".config"
-        XDGCache -> getDir "XDG_CACHE_HOME" ".cache"
+        XDGCache  -> getDir "XDG_CACHE_HOME" ".cache"
   where
     getDir name fallback = do
         dir <- lookupEnv name
@@ -1033,7 +1028,7 @@ recompile force =
                 '\8226' -> '*' -- •
                 '\8216' -> '`' -- ‘
                 '\8217' -> '`' -- ’
-                _ -> c
+                _       -> c
     compileGHC bin dir errHandle =
         runProcess
             "ghc"

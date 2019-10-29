@@ -1,6 +1,10 @@
-{-# LANGUAGE FlexibleContexts, FlexibleInstances,
-  FunctionalDependencies, PatternGuards, ScopedTypeVariables,
-  TypeFamilies #-}
+{-# LANGUAGE FlexibleContexts       #-}
+{-# LANGUAGE FlexibleInstances      #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE MultiParamTypeClasses  #-}
+{-# LANGUAGE PatternGuards          #-}
+{-# LANGUAGE ScopedTypeVariables    #-}
+{-# LANGUAGE TypeFamilies           #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -10,7 +14,7 @@
 --
 -- Maintainer  :  dons@galois.com
 -- Stability   :  experimental
--- Portability :  portable, Haskell 98
+-- Portability :  nonportable
 --
 module XMonad.StackSet
         -- * Introduction
@@ -99,20 +103,20 @@ module XMonad.StackSet
     ) where
 
 import Control.Monad.Reader (MonadReader)
-import qualified Data.List as L (deleteBy, filter, find, nub, splitAt)
 import Data.List ((\\))
+import qualified Data.List as L (deleteBy, filter, find, nub, splitAt)
 import Data.Map (Map)
 import qualified Data.Map as Map (delete, empty, insert)
 import Data.Maybe (fromMaybe, isJust)
 import Prelude hiding (filter)
 
-import Lens.Micro (Lens, Lens', (%~), (.~), toListOf)
+import Lens.Micro (Lens, Lens', toListOf, (%~), (.~))
 import qualified Lens.Micro as Lens
 import qualified Lens.Micro.Mtl as Lens
 
 -- import qualified Lens.Micro.Internal as Lens
 import qualified XMonad.Internal.Optic as Lens
-import XMonad.Zipper (Stack(..), differentiate, filter, integrate, integrate')
+import XMonad.Zipper (Stack (..), differentiate, filter, integrate, integrate')
 import qualified XMonad.Zipper as Stack
 
 -- $intro
@@ -187,10 +191,10 @@ import qualified XMonad.Zipper as Stack
 -- This type is too polymorphic. Should be 'StackSet a' or 'StackSet', with 'i', 'l', 'sid', and 'sd' instantiated as their usual types, and possibly with 'a' instantiated as Window.
 data StackSet i l a sid sd =
     StackSet
-        { current :: !(Screen i l a sid sd) -- ^ currently focused workspace
-        , visible :: [Screen i l a sid sd] -- ^ non-focused workspaces, visible in xinerama
-        , hidden :: [Workspace i l a] -- ^ workspaces not visible anywhere
-        , floating :: Map a RationalRect -- ^ floating windows
+        { current  :: !(Screen i l a sid sd) -- ^ currently focused workspace
+        , visible  :: [Screen i l a sid sd]  -- ^ non-focused workspaces, visible in xinerama
+        , hidden   :: [Workspace i l a]      -- ^ workspaces not visible anywhere
+        , floating :: Map a RationalRect     -- ^ floating windows
         }
     deriving (Show, Read, Eq)
 
@@ -236,8 +240,8 @@ _index = _current . _stack . traverse . traverse
 -- This type is too polymorphic. Should be 'Screen a', with 'i', 'l', 'sid', and 'sd' instantiated as their usual types, or 'Screen', with 'a' instantiated as 'Window'.
 data Screen i l a sid sd =
     Screen
-        { workspace :: !(Workspace i l a)
-        , screen :: !sid
+        { workspace    :: !(Workspace i l a)
+        , screen       :: !sid
         , screenDetail :: !sd
         }
     deriving (Show, Read, Eq)
@@ -267,9 +271,9 @@ instance HasLayout (Screen i l a sid sd) (Screen i l' a sid sd) l l' where
 -- This type is too polymorphic. Should be 'Workspace a', with 'l' and 'i' instantiated as the same types they always have.
 data Workspace i l a =
     Workspace
-        { tag :: !i
+        { tag    :: !i
         , layout :: l
-        , stack :: Maybe (Stack a)
+        , stack  :: Maybe (Stack a)
         }
     deriving (Show, Read, Eq)
 
@@ -280,12 +284,7 @@ class HasTag ma mb a b | ma -> a, mb -> b, ma b -> mb, mb a -> ma where
 instance HasTag (Workspace i l a) (Workspace i' l a) i i' where
     _tag f s = (\x -> s {tag = x}) <$> f (tag s)
 
-class HasLayout ml ml' l l'
-    | ml -> l
-    , ml' -> l'
-    , ml l' -> ml'
-    , ml' l -> ml
-    where
+class HasLayout ml ml' l l' | ml -> l, ml' -> l', ml l' -> ml', ml' l -> ml where
     _layout :: Lens ml ml' l l'
 
 instance HasLayout (Workspace i l a) (Workspace i l' a) l l' where
@@ -320,8 +319,8 @@ abort x = error $ "xmonad: StackSet: " <> x
 -- Should use List.NonEmpty.
 new :: (Integral s) => l -> [i] -> [sd] -> StackSet i l a s sd
 new l wids m
-    | not (null wids) && length m <= length wids && not (null m) =
-        StackSet cur visi unseen Map.empty
+    | not (null wids) && length m <= length wids && not (null m)
+    = StackSet cur visi unseen Map.empty
   where
     (seen, unseen) =
         L.splitAt (length m) $ fmap (\i -> Workspace i l Nothing) wids
@@ -344,7 +343,7 @@ view i s
     | Just x <- L.find (Lens.views _tag (i ==)) . Lens.view _visible $ s
     -- if it is visible, it is just raised
     -- = s{ current = x, visible = current s : L.deleteBy (equating screen) x (visible s) }
-     =
+    =
         (_current .~ x) .
         (_visible %~ (Lens.view _current s :) .
          L.deleteBy (equating (Lens.view _screenId)) x) $
@@ -352,20 +351,17 @@ view i s
     -- | Just x <- L.find ((i==).tag) (hidden  s) -- must be hidden then
     | Just x <- L.find (Lens.views _tag (i ==)) (Lens.view _hidden s) -- must be hidden then
     -- if it was hidden, it is raised on the xine screen currently used
-      -- s{ current = (current s){ workspace = x }
-      --  , hidden = workspace (current s) : L.deleteBy (equating tag) x (hidden s)
-      --  }
-     =
+    =
         (_current . _workspace .~ x) .
         (_hidden %~ (Lens.view (_current . _workspace) s :) .
          L.deleteBy (equating (Lens.view _tag)) x) $
         s
-    | otherwise = s -- not a member of the stackset
+    | otherwise
+    = s -- not a member of the stackset
   where
     equating f x y = f x == f y
     -- 'Catch'ing this might be hard. Relies on monotonically increasing
     -- workspace tags defined in 'new'
-    --
     -- and now tags are not monotonic, what happens here?
 
 -- |
@@ -377,21 +373,15 @@ view i s
 -- swapped.
 greedyView :: (Eq s, Eq i) => i -> StackSet i l a s sd -> StackSet i l a s sd
 greedyView w ws
-     -- | any wTag (hidden ws) = view w ws
-    | any (Lens.views _tag (w ==)) (Lens.view _hidden ws) = view w ws
+    | any (Lens.views _tag (w ==)) (Lens.view _hidden ws)
+    = view w ws
     | (Just s) <- L.find (Lens.views _tag (w ==)) (Lens.view _visible ws)
-     -- | (Just s) <- L.find (wTag . workspace) (visible ws)
-                            -- = ws{ current = (current ws){ workspace = workspace s }
-                            --     , visible = s{ workspace = workspace (current ws) }
-                            --                : L.filter (not . wTag . workspace) (visible ws) }
-     =
-        (_current . _workspace .~ Lens.view _workspace s) .
+    =   (_current . _workspace .~ Lens.view _workspace s) .
         (_visible .~ (_workspace .~ Lens.view (_current . _workspace) ws) s :
-         L.filter (Lens.views _workspace (not . wTag)) (Lens.view _visible ws)) $
+         L.filter (Lens.views _workspace (not . Lens.views _tag (w ==))) (Lens.view _visible ws)) $
         ws
-    | otherwise = ws
-  where
-    wTag = Lens.views _tag (w ==)
+    | otherwise
+    = ws
 
 -- ---------------------------------------------------------------------
 -- $xinerama
@@ -510,10 +500,9 @@ tagMember t = elem t . toListOf _tags
 renameTag :: Eq i => i -> i -> StackSet i l a s sd -> StackSet i l a s sd
 renameTag oldT newT = _tags %~ rename
   where
-    rename x =
-        if oldT == x
-            then newT
-            else x
+    rename x
+        | oldT == x = newT
+        | otherwise = x
 
 -- | Ensure that a given set of workspace tags is present by renaming
 -- existing workspaces and\/or creating new hidden workspaces as
@@ -551,10 +540,6 @@ findTag w = fmap (Lens.view _tag) . L.find hasW . toListOf _workspaces
   where
     hasW = elem w . toListOf (_stack . traverse . traverse)
 
--- findTag a s = listToMaybe
---     [ tag w | w <- workspaces s, has a (stack w) ]
---     where has _ Nothing         = False
---           has x (Just (Stack t l r)) = x `elem` (t : l <> r)
 -- ---------------------------------------------------------------------
 -- $modifyStackset
 -- |
@@ -570,16 +555,14 @@ findTag w = fmap (Lens.view _tag) . L.find hasW . toListOf _workspaces
 -- However, we choose to insert above, and move the focus.
 --
 insertUp :: Eq a => a -> StackSet i l a s sd -> StackSet i l a s sd
-insertUp a s =
-    if member a s
-        then s
-        else insert
+insertUp a s
+    | member a s = s
+    | otherwise = insert s
   where
     insert =
         modify
             (Just $ Stack a [] [])
             (\(Stack t l r) -> Just $ Stack a l (t : r))
-            s
 
 -- insertDown :: a -> StackSet i l a s sd -> StackSet i l a s sd
 -- insertDown a = modify (Stack a [] []) $ \(Stack t l r) -> Stack a (t:l) r
@@ -644,7 +627,7 @@ shiftMaster :: StackSet i l a s sd -> StackSet i l a s sd
 shiftMaster =
     modify' $ \c ->
         case c of
-            Stack _ [] _ -> c -- already master.
+            Stack _ [] _  -> c -- already master.
             Stack t ls rs -> Stack t [] (reverse ls <> rs)
 
 -- | /O(s)/. Set focus to the master window.
@@ -680,11 +663,11 @@ shiftWin ::
     -> a
     -> StackSet i l a s sd
     -> StackSet i l a s sd
-shiftWin n w s =
-    case findTag w s of
-        Just from
-            | n `tagMember` s && n /= from -> go from s
-        _ -> s
+shiftWin n w s
+    | Just from <- findTag w s, from /= n, n `tagMember` s
+    = go from s
+    | otherwise
+    = s
   where
     go from = onWorkspace n (insertUp w) . onWorkspace from (delete' w)
 

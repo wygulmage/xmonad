@@ -1,6 +1,7 @@
 {-# OPTIONS_GHC -fno-warn-deprecations #-}
-{-# LANGUAGE MultiParamTypeClasses, RankNTypes, FlexibleContexts
-  #-}
+{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE RankNTypes            #-}
 
 ----------------------------------------------------------------------------
 -- |
@@ -39,8 +40,8 @@ import System.Directory
 import System.Environment
 import System.Exit (exitFailure)
 import System.FilePath
-import System.IO
 import System.Info
+import System.IO
 import System.Locale.SetLocale
 import System.Posix.Process (executeFile)
 
@@ -57,7 +58,7 @@ import XMonad.Operations
 import XMonad.StackSet (floating, member, new)
 import qualified XMonad.StackSet as W
 
-import Lens.Micro ((%~), (.~)) -- (.~) = set; (%~) = over
+import Lens.Micro ((%~), (.~))
 import qualified Lens.Micro as Lens
 import qualified Lens.Micro.Mtl as Lens
 
@@ -362,13 +363,13 @@ handle e@ButtonEvent {ev_event_type = t}
         -- we're done dragging and have released the mouse:
               of
             Just (_, f) -> modify (_dragging .~ Nothing) *> f
-            Nothing -> broadcastMessage e
+            Nothing     -> broadcastMessage e
 -- handle motionNotify event, which may mean we are dragging.
 handle e@MotionEvent {ev_event_type = _t, ev_x = x, ev_y = y} = do
     drag <- gets dragging
     case drag of
         Just (d, _) -> d (fromIntegral x) (fromIntegral y) -- we're dragging
-        Nothing -> broadcastMessage e
+        Nothing     -> broadcastMessage e
 -- click on an unfocused window, makes it focused on this workspace
 handle e@ButtonEvent {ev_window = w, ev_event_type = t, ev_button = b}
     | t == buttonPress
@@ -407,7 +408,7 @@ handle e@CrossingEvent {ev_event_type = t}
 -- configure a window
 handle e@ConfigureRequestEvent {ev_window = w} =
     withDisplay $ \dpy -> do
-        ws <- gets windowset
+        ws <- gets (Lens.view _windowset)
         bw <- Lens.view (_XConfig . _borderWidth)
         if Map.member w (floating ws) || not (member w ws)
             then do
@@ -470,7 +471,7 @@ scan dpy rootw = do
         let ic =
                 case p of
                     Just (3:_) -> True -- 3 for iconified
-                    _ -> False
+                    _          -> False
         pure $
             not (wa_override_redirect wa) &&
             (wa_map_state wa == waIsViewable || ic)
@@ -482,7 +483,7 @@ setNumlockMask = do
     dpy <- Lens.view _display
     ms <- io $ getModifierMapping dpy
     xs <-
-        sequence
+        sequenceA
             [ do ks <- io $ keycodeToKeysym dpy kc 0
                  if ks == xK_Num_Lock
                      then pure (setBit 0 (fromIntegral m))

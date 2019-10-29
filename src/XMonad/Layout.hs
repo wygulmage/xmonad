@@ -1,5 +1,7 @@
-{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses,
-  PatternGuards, DeriveDataTypeable #-}
+{-# LANGUAGE DeriveDataTypeable    #-}
+{-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE PatternGuards         #-}
 
 -- --------------------------------------------------------------------------
 -- |
@@ -34,11 +36,12 @@ module XMonad.Layout
 import XMonad.Core
 
 import Control.Applicative (liftA2)
-import Control.Arrow ((***), second)
+import Control.Arrow (second, (***))
 import Control.Monad
 import Data.Foldable (asum, toList)
+import qualified Data.List.NonEmpty as NonEmpty (unfoldr)
 import Data.Maybe (fromMaybe)
-import Graphics.X11 (Rectangle(..))
+import Graphics.X11 (Rectangle (..))
 import qualified XMonad.StackSet as W
 
 ------------------------------------------------------------------------
@@ -68,26 +71,25 @@ instance LayoutClass Full a
 -- 'IncMasterN'.
 data Tall a =
     Tall
-        { tallNMaster :: !Int
+        { tallNMaster        :: !Int
     -- ^ The default number of windows in the master pane (default: 1)
         , tallRatioIncrement :: !Rational
     -- ^ Percent of screen to increment by when resizing panes (default: 3/100)
-        , tallRatio :: !Rational
+        , tallRatio          :: !Rational
     -- ^ Default proportion of screen occupied by master pane (default: 1/2)
         }
-    deriving (Show, Read)-- TODO should be capped [0..1] ..
+    deriving (Show, Read) -- TODO should be capped [0..1] ..
 
 -- a nice pure layout, lots of properties for the layout, and its messages, in Properties.hs
 instance LayoutClass Tall a where
     pureLayout (Tall nmaster _ frac) r s = zip ws rs
-      -- where ws = W.integrate s
       where
         ws = toList s
         rs = tile frac r nmaster (length ws)
     pureMessage (Tall nmaster delta frac) m =
         asum [resize <$> fromMessage m, incmastern <$> fromMessage m]
       where
-        resize Shrink = Tall nmaster delta (max 0 $ frac - delta)
+        resize Shrink = Tall nmaster delta (max 0 (frac - delta))
         resize Expand = Tall nmaster delta (min 1 (frac + delta))
         incmastern (IncMasterN d) = Tall (max 0 (nmaster + d)) delta frac
     description _ = "Tall"
@@ -104,10 +106,9 @@ tile ::
     -> Int -- ^ @nmaster@, the number of windows in the master pane
     -> Int -- ^ @n@, the total number of windows to tile
     -> [Rectangle]
-tile f r nmaster n =
-    if n <= nmaster || nmaster == 0
-        then splitVertically n r
-        else splitVertically nmaster r1 <> splitVertically (n - nmaster) r2 -- two columns
+tile f r nmaster n
+    | n <= nmaster || nmaster == 0 = splitVertically n r
+    | otherwise = splitVertically nmaster r1 <> splitVertically (n - nmaster) r2 -- two columns
   where
     (r1, r2) = splitHorizontallyBy f r
 
@@ -115,15 +116,25 @@ tile f r nmaster n =
 -- Divide the screen vertically into n subrectangles
 --
 splitVertically, splitHorizontally :: Int -> Rectangle -> [Rectangle]
-splitVertically n r
-    | n < 2 = [r]
-splitVertically n (Rectangle sx sy sw sh) =
-    Rectangle sx sy sw smallh :
-    splitVertically
-        (n - 1)
-        (Rectangle sx (sy + fromIntegral smallh) sw (sh - smallh))
+-- splitVertically n r
+--     | n < 2 = [r]
+-- splitVertically n (Rectangle sx sy sw sh) =
+--     Rectangle sx sy sw smallh :
+--     splitVertically
+--         (n - 1)
+--         (Rectangle sx (sy + fromIntegral smallh) sw (sh - smallh))
+--   where
+--     smallh = sh `div` fromIntegral n --hmm, this is a fold or map.
+splitVertically n rect = toList $ NonEmpty.unfoldr verticalSplitter (n, rect)
+
+verticalSplitter :: (Int, Rectangle) -> (Rectangle, Maybe (Int, Rectangle))
+verticalSplitter (n, rect@(Rectangle x y w h))
+    | n <= 1 = (rect, Nothing)
+    | otherwise = (Rectangle x y w h', Just (n - 1, Rectangle x y' w h''))
   where
-    smallh = sh `div` fromIntegral n --hmm, this is a fold or map.
+    h' = h `div` fromIntegral n
+    h'' = h - h'
+    y' = y + fromIntegral h'
 
 -- Not used in the core, but exported
 splitHorizontally n = fmap mirrorRect . splitVertically n . mirrorRect
@@ -228,11 +239,11 @@ instance (LayoutClass l a, LayoutClass r a) => LayoutClass (Choose l r) a where
         fmap (second . fmap $ Choose R l) . runLayout (W.Workspace i r ms)
     description (Choose L l _) = description l
     description (Choose R _ r) = description r
-    handleMessage lr m
+    handleMessage c m -- lazy
         | Just NextLayout <- fromMessage m = do
-            mlr' <- handle lr NextNoWrap
-            maybe (handle lr FirstLayout) (pure . Just) mlr'
-    handleMessage c@(Choose d l r) m
+            mlr' <- handle c NextNoWrap
+            maybe (handle c FirstLayout) (pure . Just) mlr'
+    handleMessage c@(Choose d l r) m -- strict
         | Just NextNoWrap <- fromMessage m =
             case d of
                 L -> do
@@ -241,23 +252,21 @@ instance (LayoutClass l a, LayoutClass r a) => LayoutClass (Choose l r) a where
                         Just _ -> choose c L ml Nothing
                         Nothing -> choose c R Nothing =<< handle r FirstLayout
                 R -> choose c R Nothing =<< handle r NextNoWrap
-    handleMessage c@(Choose _ l _) m
         | Just FirstLayout <- fromMessage m =
             flip (choose c L) Nothing =<< handle l FirstLayout
-    handleMessage c@(Choose d l r) m
         | Just ReleaseResources <- fromMessage m =
             join $
             liftA2
                 (choose c d)
                 (handle l ReleaseResources)
                 (handle r ReleaseResources)
-    handleMessage c@(Choose d l r) m = do
-        ml' <-
-            case d of
-                L -> handleMessage l m
-                R -> pure Nothing
-        mr' <-
-            case d of
-                L -> pure Nothing
-                R -> handleMessage r m
-        choose c d ml' mr'
+        | otherwise = do
+            ml' <-
+                case d of
+                    L -> handleMessage l m
+                    R -> pure Nothing
+            mr' <-
+                case d of
+                    L -> pure Nothing
+                    R -> handleMessage r m
+            choose c d ml' mr'
