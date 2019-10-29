@@ -19,6 +19,9 @@ module XMonad.Zipper
     , reverse
     , swapUp
     , _focus
+    , swapTop
+    , moveToTop
+    , focusOnTop
     ) where
 
 import Control.Applicative
@@ -379,18 +382,13 @@ differentiate = dx . toList
     dx (x:xs) = pure (Stack x [] xs)
     dx _      = empty
 
--- mDeleteFocus :: (Monad m, Alternative m) => m (Zipper a) -> m (Zipper a)
--- mDeleteFocus = (=<<) deleteFocus
--- mDeleteTop :: (Monad m, Alternative m) => m (Zipper a) -> m (Zipper a)
--- mDeleteTop = (=<<) deleteTop
--- mFilter :: (Monad m, Alternative m) => (a -> Bool) -> m (Zipper a) -> m (Zipper a)
--- mFilter p = (=<<) (filter p)
 ------- Non-exported Utilities ------
 consDL :: a -> ([a] -> [a]) -> [a] -> [a]
 consDL x fxs = fxs . (x :)
 
 -- snocDL :: a -> ([a] -> [a]) -> [a] -> [a]
 -- snocDL x fxs = (x :) . fxs
+
 mapPrepend :: (a -> b) -> [a] -> [b] -> [b]
 mapPrepend g = flip (foldr ((:) . g))
 

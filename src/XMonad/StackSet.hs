@@ -103,10 +103,11 @@ module XMonad.StackSet
     ) where
 
 import Control.Monad.Reader (MonadReader)
+import Data.Foldable (Foldable (toList))
 import Data.List ((\\))
-import qualified Data.List as L (deleteBy, filter, find, nub, splitAt)
+import qualified Data.List as L
 import Data.Map (Map)
-import qualified Data.Map as Map (delete, empty, insert)
+import qualified Data.Map as Map
 import Data.Maybe (fromMaybe, isJust)
 import Prelude hiding (filter)
 
@@ -114,8 +115,8 @@ import Lens.Micro (Lens, Lens', toListOf, (%~), (.~))
 import qualified Lens.Micro as Lens
 import qualified Lens.Micro.Mtl as Lens
 
--- import qualified Lens.Micro.Internal as Lens
 import qualified XMonad.Internal.Optic as Lens
+
 import XMonad.Zipper (Stack (..), differentiate, filter, integrate, integrate')
 import qualified XMonad.Zipper as Stack
 
@@ -432,15 +433,6 @@ peek :: StackSet i l a s sd -> Maybe a
 peek = with Nothing (pure . Lens.view Stack._focus)
 
 -- |
--- /O(s)/. Extract the stack on the current workspace, as a list.
--- The order of the stack is determined by the master window -- it will be
--- the head of the list. The implementation is given by the natural
--- integration of a one-hole list cursor, back to a list.
---
-index :: StackSet i l a s sd -> [a]
-index = toListOf _index
-
--- |
 -- /O(1), O(w) on the wrapping case/.
 --
 -- focusUp, focusDown. Move the window focus up or down the stack,
@@ -476,21 +468,11 @@ focusWindow w s
             n <- findTag w s
             pure $ until ((Just w ==) . peek) focusUp (view n s)
 
--- | Get a list of all screens in the 'StackSet'.
-screens :: StackSet i l a s sd -> [Screen i l a s sd]
-screens = toListOf _screens
-
--- | Get a list of all workspaces in the 'StackSet'.
-workspaces :: StackSet i l a s sd -> [Workspace i l a]
-workspaces = toListOf _workspaces
-
 -- | Get a list of all windows in the 'StackSet' in no particular order
-allWindows :: Eq a => StackSet i l a s sd -> [a]
-allWindows = L.nub . toListOf (_workspaces . _stack . traverse . traverse)
-
--- | Get the tag of the currently focused workspace.
-currentTag :: StackSet i l a s sd -> i
-currentTag = Lens.view (_current . _tag)
+-- allWindows :: Eq a => StackSet i l a s sd -> [a]
+-- allWindows = L.nub <$> Lens.view (_workspaces . _stack . traverse . Lens.to toList)
+allWindows :: Ord a => StackSet i l a s sd -> [a]
+allWindows = toList . Lens.setOf (_workspaces . _stack . traverse . traverse)
 
 -- | Is the given tag present in the 'StackSet'?
 tagMember :: Eq i => i -> StackSet i l a s sd -> Bool
@@ -515,18 +497,6 @@ ensureTags l allt st = et allt (toListOf _tags st \\ allt) st
         | i `tagMember` s = et is rn s
     et (i:is) [] s = et is [] (_hidden %~ (Workspace i l Nothing :) $ s)
     et (i:is) (r:rs) s = et is rs $ renameTag r i s
-
--- | Map a function on all the workspaces in the 'StackSet'.
-mapWorkspace ::
-       (Workspace i l a -> Workspace i l a)
-    -> StackSet i l a s sd
-    -> StackSet i l a s sd
-mapWorkspace = (_workspaces %~)
-
--- | Map a function on all the layouts in the 'StackSet'.
--- Don't use this; use (_layouts %~)
-mapLayout :: (l -> l') -> StackSet i l a s sd -> StackSet i l' a s sd
-mapLayout = (_layouts %~)
 
 -- | /O(n)/. Is a window in the 'StackSet'?
 member :: Eq a => a -> StackSet i l a s sd -> Bool
@@ -611,12 +581,7 @@ sink w = _floating %~ Map.delete w
 -- The old master window is swapped in the tiling order with the focused window.
 -- Focus stays with the item moved.
 swapMaster :: StackSet i l a s sd -> StackSet i l a s sd
-swapMaster =
-    modify' $ \c ->
-        case c of
-            Stack _ [] _ -> c -- already master.
-            Stack t ls rs -> Stack t [] (xs <> (x : rs))
-                where (x:xs) = reverse ls
+swapMaster = modify' Stack.swapTop
 
 -- natural! keep focus, move current to the top, move top to current.
 -- | /O(s)/. Set the master window to the focused window.
@@ -624,22 +589,12 @@ swapMaster =
 -- just hit mod-shift-k a bunch of times.
 -- Focus stays with the item moved.
 shiftMaster :: StackSet i l a s sd -> StackSet i l a s sd
-shiftMaster =
-    modify' $ \c ->
-        case c of
-            Stack _ [] _  -> c -- already master.
-            Stack t ls rs -> Stack t [] (reverse ls <> rs)
+shiftMaster = modify' Stack.moveToTop
 
 -- | /O(s)/. Set focus to the master window.
 focusMaster :: StackSet i l a s sd -> StackSet i l a s sd
-focusMaster =
-    modify' $ \c ->
-        case c of
-            Stack _ [] _ -> c
-            Stack t ls rs -> Stack x [] (xs <> (t : rs))
-                where (x:xs) = reverse ls
+focusMaster = modify' Stack.focusOnTop
 
---
 -- ---------------------------------------------------------------------
 -- $composite
 -- | /O(w)/. shift. Move the focused element of the current stack to stack
@@ -677,6 +632,47 @@ onWorkspace ::
     -> (StackSet i l a s sd -> StackSet i l a s sd)
     -> (StackSet i l a s sd -> StackSet i l a s sd)
 onWorkspace n f s = view (Lens.view (_current . _tag) s) . f . view n $ s
+
+-------------------------------------------------------------------------
+--- Applied Optics ---
+-- Should these be deprecated?
+
+--- Views:
+
+-- | Get the tag of the currently focused workspace.
+currentTag :: StackSet i l a s sd -> i
+currentTag = Lens.view (_current . _tag)
+
+-- | Get a list of all screens in the 'StackSet'.
+screens :: StackSet i l a s sd -> [Screen i l a s sd]
+screens = toListOf _screens
+
+-- | Get a list of all workspaces in the 'StackSet'.
+workspaces :: StackSet i l a s sd -> [Workspace i l a]
+workspaces = toListOf _workspaces
+
+-- |
+-- /O(s)/. Extract the stack on the current workspace, as a list.
+-- The order of the stack is determined by the master window -- it will be
+-- the head of the list. The implementation is given by the natural
+-- integration of a one-hole list cursor, back to a list.
+index :: StackSet i l a s sd -> [a]
+index = toListOf _index
+
+--- Modifiers:
+
+-- | Map a function on all the workspaces in the 'StackSet'.
+mapWorkspace ::
+       (Workspace i l a -> Workspace i l a)
+    -> StackSet i l a s sd
+    -> StackSet i l a s sd
+mapWorkspace = (_workspaces %~)
+
+-- | Map a function on all the layouts in the 'StackSet'.
+-- Don't use this; use (_layouts %~)
+mapLayout :: (l -> l') -> StackSet i l a s sd -> StackSet i l' a s sd
+mapLayout = (_layouts %~)
+
 
 ------------------------------------------
 --- Cruft:

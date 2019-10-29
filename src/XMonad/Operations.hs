@@ -54,9 +54,6 @@ import System.Directory
 import System.IO
 import System.Posix.Process (executeFile)
 
-fi :: (Integral a, Num b) => a -> b
-fi = fromIntegral
-
 -- ---------------------------------------------------------------------
 -- |
 -- Window manager operations
@@ -464,7 +461,9 @@ sendMessage a =
             handleMessage (Lens.view W._layout w) (SomeMessage a) `catchX`
             pure Nothing
         for_ ml' $ \l' ->
-            modifyWindowSet $ \ws ->
+            modifyWindowSet $ \ws
+                -- Can't seem to get the types right to use an unwrapped layout with optics.
+             ->
                 ws
                     { W.current =
                           (W.current ws)
@@ -572,13 +571,15 @@ readStateFile xmc = do
     sf' <-
         userCode . io $ do
             raw <- withFile path ReadMode readStrict
-            pure $! maybeRead reads raw
+            pure $! readMaybe raw
     io (removeFile path)
     pure $ do
         sf <- join sf'
         let winset =
                 W.ensureTags layout (workspaces xmc) $
-                W.mapLayout (fromMaybe layout . maybeRead lreads) (sfWins sf)
+                W.mapLayout
+                    (fromMaybe layout . readMaybeWith lreads)
+                    (sfWins sf)
             extState = Map.fromList . fmap (second Left) $ sfExt sf
         pure
             XState
@@ -592,10 +593,6 @@ readStateFile xmc = do
   where
     layout = Layout (Lens.view _layoutHook xmc)
     lreads = readsLayout layout
-    maybeRead reads' s =
-        case reads' s of
-            [(x, "")] -> Just x
-            _         -> Nothing
     readStrict :: Handle -> IO String
     readStrict h = hGetContents h >>= \s -> length s `seq` pure s
 
@@ -612,11 +609,7 @@ migrateState ws xs = do
         path <- stateFileName
         catchIO (writeFile path $ show s)
   where
-    stateData = StateFile <$> maybeRead ws <*> maybeRead xs
-    maybeRead s =
-        case reads s of
-            [(x, "")] -> Just x
-            _         -> Nothing
+    stateData = StateFile <$> readMaybe ws <*> readMaybe xs
 
 -- | @restart name resume@. Attempt to restart xmonad by executing the program
 -- @name@.  If @resume@ is 'True', restart with the current window state.
@@ -820,3 +813,17 @@ applyMaxSizeHint :: D -> D -> D
 applyMaxSizeHint (mw, mh) x@(w, h)
     | mw > 0 && mh > 0 = (min w mw, min h mh)
     | otherwise = x
+
+------- Factored-out Utilities -------
+fi :: (Integral a, Num b) => a -> b
+fi = fromIntegral
+
+-- | This already exists in GHC's Text.Read. Should we import it?
+readMaybe :: (Read a) => String -> Maybe a
+readMaybe = readMaybeWith reads
+
+readMaybeWith :: (String -> [(a, String)]) -> String -> Maybe a
+readMaybeWith f x =
+    case f x of
+        (y, ""):[] -> Just y
+        _          -> Nothing
