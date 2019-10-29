@@ -49,6 +49,7 @@ import Graphics.X11.Xlib.Extras
 import Lens.Micro (toListOf, (%~), (.~))
 import qualified Lens.Micro as Lens
 import qualified Lens.Micro.Mtl as Lens
+import qualified XMonad.Internal.Optic as Lens
 
 import System.Directory
 import System.IO
@@ -119,7 +120,7 @@ kill = withFocused killWindow
 -- | windows. Modify the current window list with a pure function, and refresh
 windows :: (WindowSet -> WindowSet) -> X ()
 windows f = do
-    old <- gets windowset
+    old <- gets (Lens.view _windowset)
     let oldvisible :: [Window]
         oldvisible = toListOf (W._screens . W._stack . traverse . traverse) old
         newwindows :: [Window]
@@ -631,17 +632,15 @@ floatLocation w =
       -- Fallback solution if `go' fails.  Which it might, since it
       -- calls `getWindowAttributes'.
      do
-        sc <- gets (Lens.view (_windowset . W._current))
-        pure (Lens.view W._screenId sc, W.RationalRect 0 0 1 1)
+        sc <- gets (Lens.view (_windowset . W._current . W._screenId))
+        pure (sc, W.RationalRect 0 0 1 1)
   where
     go =
         withDisplay $ \d -> do
-            ws <- gets (Lens.view _windowset)
+            cws <- gets (Lens.view (_windowset . W._current))
             wa <- io $ getWindowAttributes d w
             let bw = (fi . wa_border_width) wa
-            sc <-
-                fromMaybe (Lens.view W._current ws) <$>
-                pointScreen (fi $ wa_x wa) (fi $ wa_y wa)
+            sc <- fromMaybe cws <$> pointScreen (fi $ wa_x wa) (fi $ wa_y wa)
             let sr = Lens.view _screenRect sc
                 rr =
                     W.RationalRect
@@ -685,7 +684,7 @@ float w = do
 -- | Accumulate mouse motion events
 mouseDrag :: (Position -> Position -> X ()) -> X () -> X ()
 mouseDrag f done = do
-    drag <- gets dragging
+    drag <- gets (Lens.view _dragging)
     case drag of
         Just _ -> pure () -- error case? we're already dragging
         Nothing -> do

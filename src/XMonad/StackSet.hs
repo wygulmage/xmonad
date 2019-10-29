@@ -213,6 +213,7 @@ _hidden f s = (\x -> s {hidden = x}) <$> f (hidden s)
 _floating :: Lens' (StackSet i l a sid sd) (Map a RationalRect)
 _floating f s = (\x -> s {floating = x}) <$> f (floating s)
 
+--- Traversals:
 _screens ::
        Lens.Traversal (StackSet i l a sid sd) (StackSet i l a sid' sd') (Screen i l a sid sd) (Screen i l a sid' sd')
 _screens f s =
