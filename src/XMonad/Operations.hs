@@ -120,7 +120,7 @@ kill = withFocused killWindow
 -- | windows. Modify the current window list with a pure function, and refresh
 windows :: (WindowSet -> WindowSet) -> X ()
 windows f = do
-    old <- gets (Lens.view _windowset)
+    old <- Lens.use _windowset
     let oldvisible :: [Window]
         oldvisible = toListOf (W._screens . W._stack . traverse . traverse) old
         newwindows :: [Window]
@@ -275,7 +275,6 @@ reveal w =
 
 -- | Set some properties when we initially gain control of a window
 setInitialProperties :: Window -> X ()
--- setInitialProperties w = asks normalBorder >>= \nb -> withDisplay $ \d -> do
 setInitialProperties w =
     withDisplay $ \d
     -- we must initially set the color of new windows, to maintain invariants
@@ -335,8 +334,8 @@ containedIn r1@(Rectangle x1 y1 w1 h1) r2@(Rectangle x2 y2 w2 h2) =
     and [ r1 /= r2 -- A rectangle is not considered to contain itself so 'nubScreens' retains at least some screens.
         , x1 >= x2
         , y1 >= y2
-        , fi x1 + w1 <= fi x2 + w2
-        , fi y1 + h1 <= fi y2 + h2
+        , x1 + fi w1 <= x2 + fi w2
+        , y1 + fi h1 <= y2 + fi h2
         ]
 
 -- | Given a list of screens, remove all duplicated screens and screens that
@@ -457,7 +456,7 @@ setFocusX w =
 sendMessage :: Message a => a -> X ()
 sendMessage a =
     windowBracket_ $ do
-        w <- gets $ Lens.view (_windowset . W._current . W._workspace)
+        w <- Lens.use (_windowset . W._current . W._workspace)
         ml' <-
             handleMessage (Lens.view W._layout w) (SomeMessage a) `catchX`
             pure Nothing
@@ -499,7 +498,7 @@ updateLayout i ml =
 -- | Set the layout of the currently viewed workspace
 setLayout :: Layout Window -> X ()
 setLayout l = do
-    ss <- gets (Lens.view _windowset)
+    ss <- Lens.use _windowset
     let ws = Lens.view (W._current . W._workspace) ss
     handleMessage (W.layout ws) (SomeMessage ReleaseResources)
     windows . const $ (W._current . W._workspace . W._layout .~ l) ss
@@ -522,13 +521,13 @@ isClient w = withWindowSet $ pure . W.member w
 -- (numlock and capslock)
 extraModifiers :: X [KeyMask]
 extraModifiers = do
-    nlm <- gets numberlockMask
+    nlm <- Lens.use _numberlockMask
     pure [0, nlm, lockMask, nlm .|. lockMask]
 
 -- | Strip numlock\/capslock from a mask
 cleanMask :: KeyMask -> X KeyMask
 cleanMask km = do
-    nlm <- gets $ Lens.view _numberlockMask
+    nlm <- Lens.use _numberlockMask
     pure (complement (nlm .|. lockMask) .&. km)
 
 -- | Get the 'Pixel' value for a named color
@@ -555,7 +554,7 @@ writeStateToFile = do
     let maybeShow (t, Right (PersistentExtension ext)) = Just (t, show ext)
         maybeShow (t, Left str)                        = Just (t, str)
         maybeShow _                                    = Nothing
-        wsData = (W._layouts %~ show) . windowset
+        wsData = Lens.views _windowset (W._layouts %~ show)
         extState = mapMaybe maybeShow . Map.toList . Lens.view _extensibleState
     path <- stateFileName
     stateData <- gets (\s -> StateFile (wsData s) (extState s))
@@ -573,14 +572,15 @@ readStateFile xmc = do
         userCode . io $ do
             raw <- withFile path ReadMode readStrict
             pure $! readMaybe raw
-    io (removeFile path)
+    io $ removeFile path
     pure $ do
         sf <- join sf'
         let winset =
-                W.ensureTags layout (workspaces xmc) $
-                W.mapLayout
-                    (fromMaybe layout . readMaybeWith lreads)
-                    (sfWins sf)
+                W.ensureTags
+                    layout
+                    (workspaces xmc)
+                    (W._layouts %~ (fromMaybe layout . readMaybeWith lreads) $
+                     sfWins sf)
             extState = Map.fromList . fmap (second Left) $ sfExt sf
         pure
             XState
@@ -632,22 +632,24 @@ floatLocation w =
       -- Fallback solution if `go' fails.  Which it might, since it
       -- calls `getWindowAttributes'.
      do
-        sc <- gets (Lens.view (_windowset . W._current . W._screenId))
+        sc <- Lens.use (_windowset . W._current . W._screenId)
         pure (sc, W.RationalRect 0 0 1 1)
   where
     go =
         withDisplay $ \d -> do
-            cws <- gets (Lens.view (_windowset . W._current))
+            cws <- Lens.use (_windowset . W._current)
             wa <- io $ getWindowAttributes d w
-            let bw = (fi . wa_border_width) wa
             sc <- fromMaybe cws <$> pointScreen (fi $ wa_x wa) (fi $ wa_y wa)
-            let sr = Lens.view _screenRect sc
+            let bw = fi (wa_border_width wa)
+                sr = Lens.view _screenRect sc
+                sw = fi (rect_width sr)
+                sh = fi (rect_height sr)
                 rr =
                     W.RationalRect
-                        ((fi (wa_x wa) - fi (rect_x sr)) % fi (rect_width sr))
-                        ((fi (wa_y wa) - fi (rect_y sr)) % fi (rect_height sr))
-                        (fi (wa_width wa + bw * 2) % fi (rect_width sr))
-                        (fi (wa_height wa + bw * 2) % fi (rect_height sr))
+                        ((fi (wa_x wa) - fi (rect_x sr)) % sw)
+                        ((fi (wa_y wa) - fi (rect_y sr)) % sh)
+                        (fi (wa_width wa + bw * 2) % sw)
+                        (fi (wa_height wa + bw * 2) % sh)
             pure (Lens.view W._screenId sc, rr)
 
 -- | Given a point, determine the screen (if any) that contains it.
@@ -662,10 +664,12 @@ pointScreen x y = withWindowSet $ pure . find p . toListOf W._screens
 -- | @pointWithin x y r@ returns 'True' if the @(x, y)@ co-ordinate is within
 -- @r@.
 pointWithin :: Position -> Position -> Rectangle -> Bool
-pointWithin x y r =
-    x >= rect_x r && x < rect_x r + fi (rect_width r) && y >= rect_y r && y <
-    rect_y r +
-    fi (rect_height r)
+pointWithin x y r = x >= rx && x < rx + rw && y >= ry && y < ry + rh
+  where
+    rx = rect_x r
+    ry = rect_y r
+    rw = fi (rect_width r)
+    rh = fi (rect_height r)
 
 -- | Make a tiled window floating, using its suggested rectangle
 float :: Window -> X ()
@@ -684,7 +688,7 @@ float w = do
 -- | Accumulate mouse motion events
 mouseDrag :: (Position -> Position -> X ()) -> X () -> X ()
 mouseDrag f done = do
-    drag <- gets (Lens.view _dragging)
+    drag <- Lens.use _dragging
     case drag of
         Just _ -> pure () -- error case? we're already dragging
         Nothing -> do
@@ -824,5 +828,5 @@ readMaybe = readMaybeWith reads
 readMaybeWith :: (String -> [(a, String)]) -> String -> Maybe a
 readMaybeWith f x =
     case f x of
-        (y, ""):[] -> Just y
-        _          -> Nothing
+        [(y, "")] -> Just y
+        _         -> Nothing

@@ -10,13 +10,6 @@
 - group: {name: generalise-for-conciseness, enabled: true}
 - group: {name: lens,                       enabled: true}
 
-- ignore: {name: "Parse error"} # hlint can't keep up with GHC.
-- ignore: {name: Use tuple-section} # low signal-to-noise
-- ignore: {name: Use camelCase}
-- ignore: {name: Use list literal}
-- ignore: {name: Use void}
-- ignore: {name: "Use ?~"}
-
 - warn: {lhs: void, rhs: "(() <$)", name: Say what you mean}
 
 - warn: {lhs: pure x <* y, rhs: x <$ y, name: Generalize}
@@ -72,3 +65,10 @@
 - warn: {lhs: to f . to g, rhs: to (f . g)}
 - warn: {lhs: either Just (const Nothing), rhs: preview _Left}
 - warn: {lhs: either (const Nothing) Just, rhs: preview _Right}
+
+- ignore: {name: "Parse error"} # hlint can't keep up with GHC.
+- ignore: {name: Use tuple-section} # low signal-to-noise
+- ignore: {name: Use camelCase}
+- ignore: {name: Use list literal}
+- ignore: {name: Use void}
+- ignore: {name: "Use ?~"}

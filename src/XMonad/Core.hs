@@ -455,10 +455,8 @@ newtype X a =
              , MonadState XState
              , MonadReader XConf
              , Typeable
-             ) -- pure = return
-  -- (<*>) = ap
+             )
 
--- instance Applicative X where
 instance Semigroup a => Semigroup (X a) where
     (<>) = liftA2 (<>)
 
@@ -513,22 +511,22 @@ catchX job errcase = do
 -- | Execute the argument, catching all exceptions.  Either this function or
 -- 'catchX' should be used at all callsites of user customized code.
 userCode :: X a -> X (Maybe a)
-userCode a = catchX (Just <$> a) (pure Nothing)
+userCode ma = userCodeDef Nothing (Just <$> ma)
 
 -- | Same as userCode but with a default argument to return instead of using
 -- Maybe, provided for convenience.
 userCodeDef :: a -> X a -> X a
-userCodeDef defValue a = fromMaybe defValue <$> userCode a
+userCodeDef a ma = ma `catchX` pure a
 
 -- ---------------------------------------------------------------------
 -- Convenient wrappers to state
 -- | Run a monad action with the current display settings
-withDisplay :: (Display -> X a) -> X a
-withDisplay f = Lens.view _display >>= f
+withDisplay :: (MonadReader s m, HasDisplay s) => (Display -> m a) -> m a
+withDisplay = (Lens.view _display >>=)
 
 -- | Run a monadic action with the current stack set
-withWindowSet :: (WindowSet -> X a) -> X a
-withWindowSet f = gets (Lens.view _windowset) >>= f
+withWindowSet :: (MonadState s m, HasWindowSet s) => (WindowSet -> m a) -> m a
+withWindowSet = (Lens.use _windowset >>=)
 
 -- | Safely access window attributes.
 withWindowAttributes :: Display -> Window -> (WindowAttributes -> X ()) -> X ()
@@ -537,11 +535,12 @@ withWindowAttributes dpy win f = do
     catchX (for_ wa f) (pure ())
 
 -- | True if the given window is the root window
-isRoot :: Window -> X Bool
+-- isRoot :: Window -> X Bool
+isRoot :: (MonadReader na m, HasTheRoot na) => Window -> m Bool
 isRoot w = (w ==) <$> Lens.view _theRoot
 
 -- | Wrapper for the common case of atom internment
-getAtom :: String -> X Atom
+getAtom :: (MonadReader s m, HasDisplay s, MonadIO m) => String -> m Atom
 getAtom str = withDisplay $ \dpy -> io $ internAtom dpy str False
 
 -- | Common non-predefined atoms
@@ -766,11 +765,14 @@ xfork x =
 
 -- | This is basically a map function, running a function in the 'X' monad on
 -- each workspace with the output of that function being the modified workspace.
-runOnWorkspaces :: (WindowSpace -> X WindowSpace) -> X ()
+-- runOnWorkspaces :: (WindowSpace -> X WindowSpace) -> X ()
+runOnWorkspaces ::
+       (MonadState s m, HasWindowSet s)
+    => (WindowSpace -> m WindowSpace)
+    -> m ()
 runOnWorkspaces job = do
-    ws <- gets (Lens.view _windowset)
-    ws' <- _workspaces job ws
-    modify $ _windowset .~ ws'
+    ws <- Lens.use _windowset >>= _workspaces job
+    modify $ _windowset .~ ws
 
 -- | Return the path to the xmonad configuration directory.  This
 -- directory is where user configuration files are stored (e.g, the
