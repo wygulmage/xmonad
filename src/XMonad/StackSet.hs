@@ -57,6 +57,14 @@ import qualified Data.List as L (deleteBy,find,splitAt,filter,nub)
 import Data.List ( (\\) )
 import qualified Data.Map  as M (Map,insert,delete,empty)
 
+import Graphics.X11.Xlib
+
+import XMonad.Zipper
+import XMonad.RationalRect
+
+type WorkspaceId = String
+type ScreenId = Int
+
 -- $intro
 --
 -- The 'StackSet' data type encodes a window manager abstraction. The
@@ -131,50 +139,24 @@ import qualified Data.Map  as M (Map,insert,delete,empty)
 -- that are produced are used to track those workspaces visible as
 -- Xinerama screens, and those workspaces not visible anywhere.
 
-data StackSet i l a sid sd =
-    StackSet { current  :: !(Screen i l a sid sd)    -- ^ currently focused workspace
-             , visible  :: [Screen i l a sid sd]     -- ^ non-focused workspaces, visible in xinerama
-             , hidden   :: [Workspace i l a]         -- ^ workspaces not visible anywhere
-             , floating :: M.Map a RationalRect      -- ^ floating windows
+data StackSet l =
+    StackSet { current  :: !(Screen l)    -- ^ currently focused workspace
+             , visible  :: [Screen l]     -- ^ non-focused workspaces, visible in xinerama
+             , hidden   :: [Workspace l]         -- ^ workspaces not visible anywhere
+             , floating :: M.Map Window RationalRect      -- ^ floating windows
              } deriving (Show, Read, Eq)
 
 -- | Visible workspaces, and their Xinerama screens.
-data Screen i l a sid sd = Screen { workspace :: !(Workspace i l a)
-                                  , screen :: !sid
-                                  , screenDetail :: !sd }
+data Screen l = Screen
+    { workspace :: !(Workspace l)
+    , screen :: !ScreenId
+    , screenDetail :: !RationalRect }
     deriving (Show, Read, Eq)
 
 -- |
 -- A workspace is just a tag, a layout, and a stack.
 --
-data Workspace i l a = Workspace  { tag :: !i, layout :: l, stack :: Maybe (Stack a) }
-    deriving (Show, Read, Eq)
-
--- | A structure for window geometries
-data RationalRect = RationalRect !Rational !Rational !Rational !Rational
-    deriving (Show, Read, Eq)
-
--- |
--- A stack is a cursor onto a window list.
--- The data structure tracks focus by construction, and
--- the master window is by convention the top-most item.
--- Focus operations will not reorder the list that results from
--- flattening the cursor. The structure can be envisaged as:
---
--- >    +-- master:  < '7' >
--- > up |            [ '2' ]
--- >    +---------   [ '3' ]
--- > focus:          < '4' >
--- > dn +----------- [ '8' ]
---
--- A 'Stack' can be viewed as a list with a hole punched in it to make
--- the focused position. Under the zipper\/calculus view of such
--- structures, it is the differentiation of a [a], and integrating it
--- back has a natural implementation used in 'index'.
---
-data Stack a = Stack { focus  :: !a        -- focused thing in this set
-                     , up     :: [a]       -- clowns to the left
-                     , down   :: [a] }     -- jokers to the right
+data Workspace l = Workspace  { tag :: !WorkspaceId, layout :: l, stack :: Maybe (Zipper Window) }
     deriving (Show, Read, Eq)
 
 
@@ -193,7 +175,7 @@ abort x = error $ "xmonad: StackSet: " ++ x
 --
 -- Xinerama: Virtual workspaces are assigned to physical screens, starting at 0.
 --
-new :: (Integral s) => l -> [i] -> [sd] -> StackSet i l a s sd
+new :: l -> [WorkspaceId] -> [RationalRect] -> StackSet l
 new l wids m | not (null wids) && length m <= length wids && not (null m)
   = StackSet cur visi unseen M.empty
   where (seen,unseen) = L.splitAt (length m) $ map (\i -> Workspace i l Nothing) wids
@@ -209,7 +191,7 @@ new _ _ _ = abort "non-positive argument to StackSet.new"
 -- becomes the current screen. If it is in the visible list, it becomes
 -- current.
 
-view :: (Eq s, Eq i) => i -> StackSet i l a s sd -> StackSet i l a s sd
+view :: WorkspaceId -> StackSet l -> StackSet l
 view i s
     | i == currentTag s = s  -- current
 
@@ -224,7 +206,7 @@ view i s
 
     | otherwise = s -- not a member of the stackset
 
-  where equating f = \x y -> f x == f y
+  where equating f x y = f x == f y
 
     -- 'Catch'ing this might be hard. Relies on monotonically increasing
     -- workspace tags defined in 'new'
@@ -239,7 +221,7 @@ view i s
 -- screen, the workspaces of the current screen and the other screen are
 -- swapped.
 
-greedyView :: (Eq s, Eq i) => i -> StackSet i l a s sd -> StackSet i l a s sd
+greedyView :: WorkspaceId -> StackSet l -> StackSet l
 greedyView w ws
      | any wTag (hidden ws) = view w ws
      | (Just s) <- L.find (wTag . workspace) (visible ws)
@@ -254,7 +236,7 @@ greedyView w ws
 
 -- | Find the tag of the workspace visible on Xinerama screen 'sc'.
 -- 'Nothing' if screen is out of bounds.
-lookupWorkspace :: Eq s => s -> StackSet i l a s sd -> Maybe i
+lookupWorkspace :: ScreenId -> StackSet l -> Maybe WorkspaceId
 lookupWorkspace sc w = listToMaybe [ tag i | Screen i s _ <- current w : visible w, s == sc ]
 
 -- ---------------------------------------------------------------------
@@ -266,13 +248,13 @@ lookupWorkspace sc w = listToMaybe [ tag i | Screen i s _ <- current w : visible
 -- default value. Otherwise, it applies the function to the stack,
 -- returning the result. It is like 'maybe' for the focused workspace.
 --
-with :: b -> (Stack a -> b) -> StackSet i l a s sd -> b
+with :: b -> (Zipper Window -> b) -> StackSet l -> b
 with dflt f = maybe dflt f . stack . workspace . current
 
 -- |
 -- Apply a function, and a default value for 'Nothing', to modify the current stack.
 --
-modify :: Maybe (Stack a) -> (Stack a -> Maybe (Stack a)) -> StackSet i l a s sd -> StackSet i l a s sd
+modify :: Maybe (Stack Window) -> (Stack Window -> Maybe (Stack Window)) -> StackSet l -> StackSet l
 modify d f s = s { current = (current s)
                         { workspace = (workspace (current s)) { stack = with d f s }}}
 
@@ -280,45 +262,15 @@ modify d f s = s { current = (current s)
 -- Apply a function to modify the current stack if it isn't empty, and we don't
 --  want to empty it.
 --
-modify' :: (Stack a -> Stack a) -> StackSet i l a s sd -> StackSet i l a s sd
+modify' :: (Stack Window -> Stack Window) -> StackSet l -> StackSet l
 modify' f = modify Nothing (Just . f)
 
 -- |
 -- /O(1)/. Extract the focused element of the current stack.
 -- Return 'Just' that element, or 'Nothing' for an empty stack.
 --
-peek :: StackSet i l a s sd -> Maybe a
+peek :: StackSet l -> Maybe Window
 peek = with Nothing (return . focus)
-
--- |
--- /O(n)/. Flatten a 'Stack' into a list.
---
-integrate :: Stack a -> [a]
-integrate (Stack x l r) = reverse l ++ x : r
-
--- |
--- /O(n)/ Flatten a possibly empty stack into a list.
-integrate' :: Maybe (Stack a) -> [a]
-integrate' = maybe [] integrate
-
--- |
--- /O(n)/. Turn a list into a possibly empty stack (i.e., a zipper):
--- the first element of the list is current, and the rest of the list
--- is down.
-differentiate :: [a] -> Maybe (Stack a)
-differentiate []     = Nothing
-differentiate (x:xs) = Just $ Stack x [] xs
-
--- |
--- /O(n)/. 'filter p s' returns the elements of 's' such that 'p' evaluates to
--- 'True'.  Order is preserved, and focus moves as described for 'delete'.
---
-filter :: (a -> Bool) -> Stack a -> Maybe (Stack a)
-filter p (Stack f ls rs) = case L.filter p (f:rs) of
-    f':rs' -> Just $ Stack f' (L.filter p ls) rs'    -- maybe move focus down
-    []     -> case L.filter p ls of                  -- filter back up
-                    f':ls' -> Just $ Stack f' ls' [] -- else up
-                    []     -> Nothing
 
 -- |
 -- /O(s)/. Extract the stack on the current workspace, as a list.
@@ -326,7 +278,7 @@ filter p (Stack f ls rs) = case L.filter p (f:rs) of
 -- the head of the list. The implementation is given by the natural
 -- integration of a one-hole list cursor, back to a list.
 --
-index :: StackSet i l a s sd -> [a]
+index :: StackSet l -> [Window]
 index = with [] integrate
 
 -- |
