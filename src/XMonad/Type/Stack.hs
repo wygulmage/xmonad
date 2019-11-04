@@ -7,6 +7,7 @@ import Control.Applicative (Applicative ((<*>), pure), (<**>))
 import Control.Category (Category (..))
 import Data.Foldable (Foldable (toList, foldr, foldl', foldMap))
 import Data.Functor
+import Data.Functor.Reverse (Reverse (Reverse, getReverse))
 import Data.Semigroup
 import Data.Traversable (Traversable (traverse))
 import qualified Data.List as List
@@ -29,20 +30,14 @@ instance Functor Stack where
     fmap f ~(Stack xu x xd) = Stack (fmap f xu) (f x) (fmap f xd)
 
 instance Foldable Stack where
-    toList ~(Stack xu x xd) = foldl' (flip (:)) (x : xd) xu
-    foldr f z = foldr f z . toList
+    foldr f z ~(Stack xu x xd) = foldr f (foldr f z (x : xd)) (Reverse xu)
 
 instance Traversable Stack where
     traverse f ~(Stack xu x xd) =
         Stack
-        <$> backwardsF xu
+        <$> (getReverse <$> traverse f (Reverse xu))
         <*> f x
         <*> traverse f xd
-        where
-          backwardsF (y : ys) = (:) <$> f y >*< backwardsF ys
-          backwardsF _ = pure []
-          (>*<) = flip (<**>)
-          infixl 4 >*<
 
 
 -- |

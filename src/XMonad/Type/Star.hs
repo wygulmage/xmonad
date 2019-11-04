@@ -30,6 +30,8 @@ toReaderT = coerce
 toKleisli :: Star m a b -> Kleisli m a b
 toKleisli = coerce
 
+liftStar = fromReaderT . lift
+
 instance Monad m => Category (Star m) where
     g . f = fromKleisli (toKleisli g . toKleisli f)
     id = fromKleisli id
@@ -68,3 +70,6 @@ instance Monad m => MonadReader c (Star m c) where
     ask = fromReaderT ask
     local f = fromReaderT . local f . toReaderT
     reader f = fromReaderT (asks f)
+
+instance MonadIO m => MonadIO (Star m c) where
+    liftIO = fromReaderT . liftIO

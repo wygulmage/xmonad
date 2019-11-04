@@ -31,7 +31,7 @@ module XMonad.Core (
     ManageHook, Query(..), runQuery
   ) where
 
-import XMonad.StackSet hiding (modify)
+import XMonad.WindowSet
 
 import Prelude
 import Control.Exception.Extensible (fromException, try, bracket, throw, finally, SomeException(..))
@@ -66,7 +66,7 @@ import qualified Data.Set as S
 
 -- | XState, the (mutable) window manager state.
 data XState = XState
-    { windowset        :: !WindowSet                     -- ^ workspace list
+    { windowset        :: !(WindowSet (Layout Window))                     -- ^ workspace list
     , mapped           :: !(S.Set Window)                -- ^ the Set of mapped windows
     , waitingUnmap     :: !(M.Map Window Int)            -- ^ the number of expected UnmapEvents
     , dragging         :: !(Maybe (Position -> Position -> X (), X ()))
@@ -125,8 +125,7 @@ data XConfig l = XConfig
     }
 
 
-type WindowSet   = StackSet  WorkspaceId (Layout Window) Window ScreenId ScreenDetail
-type WindowSpace = Workspace WorkspaceId (Layout Window) Window
+type WindowSpace = Workspace (Layout Window)
 
 -- | Virtual workspace indices
 type WorkspaceId = String
@@ -165,7 +164,7 @@ instance (Monoid a) => Monoid (X a) where
 instance Default a => Default (X a) where
     def = return def
 
-type ManageHook = Query (Endo WindowSet)
+type ManageHook = Query (Endo (WindowSet (Layout Window)))
 newtype Query a = Query (ReaderT Window X a)
     deriving (Functor, Applicative, Monad, MonadReader Window, MonadIO)
 
@@ -217,7 +216,7 @@ withDisplay :: (Display -> X a) -> X a
 withDisplay   f = asks display >>= f
 
 -- | Run a monadic action with the current stack set
-withWindowSet :: (WindowSet -> X a) -> X a
+withWindowSet :: (WindowSet (Layout Window) -> X a) -> X a
 withWindowSet f = gets windowset >>= f
 
 -- | Safely access window attributes.
@@ -246,11 +245,11 @@ atom_WM_TAKE_FOCUS      = getAtom "WM_TAKE_FOCUS"
 
 -- | An existential type that can hold any object that is in 'Read'
 --   and 'LayoutClass'.
-data Layout a = forall l. (LayoutClass l a, Read (l a)) => Layout (l a)
+data Layout = forall l. (LayoutClass l, Read (l Window)) => Layout (l Window)
 
 -- | Using the 'Layout' as a witness, parse existentially wrapped windows
 -- from a 'String'.
-readsLayout :: Layout a -> String -> [(Layout a, String)]
+readsLayout :: Layout -> String -> [(Layout, String)]
 readsLayout (Layout l) s = [(Layout (asTypeOf x l), rs) | (x, rs) <- reads s]
 
 -- | Every layout must be an instance of 'LayoutClass', which defines
@@ -272,7 +271,7 @@ readsLayout (Layout l) s = [(Layout (asTypeOf x l), rs) | (x, rs) <- reads s]
 -- 'runLayout', 'handleMessage', and so on.  This ensures that the
 -- proper methods will be used, regardless of the particular methods
 -- that any 'LayoutClass' instance chooses to define.
-class Show (layout a) => LayoutClass layout a where
+class Show (layout Window) => LayoutClass layout where
 
     -- | By default, 'runLayout' calls 'doLayout' if there are any
     --   windows to be laid out, and 'emptyLayout' otherwise.  Most
@@ -280,9 +279,9 @@ class Show (layout a) => LayoutClass layout a where
     --   'runLayout'; it is only useful for layouts which wish to make
     --   use of more of the 'Workspace' information (for example,
     --   "XMonad.Layout.PerWorkspace").
-    runLayout :: Workspace WorkspaceId (layout a) a
+    runLayout :: Workspace (layout Window)
               -> Rectangle
-              -> X ([(a, Rectangle)], Maybe (layout a))
+              -> X ([(Window, Rectangle)], Maybe (layout Window))
     runLayout (Workspace _ l ms) r = maybe (emptyLayout l r) (doLayout l r) ms
 
     -- | Given a 'Rectangle' in which to place the windows, and a 'Stack'
@@ -299,18 +298,18 @@ class Show (layout a) => LayoutClass layout a where
     -- Layouts which do not need access to the 'X' monad ('IO', window
     -- manager state, or configuration) and do not keep track of their
     -- own state should implement 'pureLayout' instead of 'doLayout'.
-    doLayout    :: layout a -> Rectangle -> Stack a
-                -> X ([(a, Rectangle)], Maybe (layout a))
+    doLayout    :: layout Window -> Rectangle -> Stack Window
+                -> X ([(Window, Rectangle)], Maybe (layout Window))
     doLayout l r s   = return (pureLayout l r s, Nothing)
 
     -- | This is a pure version of 'doLayout', for cases where we
     -- don't need access to the 'X' monad to determine how to lay out
     -- the windows, and we don't need to modify the layout itself.
-    pureLayout  :: layout a -> Rectangle -> Stack a -> [(a, Rectangle)]
+    pureLayout  :: layout Window -> Rectangle -> Stack Window -> [(Window, Rectangle)]
     pureLayout _ r s = [(focus s, r)]
 
     -- | 'emptyLayout' is called when there are no windows.
-    emptyLayout :: layout a -> Rectangle -> X ([(a, Rectangle)], Maybe (layout a))
+    emptyLayout :: layout a -> Rectangle -> X ([(Window, Rectangle)], Maybe (layout Window))
     emptyLayout _ _ = return ([], Nothing)
 
     -- | 'handleMessage' performs message handling.  If
@@ -323,29 +322,29 @@ class Show (layout a) => LayoutClass layout a where
     -- to handle messages should implement 'pureMessage' instead of
     -- 'handleMessage' (this restricts the risk of error, and makes
     -- testing much easier).
-    handleMessage :: layout a -> SomeMessage -> X (Maybe (layout a))
+    handleMessage :: layout Window -> SomeMessage -> X (Maybe (layout Window))
     handleMessage l  = return . pureMessage l
 
     -- | Respond to a message by (possibly) changing our layout, but
     -- taking no other action.  If the layout changes, the screen will
     -- be refreshed.
-    pureMessage :: layout a -> SomeMessage -> Maybe (layout a)
+    pureMessage :: layout Window -> SomeMessage -> Maybe (layout Window)
     pureMessage _ _  = Nothing
 
     -- | This should be a human-readable string that is used when
     -- selecting layouts by name.  The default implementation is
     -- 'show', which is in some cases a poor default.
-    description :: layout a -> String
+    description :: layout Window -> String
     description      = show
 
-instance LayoutClass Layout Window where
+instance LayoutClass Layout where
     runLayout (Workspace i (Layout l) ms) r = fmap (fmap Layout) `fmap` runLayout (Workspace i l ms) r
     doLayout (Layout l) r s  = fmap (fmap Layout) `fmap` doLayout l r s
     emptyLayout (Layout l) r = fmap (fmap Layout) `fmap` emptyLayout l r
     handleMessage (Layout l) = fmap (fmap Layout) . handleMessage l
     description (Layout l)   = description l
 
-instance Show (Layout a) where show (Layout l) = show l
+instance Show (Layout Window) where show (Layout l) = show l
 
 -- | Based on ideas in /An Extensible Dynamically-Typed Hierarchy of
 -- Exceptions/, Simon Marlow, 2006. Use extensible messages to the

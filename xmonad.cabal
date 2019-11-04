@@ -69,7 +69,9 @@ library
                    XMonad.Main
                    XMonad.ManageHook
                    XMonad.Operations
-                   XMonad.StackSet
+                   XMonad.Type.Stack
+                   XMonad.Type.RationalRect
+                   XMonad.WindowSet
   other-modules:   Paths_xmonad
   hs-source-dirs:  src
   build-depends:   base                  >= 4.9 && < 5
@@ -79,7 +81,10 @@ library
                  , directory
                  , extensible-exceptions
                  , filepath
+                 , microlens
+                 , microlens-mtl
                  , mtl
+                 , transformers >= 0.4 && < 0.6
                  , process
                  , setlocale
                  , unix
