@@ -126,8 +126,6 @@ import Data.Typeable
 import Graphics.X11.Xlib
 import Graphics.X11.Xlib.Extras (Event, WindowAttributes, getWindowAttributes)
 import Lens.Micro (Lens, Lens', (%~), (.~))
-
--- import qualified Lens.Micro as Lens
 import qualified Lens.Micro.Mtl as Lens
 import System.Directory
 import System.Environment (lookupEnv)
