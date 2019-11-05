@@ -68,6 +68,8 @@ lmapStar :: (b -> a) -> Star m a c -> Star m b c
 lmapStar f = lowerStar (. f) -- Coerce `->`'s `lmap`.
 {-# INLINE lmapStar #-}
 
+lmapWith f = lowerStar . f
+
 lowerStar ::
     ((a -> m b) -> c -> n d) ->
     Star m a b -> Star n c d
@@ -94,11 +96,22 @@ bindWith f = lowerStar . liftA2 f . flip  . (runStar .)
 -- ^ Take a 'bind' function for 'm's and return a 'bind' function for 'Star m c's. Uses below are flipped because Haskell normally flips bind functions.
 -- The `flip` gets you `c -> a -> m b` from `a -> Star m c b`.
 
+mapWith :: (a -> m b -> n d) -> a -> Star m c b -> Star n c d
+-- mapWith f g = lowerStar (f g .)
+mapWith f = lowerStar . (.) . f
+
+composeWith  :: Monad m => ((m a -> m b) -> (a2 -> m2 b2) -> a3 -> m3 b3) -> Star m a b -> Star m2 a2 b2 -> Star m3 a3 b3
+-- composeWith f = lowerStar2 (\ g -> f (>>= g))
+composeWith f = lowerStar2 (f . (=<<))
+
+-- type class homomorphism: method (hom x) = hom (method x)
+-- For example, fmap f (hom x) = hom (fmap f x)
 
 ------- Category Hierarchy Instances -------
 
 instance Monad m => Category (Star m) where
     (.) = lowerStar2 (<=<)
+    -- (.) = composeWith (.)
     id = Star pure
 
 instance Monad m => Arrow (Star m) where
@@ -124,12 +137,11 @@ instance MonadFix m => ArrowLoop (Star m) where
       where
         f' x y = f (x, snd y)
 
-
 ------- Functor Hierarchy Instances -------
 
 instance Functor m => Functor (Star m c) where
-    fmap g = lowerStar (fmap g .)
-    (<$) x = lowerStar ((<$) x .)
+    fmap = mapWith fmap
+    (<$) = mapWith (<$)
 
 instance Contravariant m => Contravariant (Star m c) where
     contramap f = lowerStar (contramap f .)
