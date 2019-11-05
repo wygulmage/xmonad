@@ -1,70 +1,105 @@
-{-# LANGUAGE
-    NoImplicitPrelude
-  , FlexibleContexts
-  , FlexibleInstances
-  , MultiParamTypeClasses
-  #-}
+{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE NoImplicitPrelude     #-}
 
 module XMonad.Internal.Type.Star where
 
+import Prelude (Either (Left, Right), either, flip, fst, snd, uncurry)
+import Data.Coerce (coerce)
 
-import Prelude (flip, fst, snd)
+import Control.Category (Category (id, (.)))
+import Control.Arrow
+    (Arrow (arr, (&&&), (***)), ArrowChoice ((+++), (|||)), ArrowApply (app), ArrowZero (zeroArrow), ArrowPlus ((<+>)), ArrowLoop (loop))
 
-import Control.Applicative (Applicative (liftA2, pure), Alternative ((<|>), empty))
-import Control.Arrow (Arrow ((&&&), (***), arr), ArrowChoice ((|||), (+++)))
-import Control.Category (Category ((.), id))
-import Control.Monad (Monad ((>>=)), (=<<), (<=<))
+import Data.Functor (Functor ((<$), fmap))
+import Data.Functor.Contravariant (Contravariant (contramap))
+import Control.Applicative
+    (Alternative (empty, (<|>)), Applicative ((<*>), (*>), liftA2, pure))
+import Control.Monad (Monad ((>>=), (>>)), MonadPlus (mplus, mzero), (<=<), (=<<))
+
+import Control.Monad.Fail (MonadFail (fail))
+import Control.Monad.Fix (MonadFix (mfix))
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Reader (MonadReader (ask, local, reader))
+import Control.Monad.Zip (MonadZip (mzipWith))
 
-import Data.Coerce (coerce)
-import Data.Functor (Functor (fmap))
-import Data.Either (Either (Left, Right), either)
-import Data.Semigroup (Semigroup ((<>)))
 import Data.Monoid (Monoid (mempty))
+import Data.Semigroup (Semigroup ((<>)))
 
 
 newtype Star m a b = Star{ runStar :: a -> m b }
+-- equivalent to Kleisli m a b, Compose ((->) a) m b, (permuted) ReaderT a m b
+
+
+------- Helper Functions -------
 
 constStar :: m a -> Star m c a
 constStar = Star . pure
 {-# INLINE constStar #-}
 
 lmapStar :: (b -> a) -> Star m a c -> Star m b c
-lmapStar f = unStarred (. f)
+lmapStar f = lowerStar (. f)
 {-# INLINE lmapStar #-}
 
-unStarred :: ((a -> m b) -> c -> n d) -> Star m a b -> Star n c d
-unStarred f = Star . f . runStar
-{-# INLINE unStarred #-}
+lowerStar :: ((a -> m b) -> c -> n d) -> Star m a b -> Star n c d
+lowerStar = coerce
+{-# INLINE lowerStar #-}
 
-unStarred2 f (Star g) = unStarred (f g)
+lowerStar2 ::
+     ((a1 -> m1 b1) -> (a2 -> m2 b2) -> a3 -> m3 b3) ->
+     Star m1 a1 b1 -> Star m2 a2 b2 -> Star m3 a3 b3
+lowerStar2 = coerce
+{-# INLINE lowerStar2 #-}
 
 productWith :: (m b -> n c -> o d) -> Star m a b -> Star n a c -> Star o a d
-productWith f (Star g) (Star h) = Star (\ x -> f (g x) (h x))
+productWith = lowerStar2 . liftA2
 {-# INLINE productWith #-}
 
 
+------- Category Hierarchy Instances -------
+
 instance Monad m => Category (Star m) where
-    Star g . Star f = Star (g <=< f)
+    (.) = lowerStar2 (<=<)
     id = Star pure
 
 instance Monad m => Arrow (Star m) where
     (&&&) = liftA2 (,)
     f *** g = lmapStar fst f &&& lmapStar snd g
-    -- arr f = fmap f id
-    arr f = Star (pure . f)
+    arr f = lmapStar f id
 
 instance Monad m => ArrowChoice (Star m) where
-    Star f ||| Star g = Star (either f g)
+    (|||) = lowerStar2 either
     f +++ g = fmap Left f ||| fmap Right g
 
+instance Monad m => ArrowApply (Star m) where
+    app = Star (uncurry runStar)
+
+instance (Alternative m, Monad m) => ArrowZero (Star m) where
+    zeroArrow = empty
+
+instance (Alternative m, Monad m) => ArrowPlus (Star m) where
+    (<+>) = (<|>)
+
+instance MonadFix m => ArrowLoop (Star m) where
+    loop (Star f) = Star (fmap fst . mfix . f')
+      where
+        f' x y = f (x, snd y)
+
+
+------- Functor Hierarchy Instances -------
 
 instance Functor m => Functor (Star m c) where
-    fmap g = unStarred (fmap g .)
+    fmap g = lowerStar (fmap g .)
+    (<$) x = lowerStar ((<$) x .)
+
+instance Contravariant m => Contravariant (Star m c) where
+    contramap f = lowerStar (contramap f .)
 
 instance Applicative m => Applicative (Star m c) where
-    liftA2 f = productWith (liftA2 f)
+    (<*>) = productWith (<*>)
+    (*>) = productWith (*>)
+    liftA2 = productWith . liftA2
     pure = constStar . pure
 
 instance Alternative m => Alternative (Star m c) where
@@ -72,19 +107,41 @@ instance Alternative m => Alternative (Star m c) where
     empty = constStar empty
 
 instance Monad m => Monad (Star m c) where
-    Star f >>= g = Star (\ x -> flip (runStar . g) x =<< f x)
+    Star f >>= g = Star (\x -> flip (runStar . g) x =<< f x)
+    (>>) = (*>)
+
+
+------- Monad Utility Classes -------
+
+instance MonadFail m => MonadFail (Star m c) where
+    fail = constStar . fail
+
+instance MonadFix m => MonadFix (Star m c) where
+    mfix f = Star (mfix . flip (runStar . f))
 
 instance MonadIO m => MonadIO (Star m c) where
-    liftIO = arr liftIO
+    liftIO = constStar . liftIO
 
 instance Monad m => MonadReader c (Star m c) where
     ask = id
     local = lmapStar
-    reader = arr
+    reader f = lmapStar f id
 
+instance MonadZip m => MonadZip (Star m c) where
+    mzipWith = productWith . mzipWith
+
+
+------- Semigroup Hierarchy Instances -------
 
 instance Semigroup (m b) => Semigroup (Star m a b) where
     (<>) = productWith (<>)
 
 instance Monoid (m b) => Monoid (Star m a b) where
     mempty = constStar mempty
+
+
+------- Cruft Instances -------
+
+instance (Alternative m, Monad m) => MonadPlus (Star m c) where
+    mplus = (<|>)
+    mzero = empty
