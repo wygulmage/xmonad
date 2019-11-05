@@ -26,6 +26,10 @@ import Data.Monoid (Monoid (mempty))
 
 newtype Star m a b = Star{ runStar :: a -> m b }
 
+constStar :: m a -> Star m c a
+constStar = Star . pure
+{-# INLINE constStar #-}
+
 lmapStar :: (b -> a) -> Star m a c -> Star m b c
 lmapStar f = unStarred (. f)
 {-# INLINE lmapStar #-}
@@ -33,6 +37,8 @@ lmapStar f = unStarred (. f)
 unStarred :: ((a -> m b) -> c -> n d) -> Star m a b -> Star n c d
 unStarred f = Star . f . runStar
 {-# INLINE unStarred #-}
+
+unStarred2 f (Star g) = unStarred (f g)
 
 productWith :: (m b -> n c -> o d) -> Star m a b -> Star n a c -> Star o a d
 productWith f (Star g) (Star h) = Star (\ x -> f (g x) (h x))
@@ -46,6 +52,7 @@ instance Monad m => Category (Star m) where
 instance Monad m => Arrow (Star m) where
     (&&&) = liftA2 (,)
     f *** g = lmapStar fst f &&& lmapStar snd g
+    -- arr f = fmap f id
     arr f = Star (pure . f)
 
 instance Monad m => ArrowChoice (Star m) where
@@ -58,11 +65,11 @@ instance Functor m => Functor (Star m c) where
 
 instance Applicative m => Applicative (Star m c) where
     liftA2 f = productWith (liftA2 f)
-    pure = Star . pure . pure
+    pure = constStar . pure
 
 instance Alternative m => Alternative (Star m c) where
     (<|>) = productWith (<|>)
-    empty = Star (pure empty)
+    empty = constStar empty
 
 instance Monad m => Monad (Star m c) where
     Star f >>= g = Star (\ x -> flip (runStar . g) x =<< f x)
@@ -80,4 +87,4 @@ instance Semigroup (m b) => Semigroup (Star m a b) where
     (<>) = productWith (<>)
 
 instance Monoid (m b) => Monoid (Star m a b) where
-    mempty = Star (pure mempty)
+    mempty = constStar mempty
