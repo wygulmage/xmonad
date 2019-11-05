@@ -6,7 +6,9 @@
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE UndecidableInstances  #-} -- for MonadError
 
-module XMonad.Internal.Type.Star where
+module XMonad.Internal.Type.Star
+    (Star (Star, runStar))
+  where
 
 import Prelude (Either (Left, Right), either, flip, fst, snd, uncurry)
 import Data.Coerce (coerce)
@@ -84,12 +86,13 @@ productWith ::
 productWith = lowerStar2 . liftA2 -- Coerce `(->) c`'s `liftA2`.
 {-# INLINE productWith #-}
 
-doStar ::
+bindWith ::
     ((a -> m1 b1) -> m2 b2 -> m3 b3) ->
     (a -> Star m1 c b1) -> Star m2 c b2 -> Star m3 c b3
--- doStar f g = (lowerStar . liftA2 f) (flip (runStar . g))
-doStar f = lowerStar . liftA2 f . flip  . (.) runStar
-{-# INLINE doStar #-}
+bindWith f = lowerStar . liftA2 f . flip  . (runStar .)
+{-# INLINE bindWith #-}
+-- ^ Take a 'bind' function for 'm's and return a 'bind' function for 'Star m c's. Uses below are flipped because Haskell normally flips bind functions.
+-- The `flip` gets you `c -> a -> m b` from `a -> Star m c b`.
 
 
 ------- Category Hierarchy Instances -------
@@ -142,14 +145,7 @@ instance Alternative m => Alternative (Star m c) where
     empty = constStar empty
 
 instance Monad m => Monad (Star m c) where
-    -- Star f >>= g = Star (\x -> flip (runStar . g) x =<< f x)
-    -- Star f >>= g = Star (\x -> f x >>= flip (runStar . g) x)
-    -- (>>=) :: Star m c a -> (a -> Star m c b) -> Star m c b
-    --       ~ (c -> m a) -> (a -> c -> m b) -> c -> m b
-    -- (=<<) :: (a -> Star m c b) -> Star m c a -> Star m c b
-    --       ~ (a -> c -> m b) -> (c -> m a) -> c -> m b
-    -- liftA2 (=<<) :: (a -> c -> m b) -> (c -> m a) -> c -> m b
-    (>>=) = flip (doStar (=<<))
+    (>>=) = flip (bindWith (=<<))
     (>>) = (*>)
 
 ------- Monad Utility Instances -------
@@ -180,11 +176,7 @@ instance MonadCont m => MonadCont (Star m c) where
         -- Star (\ x -> callCC (flip (runStar . f) x . (constStar .)))
 
 instance MonadError e m => MonadError e (Star m c) where
-    -- catchError f g =
-        -- Star (\ x -> catchError (runStar f x) (flip runStar x . g))
-        -- Star (\ x -> catchError (runStar f x) (flip (runStar . g) x))
-    -- Star f `catchError` g = Star (\ x -> catchError (f x) (flip (runStar . g) x))
-    catchError = flip (doStar (flip catchError))
+    catchError = flip (bindWith (flip catchError))
     throwError = constStar . throwError
 
 instance MonadState s m => MonadState s (Star m c) where
