@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE NoImplicitPrelude     #-}
+{-# LANGUAGE UndecidableInstances  #-} -- for MonadError
 
 module XMonad.Internal.Type.Star where
 
@@ -21,8 +22,13 @@ import Control.Monad (Monad ((>>=), (>>)), MonadPlus (mplus, mzero), (<=<), (=<<
 import Control.Monad.Fail (MonadFail (fail))
 import Control.Monad.Fix (MonadFix (mfix))
 import Control.Monad.IO.Class (MonadIO (liftIO))
-import Control.Monad.Reader (MonadReader (ask, local, reader))
 import Control.Monad.Zip (MonadZip (mzipWith))
+
+import Control.Monad.Reader (MonadReader (ask, local, reader))
+import Control.Monad.Cont (MonadCont (callCC))
+import Control.Monad.Except (MonadError (catchError, throwError))
+import Control.Monad.State (MonadState (get, put, state))
+import Control.Monad.Writer (MonadWriter (listen, pass, tell, writer))
 
 import Data.Monoid (Monoid (mempty))
 import Data.Semigroup (Semigroup ((<>)))
@@ -111,7 +117,7 @@ instance Monad m => Monad (Star m c) where
     (>>) = (*>)
 
 
-------- Monad Utility Classes -------
+------- Monad Utility Instances -------
 
 instance MonadFail m => MonadFail (Star m c) where
     fail = constStar . fail
@@ -122,13 +128,36 @@ instance MonadFix m => MonadFix (Star m c) where
 instance MonadIO m => MonadIO (Star m c) where
     liftIO = constStar . liftIO
 
+instance MonadZip m => MonadZip (Star m c) where
+    mzipWith = productWith . mzipWith
+
+
+------- MTL Instances -------
+
 instance Monad m => MonadReader c (Star m c) where
     ask = id
     local = lmapStar
     reader f = lmapStar f id
 
-instance MonadZip m => MonadZip (Star m c) where
-    mzipWith = productWith . mzipWith
+instance MonadCont m => MonadCont (Star m c) where
+    callCC f =
+        Star (\ x -> callCC (flip runStar x . f . (constStar .)))
+
+instance MonadError e m => MonadError e (Star m c) where
+    catchError f g =
+        Star (\ x -> catchError (runStar f x) (flip runStar x . g))
+    throwError = constStar . throwError
+
+instance MonadState s m => MonadState s (Star m c) where
+    get = constStar get
+    put = constStar . put
+    state = constStar . state
+
+instance MonadWriter w m => MonadWriter w (Star m c) where
+    listen = lowerStar (listen .)
+    pass = lowerStar (pass .)
+    tell = constStar . tell
+    writer = constStar . writer
 
 
 ------- Semigroup Hierarchy Instances -------
