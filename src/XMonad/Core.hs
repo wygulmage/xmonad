@@ -141,6 +141,8 @@ import System.Posix.Signals
 import System.Posix.Types (ProcessID)
 import System.Process
 
+import XMonad.Internal.Type.Star (Star (..))
+
 -- | XState, the (mutable) window manager state.
 data XState =
     XState
@@ -160,14 +162,21 @@ data XState =
         }
 
 -- XState optics:
-_mapped :: Lens' XState (Set Window)
-_mapped f s = (\x -> s {mapped = x}) <$> f (mapped s)
+class HasMapped a where
+    _mapped :: Lens' a (Set Window)
+    _waitingUnmap :: Lens' a (Map Window Int)
 
-_numberlockMask :: Lens' XState KeyMask
-_numberlockMask f s = (\x -> s {numberlockMask = x}) <$> f (numberlockMask s)
+instance HasMapped XState where
+    _mapped f s = (\x -> s {mapped = x}) <$> f (mapped s)
+    _waitingUnmap f s = (\x -> s {waitingUnmap = x}) <$> f (waitingUnmap s)
 
-_waitingUnmap :: Lens' XState (Map Window Int)
-_waitingUnmap f s = (\x -> s {waitingUnmap = x}) <$> f (waitingUnmap s)
+class HasNumberlockMask a where
+    _numberlockMask :: Lens' a KeyMask
+
+instance HasNumberlockMask XState where
+    _numberlockMask f s =
+        (\x -> s {numberlockMask = x}) <$> f (numberlockMask s)
+
 
 _dragging :: Lens' XState (Maybe (Position -> Position -> X (), X ()))
 _dragging f s = (\x -> s {dragging = x}) <$> f (dragging s)
@@ -444,7 +453,8 @@ instance HasScreenRect (XMonad.StackSet.Screen i l a sid ScreenDetail) where
 -- instantiated on 'XConf' and 'XState' automatically.
 --
 newtype X a =
-    X (ReaderT XConf (StateT XState IO) a)
+    -- X (ReaderT XConf (StateT XState IO) a)
+    X (Star (StateT XState IO) XConf a)
     deriving ( Functor
              , Applicative
              , Monad
@@ -469,10 +479,12 @@ type ManageHook = Query (Endo WindowSet)
 
 newtype Query a =
     Query (ReaderT Window X a)
+    -- Query (Star X Window a)
     deriving (Functor, Applicative, Monad, MonadReader Window, MonadIO)
 
 runQuery :: Query a -> Window -> X a
 runQuery (Query m) = runReaderT m
+-- runQuery (Query m) = runStar m
 
 instance Semigroup a => Semigroup (Query a) where
     (<>) = liftA2 (<>)
@@ -487,7 +499,8 @@ instance Default a => Default (Query a) where
 -- | Run the 'X' monad, given a chunk of 'X' monad code, and an initial state
 -- Return the result, and final state
 runX :: XConf -> XState -> X a -> IO (a, XState)
-runX c st (X a) = runStateT (runReaderT a c) st
+-- runX c st (X a) = runStateT (runReaderT a c) st
+runX c st (X a) = runStateT (runStar a c) st
 
 -- | Run in the 'X' monad, and in case of exception, and catch it and log it
 -- to stderr, and run the error case.

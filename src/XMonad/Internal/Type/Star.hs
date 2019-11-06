@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveDataTypeable         #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -14,6 +15,7 @@ module XMonad.Internal.Type.Star
 
 import Prelude (Either (Left, Right), either, flip, fst, snd, uncurry)
 import Data.Coerce (coerce)
+import Data.Typeable (Typeable)
 
 import Control.Category (Category (id, (.)))
 import Control.Arrow
@@ -54,6 +56,7 @@ import Data.Semigroup (Semigroup ((<>), stimes))
 ------- Types -------
 
 newtype Star m a b = Star{ runStar :: a -> m b }
+    deriving Typeable
 type role Star representational representational nominal
 -- Mostly equivalent to:
 --   `Kleisli m a b`
