@@ -26,7 +26,7 @@ import Control.Arrow
 import Data.Functor (Functor ((<$), fmap))
 import Data.Functor.Contravariant (Contravariant (contramap))
 import Control.Applicative
-    ( Applicative ((<*>), (*>), liftA2, pure)
+    ( Applicative ((<*>), (<*), (*>), liftA2, pure)
     , Alternative (empty, (<|>))
     )
 import Control.Monad
@@ -52,7 +52,7 @@ import Data.Semigroup (Semigroup ((<>)))
 ------- Types -------
 
 newtype Star m a b = Star{ runStar :: a -> m b }
--- equivalent to:
+-- Mostly equivalent to:
 --   `Kleisli m a b`
 --   `Compose ((->) a) m b`
 --   (permuted) `ReaderT a m b`
@@ -140,39 +140,47 @@ instance MonadFix m => ArrowLoop (Star m) where
 ------- Functor Hierarchy Instances -------
 
 instance Functor m => Functor (Star m c) where
-    fmap = mapWith fmap
-    (<$) = mapWith (<$)
+    -- fmap = mapWith fmap
+    fmap f = lowerStar (fmap (fmap f))
+    -- (<$) = mapWith (<$)
+    (<$) x = lowerStar (fmap (x <$))
 
 instance Contravariant m => Contravariant (Star m c) where
     contramap f = lowerStar (contramap f .)
 
 instance Applicative m => Applicative (Star m c) where
-    (<*>) = productWith (<*>)
-    (*>) = productWith (*>)
-    liftA2 = productWith . liftA2
-    pure = constStar . pure
+    (<*>) = lowerStar2 (liftA2 (<*>))
+    (<*)  = lowerStar2 (liftA2 (<*))
+    (*>)  = lowerStar2 (liftA2 (*>))
+    liftA2 = lowerStar2 . liftA2 . liftA2
+    pure = Star . pure . pure
 
 instance Alternative m => Alternative (Star m c) where
-    (<|>) = productWith (<|>)
-    empty = constStar empty
+    -- There's no Alternative instance for `->`, so use `m`'s.
+    (<|>) = lowerStar2 (liftA2 (<|>))
+    empty = Star (pure empty)
 
 instance Monad m => Monad (Star m c) where
+    -- This requires some finesse, because we don't have Traversable for `m` or `->`.
     (>>=) = flip (bindWith (=<<))
     (>>) = (*>)
 
 ------- Monad Utility Instances -------
 
 instance MonadFail m => MonadFail (Star m c) where
-    fail = constStar . fail
+    -- Use `m`'s `fail`.
+    fail = Star . pure . fail
 
 instance MonadFix m => MonadFix (Star m c) where
     mfix f = Star (mfix . flip (runStar . f))
 
 instance MonadIO m => MonadIO (Star m c) where
-    liftIO = constStar . liftIO
+    -- Use `m`'s `liftIO`.
+    liftIO = Star . pure . liftIO
 
 instance MonadZip m => MonadZip (Star m c) where
-    mzipWith = productWith . mzipWith
+    -- Use `m`'s `mzipWith`.
+    mzipWith = lowerStar2 . liftA2 . mzipWith
 
 
 ------- MTL Instances -------
@@ -188,13 +196,16 @@ instance MonadCont m => MonadCont (Star m c) where
         -- Star (\ x -> callCC (flip (runStar . f) x . (constStar .)))
 
 instance MonadError e m => MonadError e (Star m c) where
+    -- Bind `m`'s `catchError` through `->`.
     catchError = flip (bindWith (flip catchError))
-    throwError = constStar . throwError
+    -- Use `m`'s `throwError`.
+    throwError = Star . pure . throwError
 
 instance MonadState s m => MonadState s (Star m c) where
-    get = constStar get
-    put = constStar . put
-    state = constStar . state
+    -- Use `m`'s methods.
+    get = Star (pure get)
+    put = Star . pure . put
+    state = Star . pure . state
 
 instance MonadWriter w m => MonadWriter w (Star m c) where
     listen = lowerStar (listen .)
@@ -206,10 +217,12 @@ instance MonadWriter w m => MonadWriter w (Star m c) where
 ------- Semigroup Hierarchy Instances -------
 
 instance Semigroup (m b) => Semigroup (Star m a b) where
-    (<>) = productWith (<>)
+    -- `->`'s Semigroup instance uses that of its result.
+    (<>) = lowerStar2 (<>)
 
 instance Monoid (m b) => Monoid (Star m a b) where
-    mempty = constStar mempty
+    -- `->`'s Monoid instance uses that of its result.
+    mempty = Star mempty
 
 
 ------- Cruft Instances -------
