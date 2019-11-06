@@ -4,10 +4,12 @@
 {-# LANGUAGE NoImplicitPrelude     #-}
 {-# LANGUAGE RoleAnnotations       #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
-{-# LANGUAGE UndecidableInstances  #-} -- for MonadError
+{-# LANGUAGE UndecidableInstances  #-} -- for MTL classes
 
 module XMonad.Internal.Type.Star
-    (Star (Star, runStar))
+    ( Star (Star, runStar)
+    , lmapStar, firstStar, secondStar
+    )
   where
 
 import Prelude (Either (Left, Right), either, flip, fst, snd, uncurry)
@@ -15,7 +17,7 @@ import Data.Coerce (coerce)
 
 import Control.Category (Category (id, (.)))
 import Control.Arrow
-    ( Arrow (arr, (&&&), (***))
+    ( Arrow (arr, (&&&), (***), first, second)
     , ArrowChoice ((+++), (|||))
     , ArrowApply (app)
     , ArrowZero (zeroArrow)
@@ -46,12 +48,13 @@ import Control.Monad.State (MonadState (get, put, state))
 import Control.Monad.Writer (MonadWriter (listen, pass, tell, writer))
 
 import Data.Monoid (Monoid (mempty))
-import Data.Semigroup (Semigroup ((<>)))
+import Data.Semigroup (Semigroup ((<>), stimes))
 
 
 ------- Types -------
 
 newtype Star m a b = Star{ runStar :: a -> m b }
+type role Star representational representational nominal
 -- Mostly equivalent to:
 --   `Kleisli m a b`
 --   `Compose ((->) a) m b`
@@ -63,12 +66,6 @@ newtype Star m a b = Star{ runStar :: a -> m b }
 constStar :: m a -> Star m c a
 constStar = Star . pure -- Use `(->) c`'s `pure`.
 {-# INLINE constStar #-}
-
-lmapStar :: (b -> a) -> Star m a c -> Star m b c
-lmapStar f = lowerStar (. f) -- Coerce `->`'s `lmap`.
-{-# INLINE lmapStar #-}
-
-lmapWith f = lowerStar . f
 
 lowerStar ::
     ((a -> m b) -> c -> n d) ->
@@ -82,48 +79,53 @@ lowerStar2 ::
 lowerStar2 = coerce
 {-# INLINE lowerStar2 #-}
 
-productWith ::
-    (m1 a -> m2 b -> m3 d) ->
-    Star m1 c a -> Star m2 c b -> Star m3 c d
-productWith = lowerStar2 . liftA2 -- Coerce `(->) c`'s `liftA2`.
-{-# INLINE productWith #-}
-
 bindWith ::
     ((a -> m1 b1) -> m2 b2 -> m3 b3) ->
     (a -> Star m1 c b1) -> Star m2 c b2 -> Star m3 c b3
-bindWith f = lowerStar . liftA2 f . flip  . (runStar .)
+bindWith f = lowerStar . liftA2 f . flipRunStar
 {-# INLINE bindWith #-}
--- ^ Take a 'bind' function for 'm's and return a 'bind' function for 'Star m c's. Uses below are flipped because Haskell normally flips bind functions.
--- The `flip` gets you `c -> a -> m b` from `a -> Star m c b`.
+-- ^ Lift a 'bind' function for 'm's into a function to 'Star m c's.
+-- The `flipRunStar` gets you `c -> a -> m b` from `a -> Star m c b`.
 
-mapWith :: (a -> m b -> n d) -> a -> Star m c b -> Star n c d
--- mapWith f g = lowerStar (f g .)
-mapWith f = lowerStar . (.) . f
+flipRunStar ::
+    (a -> Star m c b) ->
+    c -> a -> m b
+flipRunStar = flip . coerce
+{-# INLINE flipRunStar #-}
 
-composeWith  :: Monad m => ((m a -> m b) -> (a2 -> m2 b2) -> a3 -> m3 b3) -> Star m a b -> Star m2 a2 b2 -> Star m3 a3 b3
--- composeWith f = lowerStar2 (\ g -> f (>>= g))
-composeWith f = lowerStar2 (f . (=<<))
 
--- type class homomorphism: method (hom x) = hom (method x)
--- For example, fmap f (hom x) = hom (fmap f x)
+------- Profunctor Methods -------
+
+lmapStar :: (b -> a) -> Star m a c -> Star m b c
+lmapStar f = lowerStar (. f) -- Use `->`'s `lmap`.
+{-# INLINE lmapStar #-}
+
+firstStar :: Functor m => Star m a b -> Star m (a, c) (b, c)
+firstStar f = Star (\ ~(x, y) -> fmap (\ x' -> (x', y)) (runStar f x))
+
+secondStar :: Functor m => Star m a b -> Star m (c, a) (c, b)
+secondStar f = Star (\ ~(x, y) -> fmap ((,) x) (runStar f y))
+
 
 ------- Category Hierarchy Instances -------
 
 instance Monad m => Category (Star m) where
     (.) = lowerStar2 (<=<)
-    -- (.) = composeWith (.)
     id = Star pure
 
 instance Monad m => Arrow (Star m) where
     (&&&) = liftA2 (,)
     f *** g = lmapStar fst f &&& lmapStar snd g
-    arr f = lmapStar f id
+    arr f = lmapStar f id -- or `Star (pure . f)`
+    first = firstStar
+    second = secondStar
 
 instance Monad m => ArrowChoice (Star m) where
     (|||) = lowerStar2 either
     f +++ g = fmap Left f ||| fmap Right g
 
 instance Monad m => ArrowApply (Star m) where
+    -- app :: Star m (Star m a b, a) b
     app = Star (uncurry runStar)
 
 instance (Alternative m, Monad m) => ArrowZero (Star m) where
@@ -133,6 +135,7 @@ instance (Alternative m, Monad m) => ArrowPlus (Star m) where
     (<+>) = (<|>)
 
 instance MonadFix m => ArrowLoop (Star m) where
+    -- loop :: Star m (a, c) (b, c) -> Star m a b
     loop (Star f) = Star (fmap fst . mfix . f')
       where
         f' x y = f (x, snd y)
@@ -140,9 +143,7 @@ instance MonadFix m => ArrowLoop (Star m) where
 ------- Functor Hierarchy Instances -------
 
 instance Functor m => Functor (Star m c) where
-    -- fmap = mapWith fmap
     fmap f = lowerStar (fmap (fmap f))
-    -- (<$) = mapWith (<$)
     (<$) x = lowerStar (fmap (x <$))
 
 instance Contravariant m => Contravariant (Star m c) where
@@ -156,12 +157,12 @@ instance Applicative m => Applicative (Star m c) where
     pure = Star . pure . pure
 
 instance Alternative m => Alternative (Star m c) where
-    -- There's no Alternative instance for `->`, so use `m`'s.
+    -- Use `m`'s Alternative instance.
     (<|>) = lowerStar2 (liftA2 (<|>))
     empty = Star (pure empty)
 
 instance Monad m => Monad (Star m c) where
-    -- This requires some finesse, because we don't have Traversable for `m` or `->`.
+    -- Thread `m`'s (=<<) through `->`.
     (>>=) = flip (bindWith (=<<))
     (>>) = (*>)
 
@@ -172,14 +173,17 @@ instance MonadFail m => MonadFail (Star m c) where
     fail = Star . pure . fail
 
 instance MonadFix m => MonadFix (Star m c) where
-    mfix f = Star (mfix . flip (runStar . f))
+    -- mfix :: (a -> Star m c a) -> Star m c a
+    mfix = Star . fmap mfix . flipRunStar
 
 instance MonadIO m => MonadIO (Star m c) where
     -- Use `m`'s `liftIO`.
+    -- liftIO :: IO a -> Star m c a
     liftIO = Star . pure . liftIO
 
 instance MonadZip m => MonadZip (Star m c) where
     -- Use `m`'s `mzipWith`.
+    -- mzipWith :: (a -> b -> d) -> Star m c a -> Star m c b -> Star m c d
     mzipWith = lowerStar2 . liftA2 . mzipWith
 
 
@@ -192,8 +196,7 @@ instance Monad m => MonadReader c (Star m c) where
 
 instance MonadCont m => MonadCont (Star m c) where
     callCC f =
-        Star (\ x -> callCC (flip runStar x . f . (constStar .)))
-        -- Star (\ x -> callCC (flip (runStar . f) x . (constStar .)))
+        Star (\ x -> callCC (flipRunStar f x . fmap constStar))
 
 instance MonadError e m => MonadError e (Star m c) where
     -- Bind `m`'s `catchError` through `->`.
@@ -217,8 +220,9 @@ instance MonadWriter w m => MonadWriter w (Star m c) where
 ------- Semigroup Hierarchy Instances -------
 
 instance Semigroup (m b) => Semigroup (Star m a b) where
-    -- `->`'s Semigroup instance uses that of its result.
+    -- Use `->`'s Semigroup instance (which uses `m b`'s).
     (<>) = lowerStar2 (<>)
+    stimes = lowerStar . stimes
 
 instance Monoid (m b) => Monoid (Star m a b) where
     -- `->`'s Monoid instance uses that of its result.

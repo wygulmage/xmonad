@@ -44,7 +44,7 @@ steps:
       # - none: Do not perform any alignment.
       #
       # Default: global.
-      align: none
+      align: group
 
       # The following options affect only import list alignment.
       #
@@ -228,5 +228,17 @@ newline: native
 #
 # No language extensions are enabled by default.
 # language_extensions:
-  # - TemplateHaskell
+  - ApplicativeDo
+  - TemplateHaskell
+  - RankNTypes
+  - FunctionalDependencies
+  - MultiParamTypeClasses
+  - TypeFamilies
+  - UnicodeSyntax
+  - RoleAnnotations
+  - ScopedTypeVariables
+  - FlexibleContexts
+  - FlexibleInstances
+  - UndecidableInstances
+  - PolyKinds
   # - QuasiQuotes
