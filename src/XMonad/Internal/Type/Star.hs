@@ -61,6 +61,7 @@ newtype Star m a b = Star{ runStar :: a -> m b }
 ------- Helper Functions -------
 
 constStar :: m a -> Star m c a
+-- ^ Construct a Star from a value in a context.
 constStar = Star . pure -- Use `(->) c`'s `pure`.
 {-# INLINE constStar #-}
 
@@ -90,25 +91,35 @@ productWith = lowerStar2 . liftA2 -- Coerce `(->) c`'s `liftA2`.
 bindWith ::
     ((a -> m1 b1) -> m2 b2 -> m3 b3) ->
     (a -> Star m1 c b1) -> Star m2 c b2 -> Star m3 c b3
--- bindWith f = lowerStar . liftA2 f . flip  . (runStar .)
--- bindWith f = lowerStar . flipStarWith (liftA2 f)
 bindWith f = lowerStar . liftA2 f . flipRunStar
 {-# INLINE bindWith #-}
 -- ^ Take a 'bind' function for 'm's and return a 'bind' function for 'Star m c's. Uses below are flipped because Haskell normally flips bind functions.
 -- The `flip` gets you `c -> a -> m b` from `a -> Star m c b`.
 
-flipRunStar :: (a -> Star m c b) -> c -> a -> m b
+flipRunStar ::
+    (a -> Star m c b) ->
+    c -> a -> m b
 flipRunStar = flip . (runStar .)
+{-# INLINE flipRunStar #-}
 
-mapWith :: (a -> m b -> n d) -> a -> Star m c b -> Star n c d
--- mapWith f g = lowerStar (f g .)
-mapWith f = lowerStar . (.) . f
+mapWith ::
+    (a -> m b -> n d) ->
+    a -> Star m c b -> Star n c d
+mapWith f = lowerStar . fmap . f
+{-# INLINE mapWith #-}
 
-lmapWith :: (a -> (b -> m c) -> d -> n e) -> a -> Star m b c -> Star n d e
-lmapWith = (.) lowerStar
+lmapWith ::
+    (a -> (b -> m c) -> d -> n e) ->
+    a -> Star m b c -> Star n d e
+lmapWith = fmap lowerStar
+{-# INLINE lmapWith #-}
 
-composeWith  :: Monad m => ((m a -> m b) -> (a2 -> m2 b2) -> a3 -> m3 b3) -> Star m a b -> Star m2 a2 b2 -> Star m3 a3 b3
+composeWith ::
+    Monad m =>
+    ((m a -> m b) -> (a2 -> m2 b2) -> a3 -> m3 b3) ->
+    Star m a b -> Star m2 a2 b2 -> Star m3 a3 b3
 composeWith f = lowerStar2 (f . (=<<))
+{-# INLINE composeWith #-}
 
 -- type class homomorphism: method (hom x) = hom (method x)
 -- For example, fmap f (hom x) = hom (fmap f x)
@@ -172,8 +183,7 @@ instance MonadFail m => MonadFail (Star m c) where
     fail = constStar . fail
 
 instance MonadFix m => MonadFix (Star m c) where
-    -- mfix f = Star (mfix . flip (runStar . f))
-    mfix = Star . (mfix .) . flipRunStar
+    mfix = Star . fmap mfix . flipRunStar
 
 instance MonadIO m => MonadIO (Star m c) where
     liftIO = constStar . liftIO
@@ -191,9 +201,7 @@ instance Monad m => MonadReader c (Star m c) where
 
 instance MonadCont m => MonadCont (Star m c) where
     callCC f =
-        -- Star (\ x -> callCC (flip runStar x . f . (constStar .)))
-        -- Star (\ x -> callCC (flip (runStar . f) x . (constStar .)))
-        Star (\ x -> callCC (flipRunStar f x . (constStar .)))
+        Star (\ x -> callCC (flipRunStar f x . fmap constStar))
 
 instance MonadError e m => MonadError e (Star m c) where
     catchError = flip (bindWith (flip catchError))
