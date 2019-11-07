@@ -1,4 +1,7 @@
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module XMonad.Internal.Core where
 
@@ -40,9 +43,17 @@ import System.Posix.Types (ProcessID)
 import System.Process
 
 import XMonad.Internal.Type.Star (Star (..))
+import XMonad.Internal.Type.Zipper
 import XMonad.Internal.WindowSet
 
 type X = Star (StateT XState IO) (XConf)
+
+type WindowSet = StackSet' (Layout Window)
+
+newtype Query a = Query (ReaderT Window X a)
+    deriving (Functor, Applicative, Monad, MonadReader Window, MonadIO)
+
+type ManageHook = Query (Endo WindowSet)
 
 data Env = Env !XState !XConf
 
@@ -276,3 +287,32 @@ data LayoutMessages
     deriving (Typeable, Eq)
 
 instance Message LayoutMessages
+
+-- ---------------------------------------------------------------------
+-- Extensible state
+--
+-- | Every module must make the data it wants to store
+-- an instance of this class.
+--
+-- Minimal complete definition: initialValue
+class Typeable a =>
+      ExtensionClass a
+    -- | Defines an initial value for the state extension
+    where
+    initialValue :: a
+    -- | Specifies whether the state extension should be
+    -- persistent. Setting this method to 'PersistentExtension'
+    -- will make the stored data survive restarts, but
+    -- requires a to be an instance of Read and Show.
+    --
+    -- It defaults to 'StateExtension', i.e. no persistence.
+    extensionType :: a -> StateExtension
+    extensionType = StateExtension
+
+-- | Existential type to store a state extension.
+data StateExtension
+    = forall a. ExtensionClass a =>
+                StateExtension a
+    -- ^ Non-persistent state extension
+    | forall a. (Read a, Show a, ExtensionClass a) =>
+                PersistentExtension a -- ^ Persistent extension

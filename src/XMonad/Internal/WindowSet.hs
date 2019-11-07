@@ -29,8 +29,8 @@ import Graphics.X11.Xlib (Window)
 import Lens.Micro (Lens, Lens')
 import qualified Lens.Micro as Lens
 
-import XMonad.Zipper (Stack (..))
-import qualified XMonad.Zipper as Stack
+import XMonad.Internal.Type.Zipper (Stack (..))
+import qualified XMonad.Internal.Type.Zipper as Stack
 
 type ScreenId = Int
 type WorkspaceId = String
