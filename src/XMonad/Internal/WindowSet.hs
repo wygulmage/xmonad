@@ -61,17 +61,6 @@ data Screen i l a sid sd =
         }
     deriving (Show, Read, Eq)
 
---- Lenses:
-_workspace :: Lens
-    (Screen i l a sid sd) (Screen j l' b sid sd)
-    (Workspace i l a) (Workspace j l' b)
-_workspace f s = (\x -> s {workspace = x}) <$> f (workspace s)
-
-_screenId :: Lens (Screen i l a sid sd) (Screen i l a sid' sd) sid sid'
-_screenId f s = (\x -> s {screen = x}) <$> f (screen s)
-
-_screenDetail :: Lens (Screen i l a sid sd) (Screen i l a sid sd') sd sd'
-_screenDetail f s = (\x -> s {screenDetail = x}) <$> f (screenDetail s)
 
 
 data Workspace i l a =
@@ -89,12 +78,29 @@ data RationalRect = RationalRect !Rational !Rational !Rational !Rational
 
 -------- Capabilities -------
 
+class HasWorkspaces a a' l l' => HasWorkspace a a' l l' where
+    -- Do we need fundeps here? Or is the superclass enough?
+    _workspace :: Lens a a' (Workspace' l) (Workspace' l')
+
+instance HasWorkspaces (Screen' l) (Screen' l') l l'
+instance HasWorkspace (Screen' l) (Screen' l') l l' where
+    _workspace f s = (\x -> s {workspace = x}) <$> f (workspace s)
+
+_screenId :: Lens (Screen i l a sid sd) (Screen i l a sid' sd) sid sid'
+_screenId f s = (\x -> s {screen = x}) <$> f (screen s)
+
+_screenDetail :: Lens (Screen i l a sid sd) (Screen i l a sid sd') sd sd'
+_screenDetail f s = (\x -> s {screenDetail = x}) <$> f (screenDetail s)
+
 class
     (HasLayouts a a' l l', HasTags a, HasTags a') =>
     HasWorkspaces a a' l l'
     | a -> l, a' -> l', a l' -> a', a' l -> a
   where
     _workspaces :: Lens.Traversal a a' (Workspace' l) (Workspace' l')
+    default _workspaces ::
+        HasWorkspace a a' l l' => Lens a a' (Workspace' l) (Workspace' l')
+    _workspaces = _workspace
 
 class HasVisible a l | a -> l where
     _current :: Lens' a (Screen' l)

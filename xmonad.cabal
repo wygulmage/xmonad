@@ -72,6 +72,7 @@ library
                    XMonad.StackSet
                    XMonad.Zipper
   other-modules:   Paths_xmonad
+                   XMonad.Internal.Core
                    XMonad.Internal.Optic
                    XMonad.Internal.Type.Star
   hs-source-dirs:  src
