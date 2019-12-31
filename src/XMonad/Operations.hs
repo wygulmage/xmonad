@@ -687,34 +687,25 @@ float w = do
 -- Mouse handling
 -- | Accumulate mouse motion events
 mouseDrag :: (Position -> Position -> X ()) -> X () -> X ()
-mouseDrag f done = do
-    drag <- Lens.use _dragging
-    case drag of
-        Just _ -> pure () -- error case? we're already dragging
-        Nothing -> do
-            root <- Lens.view _theRoot
-            d <- Lens.view _display
-            io $
-                grabPointer
-                    d
-                    root
-                    False
-                    (buttonReleaseMask .|. pointerMotionMask)
-                    grabModeAsync
-                    grabModeAsync
-                    none
-                    none
-                    currentTime
-            modify (_dragging .~ Just (motion, cleanup))
+mouseDrag f done =
+    whenX (Lens.use $ _dragging . Lens.to isNothing)
+      (takePointer <$> Lens.view _display <*> Lens.view _theRoot $> ())
+    *> modify (_dragging .~ Just (motion, cleanup))
   where
-    cleanup = do
-        withDisplay $ io . flip ungrabPointer currentTime
-        modify (_dragging .~ Nothing)
-        done
-    motion x y = do
-        z <- f x y
-        clearEvents pointerMotionMask
-        pure z
+    takePointer d w =
+        grabPointer d w
+            False -- Events are reported w.r.t. 'w', and only when selected by the event masks below.
+            (buttonReleaseMask .|. pointerMotionMask)
+            grabModeAsync -- Mouse events continue during dragging.
+            grabModeAsync -- Keyboard events continue during dragging.
+            none -- Do not confine to window.
+            none -- Do not display cursor.
+            currentTime
+    motion x y = f x y >>= (<$ clearEvents pointerMotionMask)
+    cleanup =
+        (withDisplay $ io . flip ungrabPointer currentTime)
+        *> modify (_dragging .~ Nothing)
+        *> done
 
 -- | drag the window under the cursor with the mouse while it is dragged
 mouseMoveWindow :: Window -> X ()

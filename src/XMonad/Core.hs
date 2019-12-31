@@ -1072,8 +1072,10 @@ whenJust "Use 'for_'."
 whenX :: X Bool -> X () -> X ()
 whenX = whenM
 
-whenM :: Monad m => m Bool -> m () -> m ()
-whenM mb m = mb >>= (`when` m)
+whenM :: (Monad m, Monoid a) => m Bool -> m a -> m a
+whenM mb m = do
+    b <- mb
+    if b then m else pure mempty
 
 -- | A 'trace' for the 'X' monad. Logs a string to stderr. The result may
 -- be found in your .xsession-errors file
