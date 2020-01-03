@@ -181,9 +181,8 @@ windows f = do
             pure vs
     let visible = fmap fst rects
     traverse_ (uncurry tileWindow) rects
-    for_ (W.peek ws) $ \w -> do
-        fbs <- Lens.view _focusedBorderColor
-        setWindowBorderWithFallback d w fbs fbc
+    fbs <- Lens.view _focusedBorderColor
+    for_ (W.peek ws) (\w -> setWindowBorderWithFallback d w fbs fbc)
     traverse_ reveal visible
     setTopFocus
     -- hide every window that was potentially visible before, but is not
