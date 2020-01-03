@@ -24,7 +24,7 @@ import XMonad.Core
 import XMonad.Layout (Full (..))
 import qualified XMonad.StackSet as W
 
-import Control.Applicative ((<$>), (<*>))
+import Control.Applicative ((<$>), (<*>), liftA2)
 import Control.Arrow (second)
 import qualified Control.Exception.Extensible as C
 import Control.Monad.Reader
@@ -297,10 +297,9 @@ reveal w =
 -- | Set some properties when we initially gain control of a window
 setInitialProperties :: Window -> X ()
 setInitialProperties w =
-    withDisplay $ \d
+    withDisplay $ \d -> do
     -- we must initially set the color of new windows, to maintain invariants
     -- required by the border setting in 'windows'
-     -> do
         Lens.view _normalBorder >>= io . setWindowBorder d w
         setWMState w iconicState
         Lens.view _clientMask >>= io . selectInput d w
@@ -331,14 +330,12 @@ clearEvents mask =
 tileWindow :: Window -> Rectangle -> X ()
 tileWindow w r =
     withDisplay $ \d ->
-        withWindowAttributes d w $ \wa
+        withWindowAttributes d w $ \wa ->
     -- give all windows at least 1x1 pixels
-         -> do
-            let bw = fi $ wa_border_width wa
-                least x
-                    | x <= bw * 2 = 1
-                    | otherwise = x - bw * 2
-            io $
+            let
+                bw2 = 2 * fi (wa_border_width wa)
+                least x = if x <= bw2 then 1 else x - bw2
+            in io $
                 moveResizeWindow
                     d
                     w
@@ -346,6 +343,7 @@ tileWindow w r =
                     (rect_y r)
                     (least $ rect_width r)
                     (least $ rect_height r)
+
 
 -- ---------------------------------------------------------------------
 -- | Returns 'True' if the first rectangle is contained within, but not equal
@@ -376,7 +374,7 @@ rescreen = do
     xinesc <- withDisplay getCleanedScreenInfo
     windows $ \ws ->
         let (xs, ys) = splitAt (length xinesc) $ toListOf W._workspaces ws
-            (v:vs) = zipWith3 W.Screen xs [0 ..] $ fmap SD xinesc
+            (v:vs) = zipWith3 W.Screen xs [0 ..] (fmap SD xinesc)
          in (W._current .~ v) . (W._visible .~ vs) . (W._hidden .~ ys) $ ws
 
 -- ---------------------------------------------------------------------
@@ -418,20 +416,23 @@ setTopFocus =
 -- the mouse to a new screen).
 focus :: Window -> X ()
 focus w =
-    local (_mouseFocused .~ True) . withWindowSet $ \s -> do
-        let stag = Lens.view W._tag
-            curr = stag $ W.current s
-        mnew <-
-            maybe (pure Nothing) (fmap (fmap stag) . uncurry pointScreen) =<<
+    local (_mouseFocused .~ True) . withWindowSet $ \s ->
+        let sTag = Lens.view W._tag
+            curr = sTag $ W.current s
+        in do
+          mnew <-
+            maybe (pure Nothing) (fmap (fmap sTag) . uncurry pointScreen) =<<
             Lens.view _mousePosition
-        root <- Lens.view _theRoot
-        case () of
-            _
+          root <- Lens.view _theRoot
+          case () of
+              _
                 | W.member w s && W.peek s /= Just w ->
                     windows (W.focusWindow w)
                 | Just new <- mnew
-                , w == root && curr /= new -> windows (W.view new)
-                | otherwise -> pure ()
+                , w == root && curr /= new ->
+                    windows (W.view new)
+                | otherwise ->
+                    pure ()
 
 -- | Call X to set the keyboard focus details.
 setFocusX :: Window -> X ()
@@ -439,8 +440,11 @@ setFocusX w =
     withWindowSet $ \ws -> do
         dpy <- Lens.view _display
     -- clear mouse button grab and border on other windows
-        Lens.forOf_ (W._screens . W._tag) ws $ \wk ->
-            Lens.traverseOf_ W._index (setButtonGrab True) (W.view wk ws)
+        -- Lens.forOf_ (W._screens . W._tag) ws $
+          -- \wk -> Lens.traverseOf_ W._index (setButtonGrab True) (W.view wk ws)
+        Lens.traverseOf_ (W._screens . W._tag)
+          (Lens.traverseOf_ W._index (setButtonGrab True) . (`W.view` ws))
+          ws
     -- If we ungrab buttons on the root window, we lose our mouse bindings.
         whenX (not <$> isRoot w) $ setButtonGrab False w
         hints <- io $ getWMHints dpy w
@@ -482,16 +486,11 @@ sendMessage a =
             handleMessage (Lens.view W._layout w) (SomeMessage a) `catchX`
             pure Nothing
         for_ ml' $ \l' ->
-            modifyWindowSet $ \ws
+            modifyWindowSet $ \ws ->
                 -- Can't seem to get the types right to use an unwrapped layout with optics.
-             ->
-                ws
-                    { W.current =
-                          (W.current ws)
-                              { W.workspace =
-                                    (W.workspace $ W.current ws) {W.layout = l'}
-                              }
-                    }
+                ws{ W.current =
+                    (W.current ws){ W.workspace =
+                        (W.workspace $ W.current ws){ W.layout = l' }}}
         pure (Any $ isJust ml')
 
 -- | Send a message to all layouts, without refreshing.
@@ -554,10 +553,11 @@ cleanMask km = do
 -- | Get the 'Pixel' value for a named color
 initColor :: Display -> String -> IO (Maybe Pixel)
 initColor dpy c =
-    C.handle (\(C.SomeException _) -> pure Nothing) $ Just . color_pixel . fst <$>
-    allocNamedColor dpy colormap c
+    C.handle
+        (\(C.SomeException _) -> pure Nothing)
+        (Just . color_pixel . fst <$> allocolor dpy c)
   where
-    colormap = defaultColormap dpy (defaultScreen dpy)
+    allocolor = allocNamedColor <*> (defaultColormap <*> defaultScreen)
 
 ------------------------------------------------------------------------
 -- | A type to help serialize xmonad's state to a file.
@@ -572,14 +572,18 @@ data StateFile =
 -- so that xmonad can resume with that state intact.
 writeStateToFile :: X ()
 writeStateToFile = do
-    let maybeShow (t, Right (PersistentExtension ext)) = Just (t, show ext)
-        maybeShow (t, Left str)                        = Just (t, str)
-        maybeShow _                                    = Nothing
-        wsData = Lens.views _windowset (W._layouts %~ show)
-        extState = mapMaybe maybeShow . Map.toList . Lens.view _extensibleState
     path <- stateFileName
-    stateData <- gets (\s -> StateFile (wsData s) (extState s))
+    stateData <- gets (liftA2 StateFile wsData extState)
     catchIO (writeFile path $ show stateData)
+  where
+    maybeShow (t, Right (PersistentExtension ext)) = Just (t, show ext)
+    maybeShow (t, Left str)                        = Just (t, str)
+    maybeShow _                                    = Nothing
+
+    wsData = Lens.views _windowset (W._layouts %~ show)
+
+    extState = mapMaybe maybeShow . Map.toList . Lens.view _extensibleState
+
 
 -- | Read the state of a previous xmonad instance from a file and
 -- return that state.  The state file is removed after reading it.
@@ -590,10 +594,12 @@ readStateFile xmc = do
     -- I'm trying really hard here to make sure we read the entire
     -- contents of the file before it is removed from the file system.
     sf' <-
-        userCode . io $ do
-            raw <- withFile path ReadMode readStrict
-            pure $! readMaybe raw
+        userCode . io $ readMaybe <$!> withFile path ReadMode readStrict
+        -- userCode . io $ do
+        --     raw <- withFile path ReadMode readStrict
+        --     pure $! readMaybe raw
     io $ removeFile path
+
     pure $ do
         sf <- join sf'
         let winset =
@@ -602,7 +608,7 @@ readStateFile xmc = do
                     (workspaces xmc)
                     (W._layouts %~ (fromMaybe layout . readMaybeWith lreads) $
                      sfWins sf)
-            extState = Map.fromList . fmap (second Left) $ sfExt sf
+            extState = Map.fromList . fmap (fmap Left) $ sfExt sf
         pure
             XState
                 { windowset = winset
