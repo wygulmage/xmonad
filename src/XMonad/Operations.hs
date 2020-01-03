@@ -121,11 +121,26 @@ kill = withFocused killWindow
 windows :: (WindowSet -> WindowSet) -> X ()
 windows f = do
     old <- Lens.use _windowset
-    let oldvisible :: [Window]
+    let
+        oldvisible :: [Window]
         oldvisible = toListOf (W._screens . W._stack . traverse . traverse) old
+        tags_oldvisible :: [WorkspaceId]
+        tags_oldvisible = toListOf (W._screens . W._tag) old
         newwindows :: [Window]
         newwindows = W.allWindows ws \\ W.allWindows old
         ws = f old
+        gottenhidden :: [W.Workspace WorkspaceId (Layout Window) Window]
+        gottenhidden =
+            filter (flip elem tags_oldvisible . Lens.view W._tag) $
+            Lens.view W._hidden ws
+        allscreens ::
+               [W.Screen WorkspaceId (Layout Window) Window ScreenId ScreenDetail]
+        allscreens = toListOf W._screens ws
+        summed_visible :: [[Window]]
+        summed_visible =
+            scanl (<>) [] $ toListOf (W._stack . traverse . traverse) <$>
+            allscreens
+
     traverse_ setInitialProperties newwindows
     d <- Lens.view _display
     nbc <- Lens.view _normalBorder
@@ -135,65 +150,72 @@ windows f = do
         setWindowBorderWithFallback d otherw nbs nbc
     modify (_windowset .~ ws)
     -- notify non visibility
-    let tags_oldvisible :: [WorkspaceId]
-        tags_oldvisible = toListOf (W._screens . W._tag) old
-        gottenhidden :: [W.Workspace WorkspaceId (Layout Window) Window]
-        gottenhidden =
-            filter (flip elem tags_oldvisible . Lens.view W._tag) $
-            Lens.view W._hidden ws
     traverse_ (sendMessageWithNoRefresh Hide) gottenhidden
     -- for each workspace, layout the currently visible workspaces
-    let allscreens ::
-               [W.Screen WorkspaceId (Layout Window) Window ScreenId ScreenDetail]
-        allscreens = Lens.toListOf W._screens ws
-        summed_visible :: [[Window]]
-        summed_visible =
-            scanl (<>) [] $ Lens.toListOf (W._stack . traverse . traverse) <$>
-            allscreens
     rects <-
-        fmap fold . for (zip allscreens summed_visible) $ \(w, vis) -> do
-            let wsp = Lens.view W._workspace w
-                this = W.view n ws
+        fmap fold . for (zip allscreens summed_visible) $ \(w, vis) ->
+            let
+                wsp :: WindowSpace
+                wsp = Lens.view W._workspace w
+                m :: Map.Map Window W.RationalRect
+                m = Lens.view W._floating ws
+                n :: WorkspaceId
                 n = Lens.view W._tag w
+                this :: WindowSet
+                this = W.view n ws
+                tiled :: Maybe (W.Stack Window)
                 tiled =
-                    Lens.view (W._current . W._stack) this >>= W.filter isHidden
+                    Lens.view (W._current . W._stack) this
+                    >>= W.filter isHidden
                   where
                     isHidden x =
-                        x `Map.notMember` Lens.view W._floating ws && x `notElem`
-                        vis
+                        x `Map.notMember` Lens.view W._floating ws
+                        && x `notElem` vis
+                wspTiled :: WindowSpace
                 wspTiled = W._stack .~ tiled $ wsp
+                viewrect :: Rectangle
                 viewrect = Lens.view _screenRect w
-        -- just the tiled windows:
-        -- now tile the windows on this workspace, modified by the gap
-            (rs, ml') <-
-                runLayout wspTiled viewrect `catchX`
-                runLayout (W._layout .~ Layout Full $ wspTiled) viewrect
-            updateLayout n ml'
-            let m = Lens.view W._floating ws
-                flt =
-                    [ (fw, scaleRationalRect viewrect r)
-                    | fw <- filter (`Map.member` m) (toListOf W._index this)
-                    , Just r <- [Map.lookup fw m]
-                    ]
-                vs = flt <> rs
-            io $ restackWindows d (fmap fst vs)
-        -- return the visible windows for this workspace:
-            pure vs
-    let visible = fmap fst rects
+                flt :: [(Window, Rectangle)]
+                flt = mapMaybe (rectOf m) (toListOf W._index this)
+                  where
+                    rectOf ::
+                        Map.Map Window W.RationalRect -> Window -> Maybe (Window, Rectangle)
+                    -- If win is in winMap, return Just win with its scaled rectangle; otherwise return Nothing.
+                    rectOf winMap win =
+                      (,) win . scaleRationalRect viewrect
+                      <$> Map.lookup win winMap
+            -- just the tiled windows:
+            -- now tile the windows on this workspace, modified by the gap
+            in do
+              (rs, ml') <-
+                  runLayout wspTiled viewrect
+                  `catchX`
+                  runLayout (W._layout .~ Layout Full $ wspTiled) viewrect
+              updateLayout n ml'
+              let vs = flt <> rs
+              io $ restackWindows d (fmap fst vs)
+              -- return the visible windows for this workspace:
+              pure vs
     traverse_ (uncurry tileWindow) rects
+
+    -- Why do we do this here?
     fbs <- Lens.view _focusedBorderColor
-    for_ (W.peek ws) (\w -> setWindowBorderWithFallback d w fbs fbc)
+    traverse_ (\w -> setWindowBorderWithFallback d w fbs fbc) (W.peek ws)
+
+    let visible = fmap fst rects
     traverse_ reveal visible
     setTopFocus
     -- hide every window that was potentially visible before, but is not
     -- given a position by a layout now.
     traverse_ hide (nub (oldvisible <> newwindows) \\ visible)
+
     -- all windows that are no longer in the windowset are marked as
     -- withdrawn, it is important to do this after the above, otherwise 'hide'
     -- will overwrite withdrawnState with iconicState
     traverse_
         (`setWMState` withdrawnState)
         (W.allWindows old \\ W.allWindows ws)
+
     Lens.view _mouseFocused >>= flip unless (clearEvents enterWindowMask)
     Lens.view _logHook >>= userCodeDef ()
 
