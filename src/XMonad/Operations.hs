@@ -24,8 +24,7 @@ import XMonad.Core
 import XMonad.Layout (Full (..))
 import qualified XMonad.StackSet as W
 
-import Control.Applicative ((<$>), (<*>))
-import Control.Arrow (second)
+import Control.Applicative ((<$>), (<*>), liftA2)
 import qualified Control.Exception.Extensible as C
 import Control.Monad.Reader
 import Control.Monad.State
@@ -71,7 +70,7 @@ manage w =
         let isFixedSize =
                 isJust (sh_min_size sh) && sh_min_size sh == sh_max_size sh
         isTransient <- isJust <$> io (getTransientForHint d w)
-        rr <- snd `fmap` floatLocation w
+        rr <- snd <$> floatLocation w
     -- ensure that float windows don't go over the edge of the screen
         let adjust (W.RationalRect x y wid h)
                 | x + wid > 1 || y + h > 1 || x < 0 || y < 0 =
@@ -252,8 +251,9 @@ setWindowBorderWithFallback dpy w color basic =
 -- | hide. Hide a window by unmapping it, and setting Iconified.
 hide :: Window -> X ()
 hide w =
-    whenX (gets (Set.member w . mapped)) . withDisplay $ \d -> do
-        cMask <- asks $ clientMask . config
+    -- whenX (gets (Set.member w . mapped)) . withDisplay $ \d -> do
+    whenX (Lens.use (_mapped . Lens.to (Set.member w))) . withDisplay $ \d -> do
+        cMask <- Lens.view (_XConfig . _clientMask)
         io $ do
             selectInput d w (cMask .&. complement structureNotifyMask)
             unmapWindow d w
@@ -261,8 +261,9 @@ hide w =
         setWMState w iconicState
     -- this part is key: we increment the waitingUnmap counter to distinguish
     -- between client and xmonad initiated unmaps.
-        modify $ (_waitingUnmap %~ Map.insertWith (+) w 1) .
-            (_mapped %~ Set.delete w)
+        modify $
+            (_waitingUnmap %~ Map.insertWith (+) w 1)
+            . (_mapped %~ Set.delete w)
 
 -- | reveal. Show a window by mapping it and setting Normal
 -- this is harmless if the window was already visible
@@ -409,8 +410,10 @@ focus w =
                 | W.member w s && W.peek s /= Just w ->
                     windows (W.focusWindow w)
                 | Just new <- mnew
-                , w == root && curr /= new -> windows (W.view new)
-                | otherwise -> pure ()
+                , w == root && curr /= new ->
+                    windows (W.view new)
+                | otherwise ->
+                    pure ()
 
 -- | Call X to set the keyboard focus details.
 setFocusX :: Window -> X ()
@@ -557,7 +560,7 @@ writeStateToFile = do
         wsData = Lens.views _windowset (W._layouts %~ show)
         extState = mapMaybe maybeShow . Map.toList . Lens.view _extensibleState
     path <- stateFileName
-    stateData <- gets (\s -> StateFile (wsData s) (extState s))
+    stateData <- gets (liftA2 StateFile wsData extState)
     catchIO (writeFile path $ show stateData)
 
 -- | Read the state of a previous xmonad instance from a file and
@@ -579,9 +582,9 @@ readStateFile xmc = do
                 W.ensureTags
                     layout
                     (workspaces xmc)
-                    (W._layouts %~ (fromMaybe layout . readMaybeWith lreads) $
-                     sfWins sf)
-            extState = Map.fromList . fmap (second Left) $ sfExt sf
+                    (W._layouts %~ (fromMaybe layout . readMaybeWith lreads) $ sfWins sf)
+            -- extState = Map.fromList . fmap (second Left) $ sfExt sf
+            extState = Map.fromList . fmap (fmap Left) $ sfExt sf
         pure
             XState
                 { windowset = winset
@@ -595,7 +598,8 @@ readStateFile xmc = do
     layout = Layout (Lens.view _layoutHook xmc)
     lreads = readsLayout layout
     readStrict :: Handle -> IO String
-    readStrict h = hGetContents h >>= \s -> length s `seq` pure s
+    -- readStrict h = hGetContents h >>= \s -> length s `seq` pure s
+    readStrict = hGetContents >=> liftA2 seq length pure
 
 -- | Migrate state from a previously running xmonad instance that used
 -- the older @--resume@ technique.
@@ -608,7 +612,7 @@ migrateState ws xs = do
     io (putStrLn "WARNING: --resume is no longer supported.")
     for_ stateData $ \s -> do
         path <- stateFileName
-        catchIO (writeFile path $ show s)
+        catchIO . writeFile path . show $ s
   where
     stateData = StateFile <$> readMaybe ws <*> readMaybe xs
 
@@ -640,7 +644,8 @@ floatLocation w =
             cws <- Lens.use (_windowset . W._current)
             wa <- io $ getWindowAttributes d w
             sc <- fromMaybe cws <$> pointScreen (fi $ wa_x wa) (fi $ wa_y wa)
-            let bw = fi (wa_border_width wa)
+            let
+                bw = fi (wa_border_width wa)
                 sr = Lens.view _screenRect sc
                 sw = fi (rect_width sr)
                 sh = fi (rect_height sr)
@@ -681,7 +686,7 @@ float w = do
             guard $ i `elem` toListOf (W._screens . W._tag) ws
             f <- W.peek ws
             sw <- W.lookupWorkspace sc ws
-            pure (W.focusWindow f . W.shiftWin sw w $ ws)
+            pure . W.focusWindow f . W.shiftWin sw w $ ws
 
 -- ---------------------------------------------------------------------
 -- Mouse handling
@@ -703,7 +708,7 @@ mouseDrag f done =
             currentTime
     motion x y = f x y >>= (<$ clearEvents pointerMotionMask)
     cleanup =
-        (withDisplay $ io . flip ungrabPointer currentTime)
+        withDisplay (io . flip ungrabPointer currentTime)
         *> modify (_dragging .~ Nothing)
         *> done
 
@@ -754,13 +759,11 @@ mkAdjust :: Window -> X (D -> D)
 mkAdjust w =
     withDisplay $ \d ->
         liftIO $ do
-            sh <- getWMNormalHints d w
             wa <- C.try $ getWindowAttributes d w
             case wa of
                 Left (_ :: C.SomeException) -> pure id
-                Right wa' ->
-                    let bw = fi $ wa_border_width wa'
-                     in pure $ applySizeHints bw sh
+                Right wa' -> applySizeHints bw <$> getWMNormalHints d w
+                    where bw = fi $ wa_border_width wa'
 
 -- | Reduce the dimensions if needed to comply to the given SizeHints, taking
 -- window borders into account.
