@@ -120,69 +120,78 @@ kill = withFocused killWindow
 windows :: (WindowSet -> WindowSet) -> X ()
 windows f = do
     old <- Lens.use _windowset
-    let oldvisible :: [Window]
+    let
+        oldvisible :: [Window]
         oldvisible = toListOf (W._screens . W._stack . traverse . traverse) old
         newwindows :: [Window]
         newwindows = W.allWindows ws \\ W.allWindows old
         ws = f old
-    traverse_ setInitialProperties newwindows
-    d <- Lens.view _display
-    nbc <- Lens.view _normalBorder
-    fbc <- Lens.view _focusedBorder
-    for_ (W.peek old) $ \otherw -> do
-        nbs <- Lens.view _normalBorderColor
-        setWindowBorderWithFallback d otherw nbs nbc
-    modify (_windowset .~ ws)
-    -- notify non visibility
-    let tags_oldvisible :: [WorkspaceId]
+        tags_oldvisible :: [WorkspaceId]
         tags_oldvisible = toListOf (W._screens . W._tag) old
         gottenhidden :: [W.Workspace WorkspaceId (Layout Window) Window]
-        gottenhidden =
-            filter (flip elem tags_oldvisible . Lens.view W._tag) $
-            Lens.view W._hidden ws
-    traverse_ (sendMessageWithNoRefresh Hide) gottenhidden
-    -- for each workspace, layout the currently visible workspaces
-    let allscreens ::
-               [W.Screen WorkspaceId (Layout Window) Window ScreenId ScreenDetail]
+        gottenhidden = filter
+                (flip elem tags_oldvisible . Lens.view W._tag)
+                (Lens.view W._hidden ws)
+        allscreens ::
+            [W.Screen WorkspaceId (Layout Window) Window ScreenId ScreenDetail]
         allscreens = Lens.toListOf W._screens ws
         summed_visible :: [[Window]]
         summed_visible =
             scanl (<>) [] $ Lens.toListOf (W._stack . traverse . traverse) <$>
             allscreens
+    traverse_ setInitialProperties newwindows
+    d <- Lens.view _display
+    nbc <- Lens.view _normalBorder
+    fbc <- Lens.view _focusedBorder
+    nbs <- Lens.view _normalBorderColor
+    for_ (W.peek old) (\ otherw -> setWindowBorderWithFallback d otherw nbs nbc)
+    modify (_windowset .~ ws)
+    -- notify non visibility
+    traverse_ (sendMessageWithNoRefresh Hide) gottenhidden
+    -- for each workspace, layout the currently visible workspaces
     rects <-
         fmap fold . for (zip allscreens summed_visible) $ \(w, vis) -> do
-            let wsp = Lens.view W._workspace w
+            let
+                wsp :: WindowSpace
+                wsp = Lens.view W._workspace w
+                this :: WindowSet
                 this = W.view n ws
+                n :: WorkspaceId
                 n = Lens.view W._tag w
+                tiled :: Maybe (W.Stack Window)
                 tiled =
                     Lens.view (W._current . W._stack) this >>= W.filter isHidden
                   where
                     isHidden x =
                         x `Map.notMember` Lens.view W._floating ws && x `notElem`
                         vis
+                wspTiled :: WindowSpace
                 wspTiled = W._stack .~ tiled $ wsp
+                viewrect :: Rectangle
                 viewrect = Lens.view _screenRect w
+                m :: Map.Map Window W.RationalRect
+                m = Lens.view W._floating ws
+                flt :: [(Window, Rectangle)]
+                flt =
+                  mapMaybe
+                      (\ win -> (,) win . scaleRationalRect viewrect <$> Map.lookup win m)
+                      (toListOf W._index this)
+
         -- just the tiled windows:
         -- now tile the windows on this workspace, modified by the gap
             (rs, ml') <-
-                runLayout wspTiled viewrect `catchX`
+                runLayout wspTiled viewrect
+                `catchX`
                 runLayout (W._layout .~ Layout Full $ wspTiled) viewrect
+            let vs = flt <> rs
             updateLayout n ml'
-            let m = Lens.view W._floating ws
-                flt =
-                    [ (fw, scaleRationalRect viewrect r)
-                    | fw <- filter (`Map.member` m) (toListOf W._index this)
-                    , Just r <- [Map.lookup fw m]
-                    ]
-                vs = flt <> rs
             io $ restackWindows d (fmap fst vs)
         -- return the visible windows for this workspace:
             pure vs
     let visible = fmap fst rects
     traverse_ (uncurry tileWindow) rects
-    for_ (W.peek ws) $ \w -> do
-        fbs <- Lens.view _focusedBorderColor
-        setWindowBorderWithFallback d w fbs fbc
+    fbs <- Lens.view _focusedBorderColor
+    for_ (W.peek ws) (\w -> setWindowBorderWithFallback d w fbs fbc)
     traverse_ reveal visible
     setTopFocus
     -- hide every window that was potentially visible before, but is not
