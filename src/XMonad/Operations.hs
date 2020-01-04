@@ -218,9 +218,8 @@ windowBracket :: (a -> Bool) -> X a -> X a
 windowBracket p action =
     withWindowSet $ \old -> do
         a <- action
-        when (p a) . withWindowSet $ \new -> do
-            modify $ _windowset .~ old
-            windows $ const new
+        when (p a) . withWindowSet $ \new ->
+            modify (_windowset .~ old) *> windows (const new)
         pure a
 
 -- | A version of @windowBracket@ that discards the return value, and handles an
@@ -320,14 +319,11 @@ clearEvents mask =
 tileWindow :: Window -> Rectangle -> X ()
 tileWindow w r =
     withDisplay $ \d ->
-        withWindowAttributes d w $ \wa
-    -- give all windows at least 1x1 pixels
-         -> do
-            let bw = fi $ wa_border_width wa
-                least x
-                    | x <= bw * 2 = 1
-                    | otherwise = x - bw * 2
-            io $
+        withWindowAttributes d w $ \wa ->
+        -- give all windows at least 1x1 pixels
+            let least x = if x <= bw2 then 1 else x - bw2
+                  where bw2 = 2 * fi (wa_border_width wa)
+            in io $
                 moveResizeWindow
                     d
                     w
