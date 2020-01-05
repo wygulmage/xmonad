@@ -447,7 +447,7 @@ setFocusX w =
     event_time ev
         | ev_event_type ev `elem` timedEvents = ev_time ev
         | otherwise = currentTime
-    timedEvents =
+    timedEvents = Set.fromList
         [ keyPress
         , keyRelease
         , buttonPress
