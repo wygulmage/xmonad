@@ -122,6 +122,7 @@ import Data.Maybe (fromMaybe, isJust)
 import Data.Monoid hiding ((<>))
 import Data.Semigroup
 import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Typeable
 import Graphics.X11.Xlib
 import Graphics.X11.Xlib.Extras (Event, WindowAttributes, getWindowAttributes)
@@ -421,10 +422,7 @@ newtype ScreenId =
     deriving (Eq, Ord, Show, Read, Enum, Num, Integral, Real)
 
 -- | The 'Rectangle' with screen dimensions
-newtype ScreenDetail =
-    SD
-        { screenRect :: Rectangle
-        }
+newtype ScreenDetail = SD{ screenRect :: Rectangle }
     deriving (Eq, Show, Read)
 
 class HasScreenRect a where
@@ -445,8 +443,7 @@ instance HasScreenRect (XMonad.StackSet.Screen i l a sid ScreenDetail) where
 -- with 'ask'. With newtype deriving we get readers and state monads
 -- instantiated on 'XConf' and 'XState' automatically.
 --
-newtype X a =
-    X (ReaderT XConf (StateT XState IO) a)
+newtype X a = X (ReaderT XConf (StateT XState IO) a)
     deriving ( Functor
              , Applicative
              , Monad
@@ -469,8 +466,7 @@ instance Default a => Default (X a) where
 
 type ManageHook = Query (Endo WindowSet)
 
-newtype Query a =
-    Query (ReaderT Window X a)
+newtype Query a = Query (ReaderT Window X a)
     deriving (Functor, Applicative, Monad, MonadReader Window, MonadIO)
 
 runQuery :: Query a -> Window -> X a
@@ -880,8 +876,7 @@ getXDGDirectory xdgDir suffix =
     getDir name fallback = do
         dir <- lookupEnv name
         case dir of
-            Just path
-                | not (isRelative path) -> pure path
+            Just path | not (isRelative path) -> pure path
             _ -> fallback'
       where
         fallback' = (</> fallback) <$> getHomeDirectory
@@ -1095,8 +1090,7 @@ installSignalHandlers =
         pure ()
 
 uninstallSignalHandlers :: MonadIO m => m ()
-uninstallSignalHandlers =
-    io $ do
-        installHandler openEndedPipe Default Nothing
-        installHandler sigCHLD Default Nothing
-        pure ()
+uninstallSignalHandlers = io
+    $ installHandler openEndedPipe Default Nothing
+    *> installHandler sigCHLD Default Nothing
+    $> ()
