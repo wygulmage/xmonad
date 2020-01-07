@@ -73,10 +73,10 @@ manage w =
         isTransient <- isJust <$> io (getTransientForHint d w)
         rr <- snd `fmap` floatLocation w
     -- ensure that float windows don't go over the edge of the screen
-        let adjust (W.RationalRect x y wid h)
-                | x + wid > 1 || y + h > 1 || x < 0 || y < 0 =
-                    W.RationalRect (0.5 - wid / 2) (0.5 - h / 2) wid h
-            adjust r = r
+        let adjust r@(W.RationalRect x y wid h) =
+                if x + wid > 1 || y + h > 1 || x < 0 || y < 0
+                then W.RationalRect (0.5 - wid / 2) (0.5 - h / 2) wid h
+                else r
             f ws
                 | isFixedSize || isTransient =
                     let i = view (W._current . W._tag) ws
@@ -142,8 +142,7 @@ windows f = do
         allscreens = toListOf W._screens ws
         summed_visible :: [[Window]]
         summed_visible =
-            scanl (<>) [] $ toListOf (W._stack . traverse . traverse) <$>
-            allscreens
+            scanl (<>) [] $ toListOf (W._stack . traverse . traverse) <$> allscreens
 
     traverse_ setInitialProperties newwindows
     d <- view _display
@@ -158,35 +157,34 @@ windows f = do
     rects <-
         fmap fold . for (zip allscreens summed_visible) $ \(w, vis) ->
             let
-                wsp :: WindowSpace
-                wsp = view W._workspace w
-                m :: Map.Map Window W.RationalRect
-                m = view W._floating ws
                 n :: WorkspaceId
                 n = view W._tag w
                 this :: WindowSet
                 this = W.view n ws
-                tiled :: Maybe (W.Stack Window)
-                tiled =
-                    W.filter isHidden =<<
-                    view (W._current . W._stack) this
-                  where
-                    isHidden x =
-                        x `Map.notMember` view W._floating ws
-                        && x `notElem` vis
                 wspTiled :: WindowSpace
-                wspTiled = W._stack .~ tiled $ wsp
+                wspTiled = view (W._workspace . to (W._stack .~ tiled)) w
+                  where
+                    tiled :: Maybe (W.Stack Window)
+                    tiled = view
+                        (W._current . W._stack . traverse . to (W.filter isHidden))
+                        this
+                      where
+                        isHidden x =
+                            x `Map.notMember` view W._floating ws
+                            && x `notElem` vis
                 viewrect :: Rectangle
                 viewrect = view _screenRect w
                 flt :: [(Window, Rectangle)]
-                flt =  rectOf m `mapMaybe` toListOf W._index this
+                flt = floatingRect `mapMaybe` toListOf W._index this
                   where
-                    rectOf ::
-                        Map.Map Window W.RationalRect -> Window -> Maybe (Window, Rectangle)
-                    -- If win is in winMap, return Just win with its scaled rectangle; otherwise return Nothing.
-                    rectOf winMap win =
+                    floatingRect ::
+                        Window -> Maybe (Window, Rectangle)
+                    -- If win is floating, return Just win with its scaled rectangle; otherwise return Nothing.
+                    floatingRect win =
                       (,) win . scaleRationalRect viewrect
-                      <$> Map.lookup win winMap
+                      <$> Map.lookup win floaters
+                    floaters :: Map.Map Window W.RationalRect
+                    floaters = view W._floating ws
             -- just the tiled windows:
             -- now tile the windows on this workspace, modified by the gap
             in do

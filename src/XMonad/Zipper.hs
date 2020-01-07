@@ -5,6 +5,7 @@
 {-# LANGUAGE KindSignatures         #-}
 {-# LANGUAGE MultiParamTypeClasses  #-}
 {-# LANGUAGE NoImplicitPrelude      #-}
+{-# LANGUAGE PatternGuards          #-}
 {-# LANGUAGE ScopedTypeVariables    #-}
 
 module XMonad.Zipper
@@ -186,13 +187,19 @@ instance Applicative Zipper where
             (mapPrepend f xd (fd <*> toList xs))
 
 instance Monad Zipper where
-    Stack x xu xd >>= f =
-        case f x of
-            Stack x' xu' xd' ->
-                Stack
-                    x'
-                    (xu' <> foldMap (toList . f) xu)
-                    (xd' <> foldMap (toList . f) xd)
+    Stack x xu xd >>= f
+        | Stack x' xu' xd' <- f x = Stack
+            x'
+            (xu' <> foldMap (toList . f) xu)
+            (xd' <> foldMap (toList . f) xd)
+
+    -- Stack x xu xd >>= f =
+    --     case f x of
+    --         Stack x' xu' xd' ->
+    --             Stack
+    --                 x'
+    --                 (xu' <> foldMap (toList . f) xu)
+    --                 (xd' <> foldMap (toList . f) xd)
 
 instance Foldable (IZipper any) where
     foldr f z = foldr f z . toList
@@ -347,26 +354,30 @@ deleteFocus (Stack _ xu (x':xd')) = pure (Stack x' xu xd')
 deleteFocus (Stack _ (x':xu') _)  = pure (Stack x' xu' [])
 deleteFocus _                     = empty
 
-deleteTop (Stack x xu xd) =
-    case List.reverse (List.drop 1 (List.reverse (x : xu))) of
-        (x':xu') -> pure (Stack x' xu' xd)
-        _ ->
-            case xd of
-                (x':xd') -> pure (Stack x' [] xd')
-                _        -> empty
+deleteTop (Stack x xu xd)
+    | x' : xu' <- (List.reverse . List.drop 1 . List.reverse) (x : xu)
+        = pure (Stack x' xu' xd)
+    | x' : xd' <- xd
+        = pure (Stack x' [] xd')
+    | otherwise
+        = empty
+-- deleteTop (Stack x xu xd) =
+--     case List.reverse (List.drop 1 (List.reverse (x : xu))) of
+--         (x':xu') -> pure (Stack x' xu' xd)
+--         _ ->
+--             case xd of
+--                 (x':xd') -> pure (Stack x' [] xd')
+--                 _        -> empty
 
 -- |
 -- /O(n)/. 'filter p s' returns the elements of 's' such that 'p' evaluates to
 -- 'True'.  Order is preserved, and focus moves as described for 'delete'.
 --
 filter :: Alternative m => (a -> Bool) -> Zipper a -> m (Zipper a)
-filter p (Stack x xu xd) =
-    case xd' of
-        x':xd'' -> pure (Stack x' xu' xd'')
-        _ ->
-            case xu' of
-                x':xu'' -> pure (Stack x' xu'' [])
-                _       -> empty
+filter p (Stack x xu xd)
+    | x' : xd'' <- xd' = pure (Stack x' xu' xd'')
+    | x' : xu'' <- xu' = pure (Stack x' xu'' [])
+    | otherwise        = empty
   where
     xu' = List.filter p xu
     xd' = List.filter p (x : xd)
