@@ -60,6 +60,7 @@ module XMonad.Core
     , recompile
     , trace
     , whenJust
+    , whenM
     , whenX
     , getXMonadDir
     , getXMonadCacheDir
