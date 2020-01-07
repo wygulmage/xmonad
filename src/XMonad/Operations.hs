@@ -1,9 +1,9 @@
-{-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PatternGuards         #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- --------------------------------------------------------------------------
 -- |
@@ -25,7 +25,6 @@ import XMonad.Layout (Full (..))
 import qualified XMonad.StackSet as W
 
 import Control.Applicative ((<$>), (<*>), liftA2)
-import Control.Arrow (second)
 import qualified Control.Exception.Extensible as C
 import Control.Monad.Reader
 import Control.Monad.State
@@ -46,8 +45,9 @@ import Graphics.X11.Xinerama (getScreenInfo)
 import Graphics.X11.Xlib
 import Graphics.X11.Xlib.Extras
 
-import Lens.Micro (toListOf, (%~), (.~))
+import Lens.Micro (to, toListOf, (%~), (.~))
 import qualified Lens.Micro as Lens
+import Lens.Micro.Mtl (use)
 import qualified Lens.Micro.Mtl as Lens
 import qualified XMonad.Internal.Optic as Lens
 
@@ -105,9 +105,11 @@ killWindow w =
         protocols <- io $ getWMProtocols d w
         io $
             if wmdelt `elem` protocols
-                then allocaXEvent $ \ev -> do
+                then allocaXEvent $ \ev ->
                          setEventType ev clientMessage
+                         *>
                          setClientMessageEvent ev w wmprot 32 wmdelt 0
+                         *>
                          sendEvent d w False noEventMask ev
                 else killClient d w $> ()
 
@@ -120,19 +122,21 @@ kill = withFocused killWindow
 -- | windows. Modify the current window list with a pure function, and refresh
 windows :: (WindowSet -> WindowSet) -> X ()
 windows f = do
-    old <- Lens.use _windowset
+    old <- use _windowset
     let
         oldvisible :: [Window]
-        oldvisible = toListOf (W._screens . W._stack . traverse . traverse) old
+        oldvisible =
+            toListOf (W._screens . W._stack . traverse . traverse) old
         tags_oldvisible :: [WorkspaceId]
         tags_oldvisible = toListOf (W._screens . W._tag) old
         newwindows :: [Window]
         newwindows = W.allWindows ws \\ W.allWindows old
+        ws :: WindowSet
         ws = f old
         gottenhidden :: [W.Workspace WorkspaceId (Layout Window) Window]
-        gottenhidden =
-            filter (flip elem tags_oldvisible . Lens.view W._tag) $
-            Lens.view W._hidden ws
+        gottenhidden = filter
+                (flip elem tags_oldvisible . Lens.view W._tag)
+                (Lens.view W._hidden ws)
         allscreens ::
                [W.Screen WorkspaceId (Layout Window) Window ScreenId ScreenDetail]
         allscreens = toListOf W._screens ws
@@ -144,7 +148,6 @@ windows f = do
     traverse_ setInitialProperties newwindows
     d <- Lens.view _display
     nbc <- Lens.view _normalBorder
-    fbc <- Lens.view _focusedBorder
     for_ (W.peek old) $ \otherw -> do
         nbs <- Lens.view _normalBorderColor
         setWindowBorderWithFallback d otherw nbs nbc
@@ -165,8 +168,8 @@ windows f = do
                 this = W.view n ws
                 tiled :: Maybe (W.Stack Window)
                 tiled =
+                    W.filter isHidden =<<
                     Lens.view (W._current . W._stack) this
-                    >>= W.filter isHidden
                   where
                     isHidden x =
                         x `Map.notMember` Lens.view W._floating ws
@@ -176,7 +179,7 @@ windows f = do
                 viewrect :: Rectangle
                 viewrect = Lens.view _screenRect w
                 flt :: [(Window, Rectangle)]
-                flt = mapMaybe (rectOf m) (toListOf W._index this)
+                flt =  rectOf m `mapMaybe` toListOf W._index this
                   where
                     rectOf ::
                         Map.Map Window W.RationalRect -> Window -> Maybe (Window, Rectangle)
@@ -199,24 +202,26 @@ windows f = do
     traverse_ (uncurry tileWindow) rects
 
     -- Why do we do this here?
+    fbc <- Lens.view _focusedBorder
     fbs <- Lens.view _focusedBorderColor
     traverse_ (\w -> setWindowBorderWithFallback d w fbs fbc) (W.peek ws)
 
     let visible = fmap fst rects
     traverse_ reveal visible
     setTopFocus
-    -- hide every window that was potentially visible before, but is not
+    -- Hide every window that was potentially visible before, but is not
     -- given a position by a layout now.
     traverse_ hide (nub (oldvisible <> newwindows) \\ visible)
+    -- Would it make sense to hide duplicate windows multiple times to avoid n^2 compexity?
 
-    -- all windows that are no longer in the windowset are marked as
-    -- withdrawn, it is important to do this after the above, otherwise 'hide'
-    -- will overwrite withdrawnState with iconicState
+    -- All windows that are no longer in the windowset are marked as
+    -- withdrawn. It is important to do this after the above, otherwise 'hide'
+    -- will overwrite withdrawnState with iconicState.
     traverse_
         (`setWMState` withdrawnState)
         (W.allWindows old \\ W.allWindows ws)
 
-    Lens.view _mouseFocused >>= flip unless (clearEvents enterWindowMask)
+    Lens.view _mouseFocused >>= (`unless` clearEvents enterWindowMask)
     Lens.view _logHook >>= userCodeDef ()
 
 -- | Modify the @WindowSet@ in state with no special handling.
@@ -273,7 +278,8 @@ setWindowBorderWithFallback dpy w color basic =
 -- | hide. Hide a window by unmapping it, and setting Iconified.
 hide :: Window -> X ()
 hide w =
-    whenX (gets (Set.member w . mapped)) . withDisplay $ \d -> do
+    -- whenX (gets (Set.member w . mapped)) . withDisplay $ \d -> do
+    whenX (use (_mapped . Lens.to (Set.member w))) . withDisplay $ \d -> do
         cMask <- asks $ clientMask . config
         io $ do
             selectInput d w (cMask .&. complement structureNotifyMask)
@@ -481,7 +487,7 @@ setFocusX w =
 sendMessage :: Message a => a -> X ()
 sendMessage a =
     windowBracket_ $ do
-        w <- Lens.use (_windowset . W._current . W._workspace)
+        w <- use (_windowset . W._current . W._workspace)
         ml' <-
             handleMessage (Lens.view W._layout w) (SomeMessage a) `catchX`
             pure Nothing
@@ -518,7 +524,7 @@ updateLayout i ml =
 -- | Set the layout of the currently viewed workspace
 setLayout :: Layout Window -> X ()
 setLayout l = do
-    ss <- Lens.use _windowset
+    ss <- use _windowset
     let ws = Lens.view (W._current . W._workspace) ss
     handleMessage (W.layout ws) (SomeMessage ReleaseResources)
     windows . const $ (W._current . W._workspace . W._layout .~ l) ss
@@ -541,13 +547,13 @@ isClient w = withWindowSet $ pure . W.member w
 -- (numlock and capslock)
 extraModifiers :: X [KeyMask]
 extraModifiers = do
-    nlm <- Lens.use _numberlockMask
+    nlm <- use _numberlockMask
     pure [0, nlm, lockMask, nlm .|. lockMask]
 
 -- | Strip numlock\/capslock from a mask
 cleanMask :: KeyMask -> X KeyMask
 cleanMask km = do
-    nlm <- Lens.use _numberlockMask
+    nlm <- use _numberlockMask
     pure (complement (nlm .|. lockMask) .&. km)
 
 -- | Get the 'Pixel' value for a named color
@@ -659,12 +665,12 @@ floatLocation w =
       -- Fallback solution if `go' fails.  Which it might, since it
       -- calls `getWindowAttributes'.
      do
-        sc <- Lens.use (_windowset . W._current . W._screenId)
+        sc <- use (_windowset . W._current . W._screenId)
         pure (sc, W.RationalRect 0 0 1 1)
   where
     go =
         withDisplay $ \d -> do
-            cws <- Lens.use (_windowset . W._current)
+            cws <- use (_windowset . W._current)
             wa <- io $ getWindowAttributes d w
             sc <- fromMaybe cws <$> pointScreen (fi $ wa_x wa) (fi $ wa_y wa)
             let bw = fi (wa_border_width wa)
@@ -715,7 +721,7 @@ float w = do
 -- | Accumulate mouse motion events
 mouseDrag :: (Position -> Position -> X ()) -> X () -> X ()
 mouseDrag f done = do
-    drag <- Lens.use _dragging
+    drag <- use _dragging
     case drag of
         Just _ -> pure () -- error case? we're already dragging
         Nothing -> do
@@ -789,14 +795,21 @@ type D = (Dimension, Dimension)
 mkAdjust :: Window -> X (D -> D)
 mkAdjust w =
     withDisplay $ \d ->
-        liftIO $ do
+         liftIO $ do
             sh <- getWMNormalHints d w
-            wa <- C.try $ getWindowAttributes d w
-            case wa of
+            mwa <- C.try $ getWindowAttributes d w
+            case mwa of
                 Left (_ :: C.SomeException) -> pure id
-                Right wa' ->
-                    let bw = fi $ wa_border_width wa'
-                     in pure $ applySizeHints bw sh
+                Right wa ->
+                     pure $ applySizeHints (fi $ wa_border_width wa) sh
+         -- liftIO $ do
+         --    sh <- getWMNormalHints d w
+         --    wa <- C.try $ getWindowAttributes d w
+         --    case wa of
+         --        Left (_ :: C.SomeException) -> pure id
+         --        Right wa' ->
+         --            let bw = fi $ wa_border_width wa'
+         --             in pure $ applySizeHints bw sh
 
 -- | Reduce the dimensions if needed to comply to the given SizeHints, taking
 -- window borders into account.
@@ -814,10 +827,14 @@ applySizeHintsContents sh (w, h) =
 -- | XXX comment me
 applySizeHints' :: SizeHints -> D -> D
 applySizeHints' sh =
-    maybe id applyMaxSizeHint (sh_max_size sh) .
-    maybe id (\(bw, bh) (w, h) -> (w + bw, h + bh)) (sh_base_size sh) .
-    maybe id applyResizeIncHint (sh_resize_inc sh) .
-    maybe id applyAspectHint (sh_aspect sh) .
+    maybe id applyMaxSizeHint (sh_max_size sh)
+    .
+    maybe id (\(bw, bh) (w, h) -> (w + bw, h + bh)) (sh_base_size sh)
+    .
+    maybe id applyResizeIncHint (sh_resize_inc sh)
+    .
+    maybe id applyAspectHint (sh_aspect sh)
+    .
     maybe id (\(bw, bh) (w, h) -> (w - bw, h - bh)) (sh_base_size sh)
 
 -- | Reduce the dimensions so their aspect ratio falls between the two given aspect ratios.

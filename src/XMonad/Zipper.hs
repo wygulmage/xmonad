@@ -28,10 +28,10 @@ import Control.Applicative
 import Control.Category
 import Control.Monad
 import Data.Foldable
-import Data.Functor
+
 import qualified Data.List as List
 import Data.List.NonEmpty (NonEmpty ((:|)))
-import qualified Data.List.NonEmpty as NonEmpty
+
 import Data.Maybe
 import Data.Monoid
 import Data.Semigroup
