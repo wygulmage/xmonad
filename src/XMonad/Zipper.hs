@@ -39,7 +39,7 @@ import Data.Semigroup
 import Data.Traversable
 import Lens.Micro (Lens')
 import qualified Lens.Micro as Lens
-import qualified Lens.Micro.Internal as Lens
+
 import Prelude
     ( Bool (..)
     , Eq (..)

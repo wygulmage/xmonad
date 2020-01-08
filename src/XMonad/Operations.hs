@@ -22,6 +22,8 @@ module XMonad.Operations where
 
 import XMonad.Core
 import XMonad.Layout (Full (..))
+import XMonad.StackSet
+    (_current, _floating, _hidden, _index, _layout, _layouts, _screenId, _screens, _stack, _tag, _visible, _workspace, _workspaces)
 import qualified XMonad.StackSet as W
 
 import Control.Applicative ((<$>), (<*>), liftA2)
@@ -31,6 +33,7 @@ import Control.Monad.State
 
 import Data.Bifunctor (bimap)
 import Data.Bits (complement, testBit, (.&.), (.|.))
+import Data.Containers.ListUtils (nubOrdOn)
 import Data.Foldable (fold, for_, traverse_)
 import Data.Functor (($>))
 import Data.List (find, nub, (\\))
@@ -45,11 +48,11 @@ import Graphics.X11.Xinerama (getScreenInfo)
 import Graphics.X11.Xlib
 import Graphics.X11.Xlib.Extras
 
-import Lens.Micro (to, toListOf, (%~), (.~))
-import qualified Lens.Micro as Lens
+import Lens.Micro (to, toListOf, traverseOf_, (%~), (.~))
+-- import qualified Lens.Micro as Lens
 import Lens.Micro.Mtl (view, use)
-import qualified Lens.Micro.Mtl as Lens
-import qualified XMonad.Internal.Optic as Lens
+-- import qualified Lens.Micro.Mtl as Lens
+-- import qualified XMonad.Internal.Optic as Lens
 
 import System.Directory
 import System.IO
@@ -68,23 +71,28 @@ manage :: Window -> X ()
 manage w =
     whenX (not <$> isClient w) . withDisplay $ \d -> do
         sh <- io $ getWMNormalHints d w
-        let isFixedSize =
-                isJust (sh_min_size sh) && sh_min_size sh == sh_max_size sh
         isTransient <- isJust <$> io (getTransientForHint d w)
-        rr <- snd `fmap` floatLocation w
-    -- ensure that float windows don't go over the edge of the screen
-        let adjust r@(W.RationalRect x y wid h) =
-                if x + wid > 1 || y + h > 1 || x < 0 || y < 0
-                then W.RationalRect (0.5 - wid / 2) (0.5 - h / 2) wid h
-                else r
-            f ws
-                | isFixedSize || isTransient =
-                    let i = view (W._current . W._tag) ws
+        rr <- snd <$> floatLocation w
+        let
+            f
+                | isFixedSize sh || isTransient = \ ws ->
+                    let i = view (_current . _tag) ws
                      in W.float w (adjust rr) . W.insertUp w . W.view i $ ws
-                | otherwise = W.insertUp w ws
+                | otherwise = W.insertUp w
         mh <- view (_XConfig . _manageHook)
-        g <- appEndo <$> userCodeDef (Endo id) (runQuery mh w)
+        g <- appEndo <$> userCodeDef mempty (runQuery mh w)
         windows (g . f)
+  where
+    isFixedSize :: SizeHints -> Bool
+    isFixedSize sh = isJust minSize && minSize == sh_max_size sh
+          where minSize = sh_min_size sh
+
+    -- Ensure that float windows don't go over the edge of the screen.
+    adjust :: W.RationalRect -> W.RationalRect
+    adjust (W.RationalRect x y wid h)
+        | x + wid > 1 || y + h > 1 || x < 0 || y < 0
+            = W.RationalRect (0.5 - wid / 2) (0.5 - h / 2) wid h
+    adjust r = r
 
 -- | unmanage. A window no longer exists, remove it from the window
 -- list of whatever workspace it is in.
@@ -126,23 +134,23 @@ windows f = do
     let
         oldvisible :: [Window]
         oldvisible =
-            toListOf (W._screens . W._stack . traverse . traverse) old
+            toListOf (_screens . _stack . traverse . traverse) old
         tags_oldvisible :: [WorkspaceId]
-        tags_oldvisible = toListOf (W._screens . W._tag) old
+        tags_oldvisible = toListOf (_screens . _tag) old
         newwindows :: [Window]
         newwindows = W.allWindows ws \\ W.allWindows old
         ws :: WindowSet
         ws = f old
         gottenhidden :: [W.Workspace WorkspaceId (Layout Window) Window]
         gottenhidden = filter
-                (flip elem tags_oldvisible . view W._tag)
-                (view W._hidden ws)
+                (flip elem tags_oldvisible . view _tag)
+                (view _hidden ws)
         allscreens ::
                [W.Screen WorkspaceId (Layout Window) Window ScreenId ScreenDetail]
-        allscreens = toListOf W._screens ws
+        allscreens = toListOf _screens ws
         summed_visible :: [[Window]]
         summed_visible =
-            scanl (<>) [] $ toListOf (W._stack . traverse . traverse) <$> allscreens
+            scanl (<>) [] $ toListOf (_stack . traverse . traverse) <$> allscreens
 
     traverse_ setInitialProperties newwindows
     d <- view _display
@@ -158,24 +166,24 @@ windows f = do
         fmap fold . for (zip allscreens summed_visible) $ \(w, vis) ->
             let
                 n :: WorkspaceId
-                n = view W._tag w
+                n = view _tag w
                 this :: WindowSet
                 this = W.view n ws
                 wspTiled :: WindowSpace
-                wspTiled = view (W._workspace . to (W._stack .~ tiled)) w
+                wspTiled = view (_workspace . to (_stack .~ tiled)) w
                   where
                     tiled :: Maybe (W.Stack Window)
                     tiled = view
-                        (W._current . W._stack . traverse . to (W.filter isHidden))
+                        (_current . _stack . traverse . to (W.filter isHidden))
                         this
                       where
                         isHidden x =
-                            x `Map.notMember` view W._floating ws
+                            x `Map.notMember` view _floating ws
                             && x `notElem` vis
                 viewrect :: Rectangle
                 viewrect = view _screenRect w
                 flt :: [(Window, Rectangle)]
-                flt = floatingRect `mapMaybe` toListOf W._index this
+                flt = floatingRect `mapMaybe` toListOf _index this
                   where
                     floatingRect ::
                         Window -> Maybe (Window, Rectangle)
@@ -184,14 +192,14 @@ windows f = do
                       (,) win . scaleRationalRect viewrect
                       <$> Map.lookup win floaters
                     floaters :: Map.Map Window W.RationalRect
-                    floaters = view W._floating ws
+                    floaters = view _floating ws
             -- just the tiled windows:
             -- now tile the windows on this workspace, modified by the gap
             in do
               (rs, ml') <-
                   runLayout wspTiled viewrect
                   `catchX`
-                  runLayout (W._layout .~ Layout Full $ wspTiled) viewrect
+                  runLayout (_layout .~ Layout Full $ wspTiled) viewrect
               updateLayout n ml'
               let vs = flt <> rs
               io $ restackWindows d (fmap fst vs)
@@ -358,20 +366,43 @@ tileWindow w r =
 
 -- ---------------------------------------------------------------------
 -- | Returns 'True' if the first rectangle is contained within, but not equal
--- to the second.
-containedIn :: Rectangle -> Rectangle -> Bool
-containedIn r1@(Rectangle x1 y1 w1 h1) r2@(Rectangle x2 y2 w2 h2) =
-    and [ r1 /= r2 -- A rectangle is not considered to contain itself so 'nubScreens' retains at least some screens.
-        , x1 >= x2
-        , y1 >= y2
-        , x1 + fi w1 <= x2 + fi w2
-        , y1 + fi h1 <= y2 + fi h2
-        ]
+-- to, the second.
+strictlyContainedIn :: Rectangle -> Rectangle -> Bool
+strictlyContainedIn r1 r2 = r1 /= r2  &&  r2 `contains` r1
+
+strictlyContains r1 r2 = r1 /= r2  &&  r1 `contains` r2
+
+contains :: Rectangle -> Rectangle -> Bool
+-- Does the first rectangle contain the second?
+contains (Rectangle x1 y1 w1 h1) (Rectangle x2 y2 w2 h2) =
+    x2 >= x1
+    &&
+    y2 >= y1
+    &&
+    x2 + fi w2 <= x1 + fi w1
+    &&
+    y2 + fi h2 <= y1 + fi h1
+
 
 -- | Given a list of screens, remove all duplicated screens and screens that
 -- are entirely contained within another.
 nubScreens :: [Rectangle] -> [Rectangle]
-nubScreens xs = nub . filter (\x -> not $ any (x `containedIn`) xs) $ xs
+nubScreens xs =
+    filter (\x -> not $ any (x `strictlyContainedIn`) xs)
+    . nubOrdOn Lexicographic $ xs
+
+newtype Lexicographic = Lexicographic{ unLexicographic :: Rectangle }
+    deriving Eq
+instance Ord Lexicographic where
+    compare (Lexicographic (Rectangle x1 y1 w1 h1))
+            (Lexicographic (Rectangle x2 y2 w2 h2))
+        | x1 > x2 = GT
+        | x1 < x2 = LT
+        | y1 > y2 = GT
+        | y1 < y2 = LT
+        | w1 > w2 = GT
+        | w1 < w2 = LT
+        | otherwise = compare h1 h2
 
 -- | Cleans the list of screens according to the rules documented for
 -- nubScreens.
@@ -384,9 +415,9 @@ rescreen :: X ()
 rescreen = do
     xinesc <- withDisplay getCleanedScreenInfo
     windows $ \ws ->
-        let (xs, ys) = splitAt (length xinesc) $ toListOf W._workspaces ws
-            (v:vs) = zipWith3 W.Screen xs [0 ..] (fmap SD xinesc)
-         in (W._current .~ v) . (W._visible .~ vs) . (W._hidden .~ ys) $ ws
+        let (xs, ys) = splitAt (length xinesc) $ toListOf _workspaces ws
+            (v : vs) = zipWith3 W.Screen xs [0 ..] (fmap SD xinesc)
+         in (_current .~ v) . (_visible .~ vs) . (_hidden .~ ys) $ ws
 
 -- ---------------------------------------------------------------------
 -- | setButtonGrab. Tell whether or not to intercept clicks on a given window
@@ -428,8 +459,8 @@ setTopFocus =
 focus :: Window -> X ()
 focus w =
     local (_mouseFocused .~ True) . withWindowSet $ \s ->
-        let sTag = view W._tag
-            curr = view (W._current . W._tag) s
+        let sTag = view _tag
+            curr = view (_current . _tag) s
             mayPointScreen ::
                 Maybe (Position, Position) ->
                 X (Maybe (W.Screen WorkspaceId (Layout Window) Window ScreenId ScreenDetail))
@@ -455,10 +486,10 @@ setFocusX w =
     withWindowSet $ \ws -> do
         dpy <- view _display
     -- clear mouse button grab and border on other windows
-        -- Lens.forOf_ (W._screens . W._tag) ws $
-          -- \wk -> Lens.traverseOf_ W._index (setButtonGrab True) (W.view wk ws)
-        Lens.traverseOf_ (W._screens . W._tag)
-          (Lens.traverseOf_ W._index (setButtonGrab True) . (`W.view` ws))
+        -- Lens.forOf_ (_screens . _tag) ws $
+          -- \wk -> traverseOf_ _index (setButtonGrab True) (W.view wk ws)
+        traverseOf_ (_screens . _tag)
+          (traverseOf_ _index (setButtonGrab True) . (`W.view` ws))
           ws
     -- If we ungrab buttons on the root window, we lose our mouse bindings.
         whenX (not <$> isRoot w) $ setButtonGrab False w
@@ -496,9 +527,9 @@ setFocusX w =
 sendMessage :: Message a => a -> X ()
 sendMessage a =
     windowBracket_ $ do
-        w <- use (_windowset . W._current . W._workspace)
+        w <- use (_windowset . _current . _workspace)
         ml' <-
-            handleMessage (view W._layout w) (SomeMessage a) `catchX`
+            handleMessage (view _layout w) (SomeMessage a) `catchX`
             pure Nothing
         for_ ml' $ \l' ->
             modifyWindowSet $ \ws ->
@@ -511,73 +542,75 @@ sendMessage a =
 -- | Send a message to all layouts, without refreshing.
 broadcastMessage :: Message a => a -> X ()
 broadcastMessage =
-    withWindowSet . Lens.traverseOf_ W._workspaces . sendMessageWithNoRefresh
+    withWindowSet . traverseOf_ _workspaces . sendMessageWithNoRefresh
 
 -- | Send a message to a layout, without refreshing.
 sendMessageWithNoRefresh ::
        Message a => a -> W.Workspace WorkspaceId (Layout Window) Window -> X ()
 sendMessageWithNoRefresh a w =
-    handleMessage (view W._layout w) (SomeMessage a) `catchX` pure Nothing >>=
-    updateLayout (view W._tag w)
+    handleMessage (view _layout w) (SomeMessage a) `catchX` pure Nothing >>=
+    updateLayout (view _tag w)
 
 -- | Update the layout field of a workspace
 updateLayout :: WorkspaceId -> Maybe (Layout Window) -> X ()
-updateLayout i ml =
-    for_ ml $ \l ->
+updateLayout i =
+    traverse_ $ \l ->
         runOnWorkspaces $ \ww ->
             pure $
-            if view W._tag ww == i
-                then W._layout .~ l $ ww
+            if view _tag ww == i
+                then _layout .~ l $ ww
                 else ww
 
 -- | Set the layout of the currently viewed workspace
 setLayout :: Layout Window -> X ()
 setLayout l = do
     ss <- use _windowset
-    let ws = view (W._current . W._workspace) ss
-    handleMessage (W.layout ws) (SomeMessage ReleaseResources)
-    windows . const $ (W._current . W._workspace . W._layout .~ l) ss
+    handleMessage
+        (view (_current . _workspace . _layout) ss)
+        (SomeMessage ReleaseResources)
+    windows . const $ (_current . _workspace . _layout .~ l) ss
 
 ------------------------------------------------------------------------
 -- Utilities
 -- | Return workspace visible on screen 'sc', or 'Nothing'.
 screenWorkspace :: ScreenId -> X (Maybe WorkspaceId)
-screenWorkspace sc = withWindowSet $ pure . W.lookupWorkspace sc
+screenWorkspace sc = withWindowSet (pure . W.lookupWorkspace sc)
 
 -- | Apply an 'X' operation to the currently focused window, if there is one.
 withFocused :: (Window -> X ()) -> X ()
-withFocused f = withWindowSet $ traverse_ f . W.peek
+withFocused f = withWindowSet (traverse_ f . W.peek)
 
 -- | 'True' if window is under management by us
 isClient :: Window -> X Bool
-isClient w = withWindowSet $ pure . W.member w
+isClient w = withWindowSet (pure . W.member w)
 
 -- | Combinations of extra modifier masks we need to grab keys\/buttons for.
 -- (numlock and capslock)
 extraModifiers :: X [KeyMask]
-extraModifiers = do
-    nlm <- use _numberlockMask
-    pure [0, nlm, lockMask, nlm .|. lockMask]
+extraModifiers = use (_numberlockMask . to combine)
+  where
+    combine :: KeyMask -> [KeyMask]
+    combine nlm = [0, nlm, lockMask, nlm .|. lockMask]
 
 -- | Strip numlock\/capslock from a mask
 cleanMask :: KeyMask -> X KeyMask
-cleanMask km = do
-    nlm <- use _numberlockMask
-    pure (complement (nlm .|. lockMask) .&. km)
+cleanMask km = use (_numberlockMask . to clean)
+  where
+    clean :: KeyMask -> KeyMask
+    clean = (km .&.) . complement . (lockMask .|.)
 
 -- | Get the 'Pixel' value for a named color
 initColor :: Display -> String -> IO (Maybe Pixel)
-initColor dpy c =
-    C.handle
-        (\(C.SomeException _) -> pure Nothing)
-        (Just . color_pixel . fst <$> allocolor dpy c)
+initColor dpy c = C.handle
+    (\(C.SomeException _) -> pure Nothing)
+    (Just . color_pixel . fst <$> allocolor dpy c)
   where
+    allocolor :: Display -> String -> IO (Color, Color)
     allocolor = allocNamedColor <*> (defaultColormap <*> defaultScreen)
 
 ------------------------------------------------------------------------
 -- | A type to help serialize xmonad's state to a file.
-data StateFile =
-    StateFile
+data StateFile = StateFile
         { sfWins :: W.StackSet WorkspaceId String Window ScreenId ScreenDetail
         , sfExt  :: [(String, String)]
         }
@@ -595,7 +628,7 @@ writeStateToFile = do
     maybeShow (t, Left str)                        = Just (t, str)
     maybeShow _                                    = Nothing
 
-    wsData = view (_windowset . to (W._layouts %~ show))
+    wsData = view (_windowset . to (_layouts %~ show))
 
     extState = mapMaybe maybeShow . Map.toList . view _extensibleState
 
@@ -621,7 +654,7 @@ readStateFile xmc = do
                 W.ensureTags
                     layout
                     (workspaces xmc)
-                    (W._layouts %~ (fromMaybe layout . readMaybeWith lreads) $
+                    (_layouts %~ (fromMaybe layout . readMaybeWith lreads) $
                      sfWins sf)
             extState = Map.fromList . fmap (fmap Left) $ sfExt sf
         pure
@@ -674,12 +707,12 @@ floatLocation w =
       -- Fallback solution if `go' fails.  Which it might, since it
       -- calls `getWindowAttributes'.
      do
-        sc <- use (_windowset . W._current . W._screenId)
+        sc <- use (_windowset . _current . _screenId)
         pure (sc, W.RationalRect 0 0 1 1)
   where
     go =
         withDisplay $ \d -> do
-            cws <- use (_windowset . W._current)
+            cws <- use (_windowset . _current)
             wa <- io $ getWindowAttributes d w
             sc <- fromMaybe cws <$> pointScreen (fi $ wa_x wa) (fi $ wa_y wa)
             let bw = fi (wa_border_width wa)
@@ -692,14 +725,14 @@ floatLocation w =
                         ((fi (wa_y wa) - fi (rect_y sr)) % sh)
                         (fi (wa_width wa + bw * 2) % sw)
                         (fi (wa_height wa + bw * 2) % sh)
-            pure (view W._screenId sc, rr)
+            pure (view _screenId sc, rr)
 
 -- | Given a point, determine the screen (if any) that contains it.
 pointScreen ::
        Position
     -> Position
     -> X (Maybe (W.Screen WorkspaceId (Layout Window) Window ScreenId ScreenDetail))
-pointScreen x y = withWindowSet $ pure . find p . toListOf W._screens
+pointScreen x y = withWindowSet $ pure . find p . toListOf _screens
   where
     p = pointWithin x y . view _screenRect
 
@@ -720,7 +753,7 @@ float w = do
     windows $ \ws ->
         W.float w rr . fromMaybe ws $ do
             i <- W.findTag w ws
-            guard $ i `elem` toListOf (W._screens . W._tag) ws
+            guard $ i `elem` toListOf (_screens . _tag) ws
             f <- W.peek ws
             sw <- W.lookupWorkspace sc ws
             pure (W.focusWindow f . W.shiftWin sw w $ ws)
