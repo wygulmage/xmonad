@@ -120,9 +120,9 @@ import Data.List ((\\))
 import Data.Map (Map)
 import Data.Maybe (fromMaybe, isJust)
 import Data.Monoid hiding ((<>))
-import Data.Semigroup
+-- -- import Data.Semigroup
 import Data.Set (Set)
-import qualified Data.Set as Set
+-- -- import qualified Data.Set as Set
 import Data.Typeable
 import Graphics.X11.Xlib
 import Graphics.X11.Xlib.Extras (Event, WindowAttributes, getWindowAttributes)
