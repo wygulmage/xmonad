@@ -388,8 +388,8 @@ contains (Rectangle x1 y1 w1 h1) (Rectangle x2 y2 w2 h2) =
 -- are entirely contained within another.
 nubScreens :: [Rectangle] -> [Rectangle]
 nubScreens xs =
-    filter (\x -> not $ any (x `strictlyContainedIn`) xs)
-    . nubOrdOn Lexicographic $ xs
+    filter (\x -> not $ any (x `strictlyContainedIn`) nubbed) nubbed
+  where nubbed = nubOrdOn Lexicographic xs
 
 newtype Lexicographic = Lexicographic{ unLexicographic :: Rectangle }
     deriving Eq
