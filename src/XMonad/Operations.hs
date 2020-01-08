@@ -459,26 +459,27 @@ setTopFocus =
 focus :: Window -> X ()
 focus w =
     local (_mouseFocused .~ True) . withWindowSet $ \s ->
-        let sTag = view _tag
+        let
             curr = view (_current . _tag) s
-            mayPointScreen ::
-                Maybe (Position, Position) ->
-                X (Maybe (W.Screen WorkspaceId (Layout Window) Window ScreenId ScreenDetail))
-            mayPointScreen = maybe (pure Nothing) (uncurry pointScreen)
         in do
           mnew <-
-              fmap (fmap sTag) . mayPointScreen =<< view _mousePosition
-              -- maybe (pure Nothing) (fmap (fmap sTag) . uncurry pointScreen) =<< Lens.view _mousePosition
+              fmap (fmap (view _tag)) . mayPointScreen =<< view _mousePosition
           root <- view _theRoot
           case () of
               _
-                | W.member w s && W.peek s /= Just w ->
+                | w `W.member` s && W.peek s /= Just w ->
                     windows (W.focusWindow w)
                 | Just new <- mnew
                 , w == root && curr /= new ->
                     windows (W.view new)
                 | otherwise ->
                     pure ()
+  where
+     mayPointScreen ::
+         Maybe (Position, Position) ->
+         X (Maybe (W.Screen WorkspaceId (Layout Window) Window ScreenId ScreenDetail))
+     mayPointScreen = maybe (pure Nothing) (uncurry pointScreen)
+
 
 -- | Call X to set the keyboard focus details.
 setFocusX :: Window -> X ()
@@ -486,9 +487,9 @@ setFocusX w =
     withWindowSet $ \ws -> do
         dpy <- view _display
     -- clear mouse button grab and border on other windows
-        -- Lens.forOf_ (_screens . _tag) ws $
-          -- \wk -> traverseOf_ _index (setButtonGrab True) (W.view wk ws)
         traverseOf_ (_screens . _tag)
+          -- For each tag, find its workspace and set buttonGrab on its windows.
+          -- Why don't we do this directly?
           (traverseOf_ _index (setButtonGrab True) . (`W.view` ws))
           ws
     -- If we ungrab buttons on the root window, we lose our mouse bindings.
@@ -510,7 +511,7 @@ setFocusX w =
     event_time ev
         | ev_event_type ev `elem` timedEvents = ev_time ev
         | otherwise = currentTime
-    timedEvents =
+    timedEvents = Set.fromList
         [ keyPress
         , keyRelease
         , buttonPress
@@ -527,17 +528,18 @@ setFocusX w =
 sendMessage :: Message a => a -> X ()
 sendMessage a =
     windowBracket_ $ do
-        w <- use (_windowset . _current . _workspace)
+        -- ml <- use (_windowset . _current . _workspace . _layout)
+        ml <- use (_windowset . _current . _layout)
         ml' <-
-            handleMessage (view _layout w) (SomeMessage a) `catchX`
+            handleMessage ml (SomeMessage a)
+            `catchX`
             pure Nothing
-        for_ ml' $ \l' ->
-            modifyWindowSet $ \ws ->
-                -- Can't seem to get the types right to use an unwrapped layout with optics.
-                ws{ W.current =
-                    (W.current ws){ W.workspace =
-                        (W.workspace $ W.current ws){ W.layout = l' }}}
+        modifyLayout ml'
         pure (Any $ isJust ml')
+  where
+    modifyLayout :: Maybe (Layout Window) -> X ()
+    modifyLayout =
+        traverse_ (modifyWindowSet . (_current . _layout .~))
 
 -- | Send a message to all layouts, without refreshing.
 broadcastMessage :: Message a => a -> X ()
@@ -546,7 +548,8 @@ broadcastMessage =
 
 -- | Send a message to a layout, without refreshing.
 sendMessageWithNoRefresh ::
-       Message a => a -> W.Workspace WorkspaceId (Layout Window) Window -> X ()
+       Message a =>
+       a -> W.Workspace WorkspaceId (Layout Window) Window -> X ()
 sendMessageWithNoRefresh a w =
     handleMessage (view _layout w) (SomeMessage a) `catchX` pure Nothing >>=
     updateLayout (view _tag w)
