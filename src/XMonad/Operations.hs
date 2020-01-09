@@ -49,7 +49,7 @@ import Graphics.X11.Xlib
 import Graphics.X11.Xlib.Extras
 
 import Lens.Micro (to, toListOf, traverseOf_, (%~), (.~))
--- import qualified Lens.Micro as Lens
+import qualified Lens.Micro as Lens
 import Lens.Micro.Mtl (preview, view, use, (%=), (.=))
 
 import System.Directory
@@ -134,20 +134,31 @@ windows f = do
         oldvisible =
             toListOf (_screens . _stack . traverse . traverse) old
 
+        oldvisibleSet :: Set.Set Window
+        oldvisibleSet = Set.fromList oldvisible
+
         tags_oldvisible :: [WorkspaceId]
         tags_oldvisible = toListOf (_screens . _tag) old
+
+        tags_oldvisibleSet = Set.fromList tags_oldvisible
 
 
         -- newwindows :: [Window]
         newwindows :: Set.Set Window
-        newwindows = W.allWindows ws Set.\\ W.allWindows old
+        newwindows = wsSet Set.\\ oldSet
 
         ws :: WindowSet
         ws = f old
 
+        oldSet :: Set.Set Window
+        oldSet = W.allWindows old
+
+        wsSet :: Set.Set Window
+        wsSet = W.allWindows ws
+
         gottenhidden :: [W.Workspace WorkspaceId (Layout Window) Window]
         gottenhidden = filter
-                (flip elem tags_oldvisible . view _tag)
+                ((`elem` tags_oldvisible) . view _tag)
                 (view _hidden ws)
 
         allscreens ::
@@ -163,7 +174,8 @@ windows f = do
     d <- view _display
     nbc <- view _normalBorder
     nbs <- view _normalBorderColor
-    for_ (W.peek old) (\ otherw -> setWindowBorderWithFallback d otherw nbs nbc)
+    -- for_ (W.peek old) (\ otherw -> setWindowBorderWithFallback d otherw nbs nbc)
+    traverseOf_ W._peek (\ otherw -> setWindowBorderWithFallback d otherw nbs nbc) old
     _windowset .= ws
     -- notify non visibility
     traverse_ (sendMessageWithNoRefresh Hide) gottenhidden
@@ -232,7 +244,7 @@ windows f = do
     -- will overwrite withdrawnState with iconicState.
     traverse_
         (`setWMState` withdrawnState)
-        (toList (W.allWindowsSet old Set.\\ W.allWindowsSet ws))
+        (toList (W.allWindows old Set.\\ W.allWindows ws))
 
     view _mouseFocused >>= (`unless` clearEvents enterWindowMask)
     view _logHook >>= userCodeDef ()
