@@ -28,7 +28,6 @@ module XMonad.Config
 --
 -- Useful imports
 --
-<<<<<<< HEAD
 import XMonad.Core as XMonad hiding
     ( borderWidth
     , clickJustFocuses
@@ -70,37 +69,17 @@ import qualified XMonad.Core as XMonad
 
 import Data.Bits ((.|.))
 import Data.Default
-import Data.Foldable (traverse_)
-=======
--- import XMonad.Core as XMonad hiding
---     (workspaces,manageHook,keys,logHook,startupHook,borderWidth,mouseBindings
---     ,layoutHook,modMask,terminal,normalBorderColor,focusedBorderColor,focusFollowsMouse
---     ,handleEventHook,clickJustFocuses,rootMask,clientMask)
-import XMonad.Core
-    ( Layout, ManageHook, WorkspaceId, X, XConfig (XConfig)
-    , io, spawn)
-import qualified XMonad.Core as XMonad (XConfig (..))
-    -- (borderWidth, clickJustFocuses, clientMask, focusFollowsMouse, focusedBorderColor, handleEventHook, handleExtraArgs, keys, layoutHook, logHook, manageHook, modMask, mouseBindings, normalBorderColor, rootMask, startupHook, terminal, workspaces)
-
+import Data.Foldable (fold, traverse_)
+import Data.Map (Map)
+import qualified Data.Map as M
+import Data.Monoid
 import XMonad.Layout
 import XMonad.Operations
 import XMonad.ManageHook
 import qualified XMonad.StackSet as W
-import Data.Foldable (fold, traverse_)
-import Data.Bits ((.|.))
-import Data.Default
-import Data.Monoid
-import Data.Map (Map)
->>>>>>> 098d15fce848a80ddba1483ba5f8c486b14b324f
-import qualified Data.Map as M
-import Data.Monoid
 import Graphics.X11.Xlib
 import Graphics.X11.Xlib.Extras
 import System.Exit
-import XMonad.Layout
-import XMonad.ManageHook
-import XMonad.Operations
-import qualified XMonad.StackSet as W
 
 -- | The default number of workspaces (virtual screens) and their names.
 -- By default we use numeric strings, but any string may be used as a
