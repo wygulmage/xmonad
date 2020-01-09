@@ -317,6 +317,8 @@ data XConfig l =
     -- ^ Modify the configuration, complain about extra arguments etc. with arguments that are not handled by default
         }
 
+{-# DEPRECATED normalBorderColor, terminal, layoutHook, manageHook, handleEventHook, workspaces, modMask, keys, mouseBindings, borderWidth, logHook, startupHook, focusFollowsMouse, clickJustFocuses, clientMask, rootMask, handleExtraArgs "Use optics." #-}
+
 _clickJustFocuses :: Lens' (XConfig l) Bool
 _clickJustFocuses f s =
     (\x -> s {clickJustFocuses = x}) <$> f (clickJustFocuses s)
