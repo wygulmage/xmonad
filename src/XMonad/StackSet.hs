@@ -41,6 +41,7 @@ module XMonad.StackSet
     , screens
     , workspaces
     , allWindows
+    , allWindowsSet
     , currentTag
         -- * StackSet Operations
         -- $stackOperations
@@ -109,6 +110,7 @@ import Data.List ((\\))
 import qualified Data.List as L
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.Set (Set)
 import Data.Maybe (fromMaybe, isJust)
 import Prelude hiding (filter)
 
@@ -472,7 +474,10 @@ focusWindow w s
 
 -- | Get a list of all windows in the 'StackSet' in no particular order
 allWindows :: Ord a => StackSet i l a s sd -> [a]
-allWindows = toList . Lens.setOf (_workspaces . _stack . traverse . traverse)
+allWindows = toList . allWindowsSet
+
+allWindowsSet :: Ord a => StackSet i l a s sd -> Set a
+allWindowsSet = Lens.setOf (_workspaces . _stack . traverse . traverse)
 
 -- | Is the given tag present in the 'StackSet'?
 tagMember :: Eq i => i -> StackSet i l a s sd -> Bool

@@ -34,7 +34,7 @@ import Control.Monad.State
 import Data.Bifunctor (bimap)
 import Data.Bits (complement, testBit, (.&.), (.|.))
 import Data.Containers.ListUtils (nubOrd, nubOrdOn)
-import Data.Foldable (fold, for_, traverse_)
+import Data.Foldable (fold, toList, for_, traverse_)
 import Data.Functor (($>))
 import Data.List (find, (\\))
 import qualified Data.Map as Map
@@ -162,7 +162,6 @@ windows f = do
     d <- view _display
     nbc <- view _normalBorder
     nbs <- view _normalBorderColor
-    fbc <- view _focusedBorder
     for_ (W.peek old) (\ otherw -> setWindowBorderWithFallback d otherw nbs nbc)
     modify (_windowset .~ ws)
     -- notify non visibility
@@ -225,14 +224,13 @@ windows f = do
     -- Hide every window that was potentially visible before, but is not
     -- given a position by a layout now.
     traverse_ hide (nubOrd (oldvisible <> newwindows) \\ visible)
-    -- Would it make sense to hide duplicate windows multiple times to avoid n^2 compexity?
 
     -- All windows that are no longer in the windowset are marked as
     -- withdrawn. It is important to do this after the above, otherwise 'hide'
     -- will overwrite withdrawnState with iconicState.
     traverse_
         (`setWMState` withdrawnState)
-        (W.allWindows old \\ W.allWindows ws)
+        (toList (W.allWindowsSet old Set.\\ W.allWindowsSet ws))
 
     view _mouseFocused >>= (`unless` clearEvents enterWindowMask)
     view _logHook >>= userCodeDef ()
