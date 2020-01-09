@@ -158,7 +158,8 @@ windows f = do
 
         gottenhidden :: [W.Workspace WorkspaceId (Layout Window) Window]
         gottenhidden = filter
-                ((`elem` tags_oldvisible) . view _tag)
+                -- ((`elem` tags_oldvisible) . view _tag)
+                ((`Set.member` tags_oldvisibleSet) . view _tag)
                 (view _hidden ws)
 
         allscreens ::
