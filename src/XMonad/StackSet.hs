@@ -3,6 +3,7 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses  #-}
 {-# LANGUAGE PatternGuards          #-}
+{-# LANGUAGE RankNTypes             #-}
 {-# LANGUAGE ScopedTypeVariables    #-}
 {-# LANGUAGE TypeFamilies           #-}
 
@@ -101,6 +102,7 @@ module XMonad.StackSet
     , _workspace
     , _workspaces
     , _index
+    , _peek
     ) where
 
 import Control.Monad.Reader (MonadReader)
@@ -120,7 +122,7 @@ import qualified Lens.Micro.Mtl as Lens
 
 import qualified XMonad.Internal.Optic as Lens
 
-import XMonad.Zipper (Stack (..), differentiate, filter, integrate, integrate')
+import XMonad.Zipper (Stack (..), _focus, differentiate, filter, integrate, integrate')
 import qualified XMonad.Zipper as Stack
 
 -- $intro
@@ -392,11 +394,8 @@ greedyView w ws
 -- | Find the tag of the workspace visible on Xinerama screen 'sc'.
 -- 'Nothing' if screen is out of bounds.
 lookupWorkspace :: Eq s => s -> StackSet i l a s sd -> Maybe i
--- lookupWorkspace sc w = listToMaybe [ tag i | Screen i s _ <- current w : visible w, s == sc ]
--- lookupWorkspace sc = fmap (Lens.view _tag) . Lens.findOf _screens (Lens.views  _screenId (sc ==))
 lookupWorkspace sc =
-    fmap (Lens.view _tag) . L.find (Lens.views _screenId (sc ==)) .
-    toListOf _screens
+    fmap (Lens.view _tag) . L.find ((sc ==) . Lens.view _screenId) . toListOf _screens
 
 -- ---------------------------------------------------------------------
 -- $stackOperations
@@ -409,8 +408,11 @@ lookupWorkspace sc =
 -- with :: b -> (Stack a -> b) -> StackSet i l a s sd -> b
 -- with dflt f = maybe dflt f . stack . workspace . current
 with :: MonadReader (StackSet i l a sid sd) m => b -> (Stack a -> b) -> m b
--- with dflt f = Lens.views (_current . _stack) (maybe dflt f)
-with dflt f = Lens.view (_current . _stack . to (maybe dflt f))
+-- with dflt f = Lens.view (_current . _stack . to (maybe dflt f))
+with z f = Lens.view (_with z f)
+
+_with :: b -> (Stack a -> b) -> Lens.Getting r (StackSet i l a sid sd) b
+_with z f = _current . _stack . to (maybe z f)
 
 -- |
 -- Apply a function, and a default value for 'Nothing', to modify the current stack.
@@ -433,8 +435,11 @@ modify' = (_current . _stack . traverse %~)
 -- /O(1)/. Extract the focused element of the current stack.
 -- Return 'Just' that element, or 'Nothing' for an empty stack.
 --
-peek :: StackSet i l a s sd -> Maybe a
-peek = with Nothing (pure . Lens.view Stack._focus)
+peek :: MonadReader (StackSet i l a sid sd) m => m (Maybe a)
+peek = Lens.preview _peek
+
+_peek :: Lens.Traversal' (StackSet i l a s sd) a
+_peek = _current . _stack . traverse . _focus
 
 -- |
 -- /O(1), O(w) on the wrapping case/.

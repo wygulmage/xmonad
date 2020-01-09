@@ -49,8 +49,8 @@ import Graphics.X11.Xlib
 import Graphics.X11.Xlib.Extras
 
 import Lens.Micro (to, toListOf, traverseOf_, (%~), (.~))
-import qualified Lens.Micro as Lens
-import Lens.Micro.Mtl (view, use)
+-- import qualified Lens.Micro as Lens
+import Lens.Micro.Mtl (preview, view, use, (%=), (.=))
 
 import System.Directory
 import System.IO
@@ -156,15 +156,15 @@ windows f = do
 
         summed_visible :: [[Window]]
         summed_visible =
-            scanl (<>) [] $ toListOf (_stack . traverse . traverse) <$>
-            allscreens
+            scanl (<>) [] $ toListOf (_stack . traverse . traverse) <$> allscreens
+        -- Why do we sum the windows like this? For each stack in allscreens, we get a list of its windows with all preceding windows.
 
     traverse_ setInitialProperties newwindows
     d <- view _display
     nbc <- view _normalBorder
     nbs <- view _normalBorderColor
     for_ (W.peek old) (\ otherw -> setWindowBorderWithFallback d otherw nbs nbc)
-    modify (_windowset .~ ws)
+    _windowset .= ws
     -- notify non visibility
     traverse_ (sendMessageWithNoRefresh Hide) gottenhidden
     -- for each workspace, layout the currently visible workspaces
@@ -216,7 +216,8 @@ windows f = do
     -- Why do we do this here?
     fbc <- view _focusedBorder
     fbs <- view _focusedBorderColor
-    traverse_ (\w -> setWindowBorderWithFallback d w fbs fbc) (W.peek ws)
+    -- traverse_ (\w -> setWindowBorderWithFallback d w fbs fbc) (W.peek ws)
+    traverseOf_ W._peek (\w -> setWindowBorderWithFallback d w fbs fbc) ws
 
     let visible = fmap fst rects
 
@@ -240,7 +241,7 @@ windows f = do
 -- modifyWindowSet :: (WindowSet -> WindowSet) -> X ()
 modifyWindowSet ::
        (MonadState s m, HasWindowSet s) => (WindowSet -> WindowSet) -> m ()
-modifyWindowSet = modify . (_windowset %~)
+modifyWindowSet = (_windowset %=)
 
 -- | Perform an @X@ action and check its return value against a predicate p.
 -- If p holds, unwind changes to the @WindowSet@ and replay them using @windows@.
@@ -249,7 +250,7 @@ windowBracket p action =
     withWindowSet $ \old -> do
         a <- action
         when (p a) . withWindowSet $ \new ->
-            modify (_windowset .~ old) *> windows (const new)
+            (_windowset .= old) *> windows (const new)
         pure a
 
 -- | A version of @windowBracket@ that discards the return value, and handles an
@@ -303,9 +304,11 @@ hide w =
         setWMState w iconicState
     -- this part is key: we increment the waitingUnmap counter to distinguish
     -- between client and xmonad initiated unmaps.
-        modify $
-            (_waitingUnmap %~ Map.insertWith (+) w 1)
-            . (_mapped %~ Set.delete w)
+        -- modify $
+        --     (_waitingUnmap %~ Map.insertWith (+) w 1)
+        --     . (_mapped %~ Set.delete w)
+        _waitingUnmap %= Map.insertWith (+) w 1
+        _mapped %= Set.delete w
 
 -- | reveal. Show a window by mapping it and setting Normal
 -- this is harmless if the window was already visible
@@ -316,7 +319,7 @@ reveal w =
         *>
         io (mapWindow d w)
         *>
-        whenX (isClient w) (modify (_mapped %~ Set.insert w))
+        whenX (isClient w) (_mapped %= Set.insert w)
 
 -- | Set some properties when we initially gain control of a window
 setInitialProperties :: Window -> X ()
@@ -585,7 +588,8 @@ screenWorkspace sc = withWindowSet (pure . W.lookupWorkspace sc)
 
 -- | Apply an 'X' operation to the currently focused window, if there is one.
 withFocused :: (Window -> X ()) -> X ()
-withFocused f = withWindowSet (traverse_ f . W.peek)
+-- withFocused f = withWindowSet (traverse_ f . W.peek)
+withFocused = withWindowSet . traverseOf_ W._peek
 
 -- | 'True' if window is under management by us
 isClient :: Window -> X Bool
@@ -761,7 +765,7 @@ float w = do
         W.float w rr . fromMaybe ws $ do
             i <- W.findTag w ws
             guard $ i `elem` toListOf (_screens . _tag) ws
-            f <- W.peek ws
+            f <- preview W._peek ws
             sw <- W.lookupWorkspace sc ws
             pure . W.focusWindow f . W.shiftWin sw w $ ws
 
@@ -774,7 +778,7 @@ mouseDrag f done =
         (use $ _dragging . to isNothing)
         (takePointer <$> view _display <*> view _theRoot $> ())
     *>
-    modify (_dragging .~ Just (motion, cleanup))
+    (_dragging .= Just (motion, cleanup))
   where
     takePointer :: Display -> Window -> IO GrabStatus
     takePointer d w =
@@ -793,7 +797,7 @@ mouseDrag f done =
     cleanup :: X ()
     cleanup =
         withDisplay (io . flip ungrabPointer currentTime)
-        *> modify (_dragging .~ Nothing)
+        *> (_dragging .= Nothing)
         *> done
 
 -- | drag the window under the cursor with the mouse while it is dragged
