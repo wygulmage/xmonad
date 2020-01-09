@@ -22,6 +22,8 @@ module XMonad.Operations where
 
 import XMonad.Core
 import XMonad.Layout (Full (..))
+import XMonad.StackSet
+    (_current, _index, _layout, _layouts, _screenId, _screens, _stack, _tag, _workspace, _workspaces)
 import qualified XMonad.StackSet as W
 
 import Control.Applicative ((<$>), (<*>), liftA2)
@@ -75,7 +77,7 @@ manage w =
             f :: WindowSet -> WindowSet
             f ws
                 | isFixedSize sh || isTransient =
-                    let i = view (W._current . W._tag) ws
+                    let i = view (_current . _tag) ws
                      in W.float w (adjust rr) . W.insertUp w . W.view i $ ws
                 | otherwise = W.insertUp w ws
 
@@ -130,22 +132,22 @@ windows f = do
     old <- use _windowset
     let
         oldvisible :: [Window]
-        oldvisible = toListOf (W._screens . W._stack . traverse . traverse) old
+        oldvisible = toListOf (_screens . _stack . traverse . traverse) old
         newwindows :: [Window]
         newwindows = W.allWindows ws \\ W.allWindows old
         ws = f old
         tags_oldvisible :: [WorkspaceId]
-        tags_oldvisible = toListOf (W._screens . W._tag) old
+        tags_oldvisible = toListOf (_screens . _tag) old
         gottenhidden :: [W.Workspace WorkspaceId (Layout Window) Window]
         gottenhidden = filter
-                (flip elem tags_oldvisible . view W._tag)
+                (flip elem tags_oldvisible . view _tag)
                 (view W._hidden ws)
         allscreens ::
             [W.Screen WorkspaceId (Layout Window) Window ScreenId ScreenDetail]
-        allscreens = toListOf W._screens ws
+        allscreens = toListOf _screens ws
         summed_visible :: [[Window]]
         summed_visible =
-            scanl (<>) [] $ toListOf (W._stack . traverse . traverse) <$>
+            scanl (<>) [] $ toListOf (_stack . traverse . traverse) <$>
             allscreens
     traverse_ setInitialProperties newwindows
     d <- view _display
@@ -161,20 +163,20 @@ windows f = do
         fmap fold . for (zip allscreens summed_visible) $ \(w, vis) -> do
             let
                 wsp :: WindowSpace
-                wsp = view W._workspace w
+                wsp = view _workspace w
                 this :: WindowSet
                 this = W.view n ws
                 n :: WorkspaceId
-                n = view W._tag w
+                n = view _tag w
                 tiled :: Maybe (W.Stack Window)
                 tiled =
-                    view (W._current . W._stack) this >>= W.filter isHidden
+                    view (_current . _stack) this >>= W.filter isHidden
                   where
                     isHidden x =
                         x `Map.notMember` view W._floating ws && x `notElem`
                         vis
                 wspTiled :: WindowSpace
-                wspTiled = W._stack .~ tiled $ wsp
+                wspTiled = _stack .~ tiled $ wsp
                 viewrect :: Rectangle
                 viewrect = view _screenRect w
                 m :: Map.Map Window W.RationalRect
@@ -183,14 +185,14 @@ windows f = do
                 flt =
                   mapMaybe
                       (\ win -> (,) win . scaleRationalRect viewrect <$> Map.lookup win m)
-                      (toListOf W._index this)
+                      (toListOf _index this)
 
         -- just the tiled windows:
         -- now tile the windows on this workspace, modified by the gap
             (rs, ml') <-
                 runLayout wspTiled viewrect
                 `catchX`
-                runLayout (W._layout .~ Layout Full $ wspTiled) viewrect
+                runLayout (_layout .~ Layout Full $ wspTiled) viewrect
             let vs = flt <> rs
             updateLayout n ml'
             io $ restackWindows d (fmap fst vs)
@@ -368,9 +370,9 @@ rescreen :: X ()
 rescreen = do
     xinesc <- withDisplay getCleanedScreenInfo
     windows $ \ws ->
-        let (xs, ys) = splitAt (length xinesc) $ toListOf W._workspaces ws
+        let (xs, ys) = splitAt (length xinesc) $ toListOf _workspaces ws
             (v:vs) = zipWith3 W.Screen xs [0 ..] $ fmap SD xinesc
-         in (W._current .~ v) . (W._visible .~ vs) . (W._hidden .~ ys) $ ws
+         in (_current .~ v) . (W._visible .~ vs) . (W._hidden .~ ys) $ ws
 
 -- ---------------------------------------------------------------------
 -- | setButtonGrab. Tell whether or not to intercept clicks on a given window
@@ -412,7 +414,7 @@ setTopFocus =
 focus :: Window -> X ()
 focus w =
     local (_mouseFocused .~ True) . withWindowSet $ \s -> do
-        let stag = view W._tag
+        let stag = view _tag
             curr = stag $ W.current s
         mnew <-
             maybe (pure Nothing) (fmap (fmap stag) . uncurry pointScreen) =<<
@@ -434,8 +436,8 @@ setFocusX w =
     withWindowSet $ \ws -> do
         dpy <- view _display
     -- clear mouse button grab and border on other windows
-        Lens.forOf_ (W._screens . W._tag) ws $ \wk ->
-            Lens.traverseOf_ W._index (setButtonGrab True) (W.view wk ws)
+        Lens.forOf_ (_screens . _tag) ws $ \wk ->
+            Lens.traverseOf_ _index (setButtonGrab True) (W.view wk ws)
     -- If we ungrab buttons on the root window, we lose our mouse bindings.
         whenX (not <$> isRoot w) $ setButtonGrab False w
         hints <- io $ getWMHints dpy w
@@ -472,34 +474,23 @@ setFocusX w =
 sendMessage :: Message a => a -> X ()
 sendMessage a =
     windowBracket_ $ do
-        w <- use (_windowset . W._current . W._workspace)
+        ml <- use (_windowset . _current . _workspace . _layout)
         ml' <-
-            handleMessage (view W._layout w) (SomeMessage a) `catchX`
-            pure Nothing
-        for_ ml' $ \l' ->
-            modifyWindowSet $ \ws
-                -- Can't seem to get the types right to use an unwrapped layout with optics.
-             ->
-                ws
-                    { W.current =
-                          (W.current ws)
-                              { W.workspace =
-                                    (W.workspace $ W.current ws) {W.layout = l'}
-                              }
-                    }
+            handleMessage ml (SomeMessage a) `catchX` pure Nothing
+        traverse_ (modifyWindowSet . (_current . _workspace . _layout .~)) ml'
         pure (Any $ isJust ml')
 
 -- | Send a message to all layouts, without refreshing.
 broadcastMessage :: Message a => a -> X ()
 broadcastMessage =
-    withWindowSet . Lens.traverseOf_ W._workspaces . sendMessageWithNoRefresh
+    withWindowSet . Lens.traverseOf_ _workspaces . sendMessageWithNoRefresh
 
 -- | Send a message to a layout, without refreshing.
 sendMessageWithNoRefresh ::
        Message a => a -> W.Workspace WorkspaceId (Layout Window) Window -> X ()
 sendMessageWithNoRefresh a w =
-    handleMessage (view W._layout w) (SomeMessage a) `catchX` pure Nothing >>=
-    updateLayout (view W._tag w)
+    handleMessage (view _layout w) (SomeMessage a) `catchX` pure Nothing >>=
+    updateLayout (view _tag w)
 
 -- | Update the layout field of a workspace
 updateLayout :: WorkspaceId -> Maybe (Layout Window) -> X ()
@@ -507,17 +498,17 @@ updateLayout i ml =
     for_ ml $ \l ->
         runOnWorkspaces $ \ww ->
             pure $
-            if view W._tag ww == i
-                then W._layout .~ l $ ww
+            if view _tag ww == i
+                then _layout .~ l $ ww
                 else ww
 
 -- | Set the layout of the currently viewed workspace
 setLayout :: Layout Window -> X ()
 setLayout l = do
     ss <- use _windowset
-    let ws = view (W._current . W._workspace) ss
+    let ws = view (_current . _workspace) ss
     handleMessage (W.layout ws) (SomeMessage ReleaseResources)
-    windows . const $ (W._current . W._workspace . W._layout .~ l) ss
+    windows . const $ (_current . _workspace . _layout .~ l) ss
 
 ------------------------------------------------------------------------
 -- Utilities
@@ -570,7 +561,7 @@ writeStateToFile = do
     let maybeShow (t, Right (PersistentExtension ext)) = Just (t, show ext)
         maybeShow (t, Left str)                        = Just (t, str)
         maybeShow _                                    = Nothing
-        wsData = view (_windowset . to (W._layouts %~ show))
+        wsData = view (_windowset . to (_layouts %~ show))
         extState = mapMaybe maybeShow . Map.toList . view _extensibleState
     path <- stateFileName
     stateData <- gets (liftA2 StateFile wsData extState)
@@ -595,7 +586,7 @@ readStateFile xmc = do
                 W.ensureTags
                     layout
                     (workspaces xmc)
-                    (W._layouts %~ (fromMaybe layout . readMaybeWith lreads) $ sfWins sf)
+                    (_layouts %~ (fromMaybe layout . readMaybeWith lreads) $ sfWins sf)
             -- extState = Map.fromList . fmap (second Left) $ sfExt sf
             extState = Map.fromList . fmap (fmap Left) $ sfExt sf
         pure
@@ -649,12 +640,12 @@ floatLocation w =
       -- Fallback solution if `go' fails.  Which it might, since it
       -- calls `getWindowAttributes'.
      do
-        sc <- use (_windowset . W._current . W._screenId)
+        sc <- use (_windowset . _current . _screenId)
         pure (sc, W.RationalRect 0 0 1 1)
   where
     go =
         withDisplay $ \d -> do
-            cws <- use (_windowset . W._current)
+            cws <- use (_windowset . _current)
             wa <- io $ getWindowAttributes d w
             sc <- fromMaybe cws <$> pointScreen (fi $ wa_x wa) (fi $ wa_y wa)
             let
@@ -668,14 +659,14 @@ floatLocation w =
                         ((fi (wa_y wa) - fi (rect_y sr)) % sh)
                         (fi (wa_width wa + bw * 2) % sw)
                         (fi (wa_height wa + bw * 2) % sh)
-            pure (view W._screenId sc, rr)
+            pure (view _screenId sc, rr)
 
 -- | Given a point, determine the screen (if any) that contains it.
 pointScreen ::
        Position
     -> Position
     -> X (Maybe (W.Screen WorkspaceId (Layout Window) Window ScreenId ScreenDetail))
-pointScreen x y = withWindowSet $ pure . find p . toListOf W._screens
+pointScreen x y = withWindowSet $ pure . find p . toListOf _screens
   where
     p = pointWithin x y . view _screenRect
 
@@ -696,7 +687,7 @@ float w = do
     windows $ \ws ->
         W.float w rr . fromMaybe ws $ do
             i <- W.findTag w ws
-            guard $ i `elem` toListOf (W._screens . W._tag) ws
+            guard $ i `elem` toListOf (_screens . _tag) ws
             f <- W.peek ws
             sw <- W.lookupWorkspace sc ws
             pure . W.focusWindow f . W.shiftWin sw w $ ws
