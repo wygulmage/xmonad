@@ -138,8 +138,9 @@ windows f = do
         tags_oldvisible = toListOf (_screens . _tag) old
 
 
-        newwindows :: [Window]
-        newwindows = W.allWindows ws \\ W.allWindows old
+        -- newwindows :: [Window]
+        newwindows :: Set.Set Window
+        newwindows = W.allWindows ws Set.\\ W.allWindows old
 
         ws :: WindowSet
         ws = f old
@@ -223,7 +224,7 @@ windows f = do
     setTopFocus
     -- Hide every window that was potentially visible before, but is not
     -- given a position by a layout now.
-    traverse_ hide (nubOrd (oldvisible <> newwindows) \\ visible)
+    traverse_ hide (toList (Set.fromList oldvisible <> newwindows) \\ visible)
 
     -- All windows that are no longer in the windowset are marked as
     -- withdrawn. It is important to do this after the above, otherwise 'hide'

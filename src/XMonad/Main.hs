@@ -27,7 +27,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Data.Bifunctor (bimap)
 import Data.Bits
-import Data.Foldable (fold, for_, sequenceA_, traverse_)
+import Data.Foldable (fold, toList, for_, sequenceA_, traverse_)
 import Data.List ((\\))
 import qualified Data.Map as Map
 import Data.Maybe (fromMaybe)
@@ -271,10 +271,13 @@ launch initxmc
             -- those windows.  Remove all windows that are no longer top-level
             -- children of the root, they may have disappeared since
             -- restarting.
-            let winset = maybe initialWinset windowset serializedSt
-            windows . const . foldr W.delete winset $ W.allWindows winset \\ ws
+            let
+                winset = maybe initialWinset windowset serializedSt
+                winsetSet = W.allWindows winset
+            windows . const . foldr W.delete winset $
+                winsetSet Set.\\ Set.fromList ws
             -- manage the as-yet-unmanaged windows
-            traverse_ manage (ws \\ W.allWindows winset)
+            traverse_ manage (ws \\ toList winsetSet)
             userCode $ startupHook initxmc
             -- main loop, for all you HOF/recursion fans out there.
             forever $ prehandle =<< io (nextEvent dpy e *> getEvent e)

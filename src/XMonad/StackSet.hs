@@ -473,8 +473,10 @@ focusWindow w s
             pure $ until ((Just w ==) . peek) focusUp (view n s)
 
 -- | Get a list of all windows in the 'StackSet' in no particular order
-allWindows :: Ord a => StackSet i l a s sd -> [a]
-allWindows = toList . allWindowsSet
+-- allWindows :: Ord a => StackSet i l a s sd -> [a]
+-- allWindows = toList . allWindowsSet
+allWindows :: Ord a => StackSet i l a s sd -> Set a
+allWindows = allWindowsSet
 
 allWindowsSet :: Ord a => StackSet i l a s sd -> Set a
 allWindowsSet = Lens.setOf (_workspaces . _stack . traverse . traverse)
