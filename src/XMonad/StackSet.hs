@@ -104,6 +104,7 @@ module XMonad.StackSet
 
 import Control.Monad.Reader (MonadReader)
 import Data.Foldable (Foldable (toList))
+import Data.Function (on)
 import Data.List ((\\))
 import qualified Data.List as L
 import Data.Map (Map)
@@ -111,7 +112,7 @@ import qualified Data.Map as Map
 import Data.Maybe (fromMaybe, isJust)
 import Prelude hiding (filter)
 
-import Lens.Micro (Lens, Lens', toListOf, (%~), (.~))
+import Lens.Micro (Lens, Lens', to, toListOf, (%~), (.~))
 import qualified Lens.Micro as Lens
 import qualified Lens.Micro.Mtl as Lens
 
@@ -223,9 +224,12 @@ _screens f s =
 _workspaces ::
        Lens.Traversal (StackSet i l a sid sd) (StackSet i' l' a sid sd) (Workspace i l a) (Workspace i' l' a)
 _workspaces f s =
-    (\cur' vis' hid' -> s {current = cur', visible = vis', hidden = hid'}) <$>
-    _workspace f (current s) <*>
-    (traverse . _workspace) f (visible s) <*>
+    (\cur' vis' hid' -> s {current = cur', visible = vis', hidden = hid'})
+    <$>
+    _workspace f (current s)
+    <*>
+    (traverse . _workspace) f (visible s)
+    <*>
     traverse f (hidden s)
 
 _layouts :: Lens.Traversal (StackSet i l a s sd) (StackSet i l' a s sd) l l'
@@ -339,29 +343,25 @@ new _ _ _ = abort "non-positive argument to StackSet.new"
 -- current.
 view :: (Eq s, Eq i) => i -> StackSet i l a s sd -> StackSet i l a s sd
 view i s
-    -- | i == currentTag s = s  -- current
-    | Lens.views (_current . _tag) (i ==) s = s -- current
-    -- | Just x <- L.find ((i==).tag.workspace) (visible s)
-    | Just x <- L.find (Lens.views _tag (i ==)) . Lens.view _visible $ s
+    | i == Lens.view (_current . _tag) s
+        = s -- current
+    | Just x <- L.find ((i ==) . Lens.view _tag) . Lens.view _visible $ s
     -- if it is visible, it is just raised
-    -- = s{ current = x, visible = current s : L.deleteBy (equating screen) x (visible s) }
-    =
+        =
         (_current .~ x) .
         (_visible %~ (Lens.view _current s :) .
-         L.deleteBy (equating (Lens.view _screenId)) x) $
+         L.deleteBy ((==) `on` Lens.view _screenId) x) $
         s
     -- | Just x <- L.find ((i==).tag) (hidden  s) -- must be hidden then
     | Just x <- L.find (Lens.views _tag (i ==)) (Lens.view _hidden s) -- must be hidden then
     -- if it was hidden, it is raised on the xine screen currently used
-    =
+        =
         (_current . _workspace .~ x) .
         (_hidden %~ (Lens.view (_current . _workspace) s :) .
-         L.deleteBy (equating (Lens.view _tag)) x) $
+         L.deleteBy ((==) `on` Lens.view _tag) x) $
         s
     | otherwise
-    = s -- not a member of the stackset
-  where
-    equating f x y = f x == f y
+        = s -- not a member of the stackset
     -- 'Catch'ing this might be hard. Relies on monotonically increasing
     -- workspace tags defined in 'new'
     -- and now tags are not monotonic, what happens here?
@@ -407,7 +407,8 @@ lookupWorkspace sc =
 -- with :: b -> (Stack a -> b) -> StackSet i l a s sd -> b
 -- with dflt f = maybe dflt f . stack . workspace . current
 with :: MonadReader (StackSet i l a sid sd) m => b -> (Stack a -> b) -> m b
-with dflt f = Lens.views (_current . _stack) (maybe dflt f)
+-- with dflt f = Lens.views (_current . _stack) (maybe dflt f)
+with dflt f = Lens.view (_current . _stack . to (maybe dflt f))
 
 -- |
 -- Apply a function, and a default value for 'Nothing', to modify the current stack.
@@ -470,8 +471,6 @@ focusWindow w s
             pure $ until ((Just w ==) . peek) focusUp (view n s)
 
 -- | Get a list of all windows in the 'StackSet' in no particular order
--- allWindows :: Eq a => StackSet i l a s sd -> [a]
--- allWindows = L.nub <$> Lens.view (_workspaces . _stack . traverse . Lens.to toList)
 allWindows :: Ord a => StackSet i l a s sd -> [a]
 allWindows = toList . Lens.setOf (_workspaces . _stack . traverse . traverse)
 
@@ -621,9 +620,9 @@ shiftWin ::
     -> StackSet i l a s sd
 shiftWin n w s
     | Just from <- findTag w s, from /= n, n `tagMember` s
-    = go from s
+        = go from s
     | otherwise
-    = s
+        = s
   where
     go from = onWorkspace n (insertUp w) . onWorkspace from (delete' w)
 

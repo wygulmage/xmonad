@@ -121,8 +121,9 @@ import Data.List ((\\))
 import Data.Map (Map)
 import Data.Maybe (fromMaybe, isJust)
 import Data.Monoid hiding ((<>))
-import Data.Semigroup
+-- -- import Data.Semigroup
 import Data.Set (Set)
+-- -- import qualified Data.Set as Set
 import Data.Typeable
 import Graphics.X11.Xlib
 import Graphics.X11.Xlib.Extras (Event, WindowAttributes, getWindowAttributes)
@@ -324,6 +325,8 @@ data XConfig l =
     -- ^ Modify the configuration, complain about extra arguments etc. with arguments that are not handled by default
         }
 
+{-# DEPRECATED normalBorderColor, terminal, layoutHook, manageHook, handleEventHook, workspaces, modMask, keys, mouseBindings, borderWidth, logHook, startupHook, focusFollowsMouse, clickJustFocuses, clientMask, rootMask, handleExtraArgs "Use optics." #-}
+
 _clickJustFocuses :: Lens' (XConfig l) Bool
 _clickJustFocuses f s =
     (\x -> s {clickJustFocuses = x}) <$> f (clickJustFocuses s)
@@ -429,10 +432,7 @@ newtype ScreenId =
     deriving (Eq, Ord, Show, Read, Enum, Num, Integral, Real)
 
 -- | The 'Rectangle' with screen dimensions
-newtype ScreenDetail =
-    SD
-        { screenRect :: Rectangle
-        }
+newtype ScreenDetail = SD{ screenRect :: Rectangle }
     deriving (Eq, Show, Read)
 
 class HasScreenRect a where
@@ -453,9 +453,8 @@ instance HasScreenRect (XMonad.StackSet.Screen i l a sid ScreenDetail) where
 -- with 'ask'. With newtype deriving we get readers and state monads
 -- instantiated on 'XConf' and 'XState' automatically.
 --
-newtype X a =
-    -- X (ReaderT XConf (StateT XState IO) a)
-    X (Star (StateT XState IO) XConf a)
+-- newtype X a = X (Star (StateT XState IO) XConf a)
+newtype X a = X (ReaderT XConf (StateT XState IO) a)
     deriving ( Functor
              , Applicative
              , Monad
@@ -478,9 +477,7 @@ instance Default a => Default (X a) where
 
 type ManageHook = Query (Endo WindowSet)
 
-newtype Query a =
-    Query (ReaderT Window X a)
-    -- Query (Star X Window a)
+newtype Query a = Query (ReaderT Window X a)
     deriving (Functor, Applicative, Monad, MonadReader Window, MonadIO)
 
 runQuery :: Query a -> Window -> X a
@@ -500,8 +497,8 @@ instance Default a => Default (Query a) where
 -- | Run the 'X' monad, given a chunk of 'X' monad code, and an initial state
 -- Return the result, and final state
 runX :: XConf -> XState -> X a -> IO (a, XState)
--- runX c st (X a) = runStateT (runReaderT a c) st
-runX c st (X a) = runStateT (runStar a c) st
+runX c st (X a) = runStateT (runReaderT a c) st
+-- runX c st (X a) = runStateT (runStar a c) st
 
 -- | Run in the 'X' monad, and in case of exception, and catch it and log it
 -- to stderr, and run the error case.
@@ -892,8 +889,7 @@ getXDGDirectory xdgDir suffix =
     getDir name fallback = do
         dir <- lookupEnv name
         case dir of
-            Just path
-                | not (isRelative path) -> pure path
+            Just path | not (isRelative path) -> pure path
             _ -> fallback'
       where
         fallback' = (</> fallback) <$> getHomeDirectory
@@ -1084,8 +1080,10 @@ whenJust "Use 'for_'."
 whenX :: X Bool -> X () -> X ()
 whenX = whenM
 
-whenM :: Monad m => m Bool -> m () -> m ()
-whenM mb m = mb >>= (`when` m)
+whenM :: (Monad m, Monoid a) => m Bool -> m a -> m a
+whenM mb m = do
+    b <- mb
+    if b then m else pure mempty
 
 -- | A 'trace' for the 'X' monad. Logs a string to stderr. The result may
 -- be found in your .xsession-errors file
@@ -1105,8 +1103,7 @@ installSignalHandlers =
         pure ()
 
 uninstallSignalHandlers :: MonadIO m => m ()
-uninstallSignalHandlers =
-    io $ do
-        installHandler openEndedPipe Default Nothing
-        installHandler sigCHLD Default Nothing
-        pure ()
+uninstallSignalHandlers = io
+    $ installHandler openEndedPipe Default Nothing
+    *> installHandler sigCHLD Default Nothing
+    $> ()
