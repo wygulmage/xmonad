@@ -7,7 +7,8 @@ import Utils
 
 import XMonad.StackSet
 import Control.Monad
-import Data.List (nub, genericLength)
+import Data.Foldable
+import Data.List (nub)
 
 import Debug.Trace
 
@@ -134,7 +135,7 @@ arbitraryTag x = do
 --   n <- arbitrary `suchThat` \n' -> not $ n `member` x
 arbitraryWindow :: NonEmptyWindowsStackSet -> Gen Window
 arbitraryWindow (NonEmptyWindowsStackSet x) = do
-  let ws = allWindows x
+  let ws = toList (allWindows x)
   -- We know that there are at least 1 window in a NonEmptyWindowsStackSet.
   idx <- choose(0, (length ws) - 1)
   return $ ws!!idx

@@ -7,6 +7,7 @@ import Utils
 
 import XMonad.StackSet hiding (filter)
 
+import Data.Foldable
 import qualified Data.List as L
 
 -- ---------------------------------------------------------------------
@@ -56,15 +57,14 @@ prop_shift_win_indentity (x :: T) = do
 prop_shift_win_fix_current = do
   x <- arbitrary `suchThat` \(x' :: T) ->
          -- Invariant, otherWindows are NOT in the current workspace.
-         let otherWindows = allWindows x' L.\\ index x'
+         let otherWindows = toList (allWindows x') L.\\ index x'
          in  length(tags x') >= 2 && length(otherWindows) >= 1
   -- Sadly we have to construct `otherWindows` again, for the actual StackSet
   -- that got chosen.
-  let otherWindows = allWindows x L.\\ index x
+  let otherWindows = toList (allWindows x) L.\\ index x
   -- We know such tag must exists, due to the precondition
   n <- arbitraryTag x `suchThat` (/= currentTag x)
   -- we know length is >= 1, from above precondition
   idx <- choose(0, length(otherWindows) - 1)
   let w = otherWindows !! idx
   return $ (current $ x) == (current $ shiftWin n w x)
-

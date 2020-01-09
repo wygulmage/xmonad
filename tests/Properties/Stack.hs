@@ -7,6 +7,7 @@ import Instances
 import XMonad.StackSet hiding (filter)
 import qualified XMonad.StackSet as S (filter)
 
+import Data.Foldable
 import Data.Maybe
 
 
@@ -31,7 +32,7 @@ prop_allWindowsMember (NonEmptyWindowsStackSet x) = do
       -- Reimplementation of arbitraryWindow, but to make sure that
       -- implementation doesn't change in the future, and stop using allWindows,
       -- which is a key component in this test (together with member).
-  let ws = allWindows x
+  let ws = toList (allWindows x)
   -- We know that there are at least 1 window in a NonEmptyWindowsStackSet.
   idx <- choose(0, (length ws) - 1)
   return $ member (ws!!idx) x
