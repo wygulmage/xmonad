@@ -477,8 +477,11 @@ sendMessage a =
         ml <- use (_windowset . _current . _workspace . _layout)
         ml' <-
             handleMessage ml (SomeMessage a) `catchX` pure Nothing
-        traverse_ (modifyWindowSet . (_current . _workspace . _layout .~)) ml'
+        modifyLayout ml'
         pure (Any $ isJust ml')
+  where
+    modifyLayout =
+        traverse_ (modifyWindowSet . (_current . _workspace . _layout .~))
 
 -- | Send a message to all layouts, without refreshing.
 broadcastMessage :: Message a => a -> X ()
@@ -587,7 +590,6 @@ readStateFile xmc = do
                     layout
                     (workspaces xmc)
                     (_layouts %~ (fromMaybe layout . readMaybeWith lreads) $ sfWins sf)
-            -- extState = Map.fromList . fmap (second Left) $ sfExt sf
             extState = Map.fromList . fmap (fmap Left) $ sfExt sf
         pure
             XState
@@ -602,7 +604,6 @@ readStateFile xmc = do
     layout = Layout (view _layoutHook xmc)
     lreads = readsLayout layout
     readStrict :: Handle -> IO String
-    -- readStrict h = hGetContents h >>= \s -> length s `seq` pure s
     readStrict = hGetContents >=> liftA2 seq length pure
 
 -- | Migrate state from a previously running xmonad instance that used
