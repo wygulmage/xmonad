@@ -329,7 +329,7 @@ abort x = error $ "xmonad: StackSet: " <> x
 -- Should use List.NonEmpty.
 new :: (Integral s) => l -> [i] -> [sd] -> StackSet i l a s sd
 new l wids m
-    | not (null wids) && length m <= length wids && not (null m)
+    | not (null m) && length m <= length wids
     = StackSet cur visi unseen Map.empty
   where
     (seen, unseen) =

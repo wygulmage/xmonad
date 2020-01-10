@@ -71,6 +71,7 @@ library
                    XMonad.Operations
                    XMonad.StackSet
                    XMonad.Zipper
+                   XMonad.WindowSet
   other-modules:   Paths_xmonad
                    XMonad.Internal.Core
                    XMonad.Internal.Optic
