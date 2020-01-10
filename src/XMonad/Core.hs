@@ -127,7 +127,8 @@ import Data.Set (Set)
 import Data.Typeable
 import Graphics.X11.Xlib
 import Graphics.X11.Xlib.Extras (Event, WindowAttributes, getWindowAttributes)
-import Lens.Micro (Lens, Lens', (%~), (.~))
+import Lens.Micro (Lens, Lens', to, (%~), (.~))
+import Lens.Micro.Mtl ((%=), (.=))
 import qualified Lens.Micro.Mtl as Lens
 import System.Directory
 import System.Environment (lookupEnv)
@@ -779,9 +780,10 @@ runOnWorkspaces ::
        (MonadState s m, HasWindowSet s)
     => (WindowSpace -> m WindowSpace)
     -> m ()
-runOnWorkspaces job = do
-    ws <- Lens.use _windowset >>= _workspaces job
-    modify $ _windowset .~ ws
+runOnWorkspaces job = -- do
+    (_windowset .=) =<< _workspaces job =<< Lens.use _windowset
+    -- ws <- Lens.use _windowset >>= _workspaces job
+    -- _windowset .= ws
 
 -- | Return the path to the xmonad configuration directory.  This
 -- directory is where user configuration files are stored (e.g, the
@@ -949,13 +951,8 @@ recompile force =
                                pure True
                            else do
                                trace $
-                                   unlines
-                                       [ "XMonad will not use build script, because " <>
-                                         show buildscript <>
-                                         " is not executable."
-                                       , "Suggested resolution to use it: chmod u+x " <>
-                                         show buildscript
-                                       ]
+                                       "XMonad will not use build script, because " <> show buildscript <> " is not executable.\n "
+                                       <> "Suggested resolution to use it: chmod u+x " <> show buildscript
                                pure False
                    else do
                        trace $
@@ -993,15 +990,9 @@ recompile force =
                     else do
                         ghcErr <- readFile err
                         let msg =
-                                unlines $
-                                [ "Error detected while loading xmonad configuration file: " <>
-                                  src
-                                ] <>
-                                lines
-                                    (if null ghcErr
-                                         then show status
-                                         else ghcErr) <>
-                                ["", "Please check the file for errors."]
+                                "Error detected while loading xmonad configuration file: " <> src <> "\n " <>
+                                (if null ghcErr then show status else ghcErr) <>
+                                "\n Please check the file for errors."
                 -- nb, the ordering of printing, then forking, is crucial due to
                 -- lazy evaluation
                         hPutStrLn stderr msg
