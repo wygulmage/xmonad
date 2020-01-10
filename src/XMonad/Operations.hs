@@ -36,7 +36,7 @@ import Data.Bits (complement, testBit, (.&.), (.|.))
 import Data.Containers.ListUtils (nubOrd, nubOrdOn)
 import Data.Foldable (fold, toList, for_, traverse_)
 import Data.Functor (($>))
-import Data.List (find, (\\))
+import Data.List (find)
 import qualified Data.Map as Map
 import Data.Maybe
 import Data.Monoid (Any (..), Endo (..))
@@ -51,6 +51,7 @@ import Graphics.X11.Xlib.Extras
 import Lens.Micro (to, toListOf, traverseOf_, (%~), (.~))
 import qualified Lens.Micro as Lens
 import Lens.Micro.Mtl (preview, view, use, (%=), (.=))
+import XMonad.Internal.Optic (setOf)
 
 import System.Directory
 import System.IO
@@ -130,35 +131,26 @@ windows :: (WindowSet -> WindowSet) -> X ()
 windows f = do
     old <- use _windowset
     let
-        oldvisible :: [Window]
-        oldvisible =
-            toListOf (_screens . _stack . traverse . traverse) old
-
         oldvisibleSet :: Set.Set Window
-        oldvisibleSet = Set.fromList oldvisible
+        oldvisibleSet = setOf (_screens . _stack . traverse . traverse) old
 
-        tags_oldvisible :: [WorkspaceId]
-        tags_oldvisible = toListOf (_screens . _tag) old
-
-        tags_oldvisibleSet = Set.fromList tags_oldvisible
-
-
-        -- newwindows :: [Window]
-        newwindows :: Set.Set Window
-        newwindows = wsSet Set.\\ oldSet
-
-        ws :: WindowSet
-        ws = f old
+        tags_oldvisibleSet :: Set.Set WorkspaceId
+        tags_oldvisibleSet = setOf (_screens . _tag) old
 
         oldSet :: Set.Set Window
         oldSet = W.allWindows old
 
+        ws :: WindowSet
+        ws = f old
+
         wsSet :: Set.Set Window
         wsSet = W.allWindows ws
 
+        newwindows :: Set.Set Window
+        newwindows = wsSet Set.\\ oldSet
+
         gottenhidden :: [W.Workspace WorkspaceId (Layout Window) Window]
         gottenhidden = filter
-                -- ((`elem` tags_oldvisible) . view _tag)
                 ((`Set.member` tags_oldvisibleSet) . view _tag)
                 (view _hidden ws)
 
@@ -175,10 +167,9 @@ windows f = do
     d <- view _display
     nbc <- view _normalBorder
     nbs <- view _normalBorderColor
-    -- for_ (W.peek old) (\ otherw -> setWindowBorderWithFallback d otherw nbs nbc)
     traverseOf_ W._peek (\ otherw -> setWindowBorderWithFallback d otherw nbs nbc) old
     _windowset .= ws
-    -- notify non visibility
+    -- notify nonvisibility
     traverse_ (sendMessageWithNoRefresh Hide) gottenhidden
     -- for each workspace, layout the currently visible workspaces
     rects <-
@@ -233,19 +224,20 @@ windows f = do
     traverseOf_ W._peek (\w -> setWindowBorderWithFallback d w fbs fbc) ws
 
     let visible = fmap fst rects
+        visibleSet = Set.fromList visible
 
-    traverse_ reveal visible
+    traverse_ reveal visibleSet
     setTopFocus
     -- Hide every window that was potentially visible before, but is not
     -- given a position by a layout now.
-    traverse_ hide (toList (Set.fromList oldvisible <> newwindows) \\ visible)
+    traverse_ hide ((oldvisibleSet <> newwindows) Set.\\ visibleSet)
 
     -- All windows that are no longer in the windowset are marked as
     -- withdrawn. It is important to do this after the above, otherwise 'hide'
     -- will overwrite withdrawnState with iconicState.
     traverse_
         (`setWMState` withdrawnState)
-        (toList (W.allWindows old Set.\\ W.allWindows ws))
+        (oldSet Set.\\ wsSet)
 
     view _mouseFocused >>= (`unless` clearEvents enterWindowMask)
     view _logHook >>= userCodeDef ()
@@ -317,9 +309,6 @@ hide w =
         setWMState w iconicState
     -- this part is key: we increment the waitingUnmap counter to distinguish
     -- between client and xmonad initiated unmaps.
-        -- modify $
-        --     (_waitingUnmap %~ Map.insertWith (+) w 1)
-        --     . (_mapped %~ Set.delete w)
         _waitingUnmap %= Map.insertWith (+) w 1
         _mapped %= Set.delete w
 

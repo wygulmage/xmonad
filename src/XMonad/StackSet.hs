@@ -106,7 +106,7 @@ module XMonad.StackSet
     ) where
 
 import Control.Monad.Reader (MonadReader)
-import Data.Foldable (Foldable (toList))
+-- import Data.Foldable (Foldable (toList))
 import Data.Function (on)
 import Data.List ((\\))
 import qualified Data.List as L
