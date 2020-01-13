@@ -9,7 +9,7 @@ import Data.Foldable
 import qualified Data.List as List
 
 import Data.List.NonEmpty (NonEmpty (..))
-import qualified Data.List.NonEmpty as NonEmpty
+-- import qualified Data.List.NonEmpty as NonEmpty
 
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -38,7 +38,11 @@ data WindowSet layout = WindowSet{
     ,
     currentId :: !ScreenId -- id of the screen with active focus
     ,
-    inactive :: !(WindowSetInactive layout)
+    visible :: !(Map ScreenId (Screen layout)) -- Workspaces, excluding current, that are shown on screens
+    ,
+    hidden :: !(Map WorkspaceId (Workspace layout)) -- Workspaces that are not mapped to screens
+    ,
+    floating :: !(Map Window RealRect) -- Windows that are not tiled (independent of workspace; may overlap multiple screens)
     }
 
 _current :: Lens' (WindowSet layout) (Screen layout)
@@ -47,32 +51,14 @@ _current f s = (\ x -> s{ current = x }) <$> f (current s)
 _currentId :: Lens' (WindowSet layout) ScreenId
 _currentId f s = (\ x -> s{ currentId = x }) <$> f (currentId s)
 
-_inactive :: Lens' (WindowSet layout) (WindowSetInactive layout)
-_inactive f s = (\ x -> s{ inactive = x }) <$> f (inactive s)
-
 _visible :: Lens' (WindowSet layout) (Map ScreenId (Screen layout))
-_visible = _inactive . _windowSetInactive_visible
+_visible f s = (\ x -> s{ visible = x }) <$> f (visible s)
 
-data WindowSetInactive layout = WindowSetInactive{
-    visible :: !(Map ScreenId (Screen layout)) -- Workspaces, excluding current, that are shown on screens
-    ,
-    hidden :: !(Map WorkspaceId (Workspace layout)) -- Workspaces that are not mapped to screens
-    ,
-    floating :: !(Map Window RealRect) -- Windows that are not tiled (independent of workspace; may overlap multiple screens)
-    }
+_hidden :: Lens' (WindowSet layout) (Map WorkspaceId (Workspace layout))
+_hidden f s = (\ x -> s{ hidden = x }) <$> f (hidden s)
 
-_windowSetInactive_visible ::
-    Lens' (WindowSetInactive layout) (Map ScreenId (Screen layout))
-_windowSetInactive_visible f s = (\ x -> s{ visible = x }) <$> f (visible s)
-
-emptyInactive :: WindowSetInactive layout
-emptyInactive = WindowSetInactive{
-    visible = mempty
-    ,
-    hidden = mempty
-    ,
-    floating = mempty
-    }
+_floating :: Lens' (WindowSet layout) (Map Window RealRect)
+_floating f s = (\ x -> s{ floating = x }) <$> f (floating s)
 
 data Screen layout = Screen {
     workspace :: !(Workspace layout) -- the workspace shown on the screen
@@ -88,11 +74,20 @@ _workspace f s = (\ x -> s{ workspace = x }) <$> f (workspace s)
 _workspaceId :: Lens' (Screen layout) WorkspaceId
 _workspaceId f s = (\ x -> s{ workspaceId = x }) <$> f (workspaceId s)
 
+_rectangle :: Lens' (Screen layout) Rectangle
+_rectangle f s = (\ x -> s{ rectangle = x }) <$> f (rectangle s)
+
 data Workspace layout = Workspace {
     layout :: !layout
     ,
     zipper :: !(Maybe (Stack Window))
     }
+
+_layout :: Lens (Workspace layout) (Workspace layout') layout layout'
+_layout f s = (\ x -> s{ layout = x }) <$> f (layout s)
+
+_zipper :: Lens' (Workspace layout) (Maybe (Stack Window))
+_zipper f s = (\ x -> s{ zipper = x }) <$> f (zipper s)
 
 data RealRect = RealRect !Double !Double !Double !Double
 
@@ -113,29 +108,25 @@ newWindowSetFromLists ::
     layout -> NonEmpty WorkspaceId -> NonEmpty Rectangle -> WindowSet layout
 -- Given a layout, a nonempty list of WorkspaceIds, and a nonempty list of screen positions, construct a new window set.
 newWindowSetFromLists lay (wsId0 :| wsIds) (scrRect0 :| scrRects)
-    | wsIds `compareLength` scrRects == GT = WindowSet cur 0 inact
+    | wsIds `compareLength` scrRects == GT = WindowSet cur 0 vis hid mempty
   where
     cur :: Screen layout
     cur = Screen emptyWorkspace wsId0 scrRect0
 
-    inact :: WindowSetInactive layout
-    inact = WindowSetInactive{
-        visible = vis
-        ,
-        hidden = Map.fromList (fmap (flip (,) emptyWorkspace) hid)
-        ,
-        floating = mempty
-        }
-
-    (seen, hid) = List.splitAt (length scrRects) wsIds
+    (seen, unseen) = List.splitAt (length scrRects) wsIds
 
     vis :: Map ScreenId (Screen layout)
     vis = Map.fromList
         (List.zip [1..] (List.zipWith (Screen emptyWorkspace) seen scrRects))
 
+    hid :: Map WorkspaceId (Workspace layout)
+    hid = Map.fromList (fmap (flip (,) emptyWorkspace) unseen)
+
     emptyWorkspace :: Workspace layout
-    emptyWorkspace = Workspace lay Nothing
+    emptyWorkspace = newWorkspace lay
+
 newWindowSetFromLists _ _ _ = error "newWindowSetFromLists: There are not enough workspace Ids to have at least one workspace per screen."
+
 
 -- activate :: WorkspaceId -> WindowSet layout -> WindowSet layout
 -- activate wkId ws
@@ -151,7 +142,7 @@ newWindowSetFromLists _ _ _ = error "newWindowSetFromLists: There are not enough
 
 
 compareLength :: [a] -> [b] -> Ordering
+compareLength (_ : xs) (_ : ys) = compareLength xs ys
 compareLength [] [] = EQ
 compareLength [] _ = LT
 compareLength _ [] = GT
-compareLength (_ : xs) (_ : ys) = compareLength xs ys

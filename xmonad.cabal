@@ -87,6 +87,8 @@ library
                  , extensible-exceptions
                  , filepath
                  , microlens
+                 , microlens-contra
+                 , microlens-ghc
                  , microlens-mtl
                  , mtl
                  , process
