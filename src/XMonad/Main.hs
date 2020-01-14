@@ -58,9 +58,11 @@ import XMonad.Operations
 import XMonad.StackSet (floating, member, new)
 import qualified XMonad.StackSet as W
 
-import Lens.Micro ((%~), (.~))
+import Lens.Micro ((%~), (.~), to)
 import qualified Lens.Micro as Lens
+import Lens.Micro.Mtl ((%=), (.=), use)
 import qualified Lens.Micro.Mtl as Lens
+import Lens.Micro.GHC (at, ix)
 
 ------------------------------------------------------------------------
 -- |
@@ -260,7 +262,7 @@ launch initxmc
                        else pure Nothing
             -- restore extensibleState if we read it from a file.
             let extst = Lens.view (traverse . _extensibleState) serializedSt
-            modify (_extensibleState .~ extst)
+            _extensibleState .= extst
             setNumlockMask
             grabKeys
             grabButtons
@@ -340,15 +342,16 @@ handle MapRequestEvent {ev_window = w} =
 handle DestroyWindowEvent {ev_window = w} =
     whenX (isClient w) $ do
         unmanage w
-        modify ((_mapped %~ Set.delete w) . (_waitingUnmap %~ Map.delete w))
+        _waitingUnmap . at w .= Nothing
+        _mapped %= Set.delete w
 -- We track expected unmap events in waitingUnmap.  We ignore this event unless
 -- it is synthetic or we are not expecting an unmap notification from a window.
 handle UnmapEvent {ev_window = w, ev_send_event = synthetic} =
     whenX (isClient w) $ do
-        e <- gets (fromMaybe 0 . Map.lookup w . waitingUnmap)
+        e <- use (_waitingUnmap . at w . to (fromMaybe 0))
         if synthetic || e == 0
             then unmanage w
-            else modify (_waitingUnmap %~ Map.update mpred w)
+            else _waitingUnmap %= Map.update mpred w
   where
     mpred 1 = Nothing
     mpred n = Just $ pred n
@@ -365,11 +368,11 @@ handle e@ButtonEvent {ev_event_type = t}
         case drag
         -- we're done dragging and have released the mouse:
               of
-            Just (_, f) -> modify (_dragging .~ Nothing) *> f
+            Just (_, f) -> (_dragging .= Nothing) *> f
             Nothing     -> broadcastMessage e
 -- handle motionNotify event, which may mean we are dragging.
 handle e@MotionEvent {ev_event_type = _t, ev_x = x, ev_y = y} = do
-    drag <- gets dragging
+    drag <- use _dragging
     case drag of
         Just (d, _) -> d (fromIntegral x) (fromIntegral y) -- we're dragging
         Nothing     -> broadcastMessage e
@@ -383,7 +386,8 @@ handle e@ButtonEvent {ev_window = w, ev_event_type = t, ev_button = b}
         isr <- isRoot w
         m <- cleanMask $ ev_state e
     -- mact <- Map.lookup (m, b) <$> Lens.view _buttonActions
-        mact <- Lens.views _buttonActions (Map.lookup (m, b))
+        -- mact <- Lens.views _buttonActions (Map.lookup (m, b))
+        mact <- Lens.view (_buttonActions . at (m, b))
         case mact of
             Just act
                 | isr -> act $ ev_subwindow e
@@ -411,7 +415,7 @@ handle e@CrossingEvent {ev_event_type = t}
 -- configure a window
 handle e@ConfigureRequestEvent {ev_window = w} =
     withDisplay $ \dpy -> do
-        ws <- gets (Lens.view _windowset)
+        ws <- use _windowset
         bw <- Lens.view (_XConfig . _borderWidth)
         if Map.member w (floating ws) || not (member w ws)
             then do
@@ -495,7 +499,7 @@ setNumlockMask = do
             , kc <- kcs
             , kc /= 0
             ]
-    modify $ _numberlockMask .~ foldr (.|.) 0 xs
+    _numberlockMask .= foldr (.|.) 0 xs
 
 -- | Grab the keys back
 grabKeys :: X ()
