@@ -101,6 +101,7 @@ module XMonad.Core
     , _numberlockMask
     , _keyActions
     , _waitingUnmap
+    , _handleEventHook
     , _layoutHook
     ) where
 
@@ -367,6 +368,10 @@ _layoutHook ::
        (LayoutClass l Window, LayoutClass l' Window)
     => Lens (XConfig l) (XConfig l') (l Window) (l' Window)
 _layoutHook f s = (\x -> s {layoutHook = x}) <$> f (layoutHook s)
+
+_handleEventHook :: Lens' (XConfig l) (Event -> X All)
+_handleEventHook f s =
+    (\ x -> s{ handleEventHook = x }) <$> f (handleEventHook s)
 
 class HasLogHook a where
     _logHook :: Lens' a (X ())
