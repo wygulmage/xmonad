@@ -447,7 +447,7 @@ handle e@ConfigureRequestEvent {ev_window = w} =
                              (wa_width wa)
                              (wa_height wa)
                              (ev_border_width e)
-                             noWindow
+                             none
                              (wa_override_redirect wa)
                          sendEvent dpy w False 0 ev
         io $ sync dpy False
@@ -541,8 +541,8 @@ grabButtons = do
                 buttonPressMask
                 grabModeAsync
                 grabModeSync
-                noWindow
-                noCursor
+                none
+                none
     io $ ungrabButton dpy anyButton anyModifier rootw
     ba <- view _buttonActions
     for_ (Map.keys ba) $ \(mask, b) ->

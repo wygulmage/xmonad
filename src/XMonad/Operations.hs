@@ -275,7 +275,7 @@ setWMState :: Window -> Int -> X ()
 setWMState w v =
     withDisplay $ \dpy -> do
         a <- atom_WM_STATE
-        io $ changeProperty32 dpy w a a propModeReplace [fi v, fi none]
+        io $ changeProperty32 dpy w a a propModeReplace [fi v, fi (none :: XID)]
 
 -- | Set the border color using the window's color map, if possible,
 -- otherwise fallback to the color in @Pixel@.
@@ -452,8 +452,8 @@ setButtonGrab grab w = do
                          buttonPressMask
                          pointerMode
                          grabModeSync
-                         noWindow
-                         noCursor
+                         none
+                         none
             else ungrabButton d anyButton anyModifier w
 
 -- ---------------------------------------------------------------------
@@ -789,8 +789,8 @@ mouseDrag f done =
             (buttonReleaseMask .|. pointerMotionMask)
             grabModeAsync -- Mouse events continue during dragging.
             grabModeAsync -- Keyboard events continue during dragging.
-            noWindow -- Do not confine to window.
-            noCursor -- Do not display cursor.
+            none -- Do not confine to window.
+            none -- Do not display cursor.
             currentTime
 
     motion :: Position -> Position -> X ()
@@ -826,7 +826,7 @@ mouseResizeWindow w =
     whenX (isClient w) . withDisplay $ \d -> do
         io $ raiseWindow d w
         wa <- io $ getWindowAttributes d w
-        io $ warpPointer d noWindow w 0 0 0 0 (fi (wa_width wa)) (fi (wa_height wa))
+        io $ warpPointer d none w 0 0 0 0 (fi (wa_width wa)) (fi (wa_height wa))
         sh <- io $ getWMNormalHints d w
         mouseDrag
             (\ex ey -> do
