@@ -2,9 +2,10 @@ resolver: lts-14.20
 
 packages:
   - ./
+  - X11/
 
-extra-deps:
-  - X11-1.8
+# extra-deps:
+  # - X11-1.8
 
 nix:
  packages:
