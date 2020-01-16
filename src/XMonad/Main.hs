@@ -550,9 +550,8 @@ grabButtons = do
 
 -- | @replace@ to signals compliant window managers to exit.
 replace :: Display -> ScreenNumber -> Window -> IO ()
-replace dpy dflt rootw
+replace dpy dflt rootw = do
     -- check for other WM
- = do
     wmSnAtom <- internAtom dpy ("WM_S" <> show dflt) False
     currentWmSnOwner <- xGetSelectionOwner dpy wmSnAtom
     when (currentWmSnOwner /= 0) $
@@ -564,8 +563,7 @@ replace dpy dflt rootw
             allocaSetWindowAttributes $ \attributes -> do
                 set_override_redirect attributes True
                 set_event_mask attributes propertyChangeMask
-                let screen = defaultScreenOfDisplay dpy
-                    visual = defaultVisualOfScreen screen
+                let visual = defaultVisualOfScreen (defaultScreenOfDisplay dpy)
                     attrmask = cWOverrideRedirect .|. cWEventMask
                 createWindow
                     dpy
