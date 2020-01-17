@@ -498,8 +498,10 @@ setNumlockMask = do
         sequenceA
             [ do ks <- io $ keycodeToKeysym dpy kc 0
                  if ks == xK_Num_Lock
-                     then pure (setBit 0 (fromIntegral m))
-                     else pure (0 :: KeyMask)
+                     -- then pure (setBit 0 (fromIntegral m))
+                     then pure (setBit 0 (fromEnum m))
+                     -- else pure (0 :: KeyMask)
+                     else pure 0
             | (m, kcs) <- ms
             , kc <- kcs
             , kc /= 0
