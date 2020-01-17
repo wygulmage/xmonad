@@ -575,7 +575,8 @@ replace dpy dflt rootw = do
                     1
                     1
                     0
-                    copyFromParent
+                    -- copyFromParent
+                    0 -- depth
                     copyFromParent
                     visual
                     attrmask
