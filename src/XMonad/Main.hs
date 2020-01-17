@@ -499,7 +499,7 @@ setNumlockMask = do
             [ do ks <- io $ keycodeToKeysym dpy kc 0
                  if ks == xK_Num_Lock
                      -- then pure (setBit 0 (fromIntegral m))
-                     then pure (setBit 0 (fromEnum m))
+                     then pure (bit (fromEnum m))
                      -- else pure (0 :: KeyMask)
                      else pure 0
             | (m, kcs) <- ms
