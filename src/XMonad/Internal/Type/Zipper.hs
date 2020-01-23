@@ -177,14 +177,18 @@ instance Semigroup (IZipper any a) where
     (<>) (Unchecked i xs) = Unchecked i . (xs <>) . toList
 
 instance Monoid (IZipper 'Monoidal a) where
-    mempty = Unchecked 0 []
+    mempty = Unchecked (-1) []
 
-instance Applicative (IZipper 'NonEmpty) where
+instance Applicative (IZipper any) where
     pure = Unchecked 0 . pure
-    fs <*> xs = zipperToIZipper (iZipperToZipper fs <*> iZipperToZipper xs)
+    Unchecked i fs <*> Unchecked j xs =
+        Unchecked (((i + 1) * (j + 1)) + 1) (fs <*> xs)
+    liftA2 f (Unchecked i xs) (Unchecked j ys) =
+        Unchecked (((i + 1) * (j + 1)) + 1) (liftA2 f xs ys)
+-- There will be (i + 1) * (j + 1) items up to and including the new focus, which means that the new focus will be at (i + 1) * (j + 1) - 1. This works even for Monoidal IZippers ((-1 + 1) * (-1 + 1) - 1 == -1).
 
--- Need to keep track of current and initial indices to return the index of the focused f applied to the focused f. (This will depend of the lengths of fs and xs, but we don't want to loop through the lists an extra time.)
--- Unchecked i fs <*> Unchecked j xs = loop i k fs xs
+-- instance Monad (IZipper any) where
+
 zipperToIZipper :: Zipper a -> IZipper any a
 zipperToIZipper (Stack x xu xd) = loop 0 id xu
   where
@@ -329,16 +333,22 @@ deleteTop (Stack x xu xd) =
 -- 'True'.  Order is preserved, and focus moves as described for 'delete'.
 --
 filter :: Alternative m => (a -> Bool) -> Zipper a -> m (Zipper a)
-filter p (Stack x xu xd) =
-    case xd' of
-        x':xd'' -> pure (Stack x' xu' xd'')
-        _ ->
-            case xu' of
-                x':xu'' -> pure (Stack x' xu'' [])
-                _       -> empty
+filter p (Stack x xu xd)
+    | x' : xd' <- List.filter p (x : xd) = pure (Stack x' xu' xd')
+    | x' : xu'' <- xu' = pure (Stack x' xu'' [])
+    | otherwise = empty
   where
     xu' = List.filter p xu
-    xd' = List.filter p (x : xd)
+    -- =
+  --   case xd' of
+  --       x':xd'' -> pure (Stack x' xu' xd'')
+  --       _ ->
+  --           case xu' of
+  --               x':xu'' -> pure (Stack x' xu'' [])
+  --               _       -> empty
+  -- where
+  --   xu' = List.filter p xu
+  --   xd' = List.filter p (x : xd)
 
 ------- Possibly-empty Zipper ------
 
