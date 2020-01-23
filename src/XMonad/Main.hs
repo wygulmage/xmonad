@@ -411,7 +411,7 @@ handle e@CrossingEvent {ev_window = w, ev_event_type = t}
             (_, _, w', _, _, _, _, _) <- io $ queryPointer dpy root
         -- when Xlib cannot find a child that contains the pointer,
         -- it returns None(0)
-            when (w' == 0 || w == w') (focus w)
+            when (w' == none || w == w') (focus w)
 -- left a window, check if we need to focus root
 handle e@CrossingEvent {ev_event_type = t}
     | t == leaveNotify = do
@@ -556,7 +556,7 @@ replace dpy dflt rootw = do
     -- check for other WM
     wmSnAtom <- internAtom dpy ("WM_S" <> show dflt) False
     currentWmSnOwner <- xGetSelectionOwner dpy wmSnAtom
-    when (currentWmSnOwner /= 0) $
+    when (currentWmSnOwner /= none) $
         -- prepare to receive destroyNotify for old WM
      do
         selectInput dpy currentWmSnOwner structureNotifyMask
