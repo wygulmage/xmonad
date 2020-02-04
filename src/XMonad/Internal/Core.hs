@@ -1,4 +1,5 @@
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -24,6 +25,7 @@ import Data.Monoid hiding ((<>))
 import Data.Semigroup
 import Data.Set (Set)
 import Data.Typeable
+import Graphics.X11.Xlib.Types (XPosition, YPosition, Width, Height, Thickness)
 import Graphics.X11.Xlib
 import Graphics.X11.Xlib.Extras (Event, WindowAttributes, getWindowAttributes)
 import Lens.Micro (Lens, Lens', (%~), (.~))
@@ -66,7 +68,7 @@ data XState =
     -- ^ the Set of mapped windows
         , waitingUnmap    :: !(Map Window Int)
     -- ^ the number of expected UnmapEvents
-        , dragging        :: !(Maybe (Position -> Position -> X (), X ()))
+        , dragging        :: !(Maybe (XPosition -> YPosition -> X (), X ()))
         , numberlockMask  :: !KeyMask
     -- ^ the numlock modifier
         , extensibleState :: !(Map String (Either String StateExtension))
@@ -94,7 +96,7 @@ data XConf =
     -- ^ a mapping of button presses to actions
         , mouseFocused  :: !Bool
     -- ^ was refocus caused by mouse action?
-        , mousePosition :: !(Maybe (Position, Position))
+        , mousePosition :: !(Maybe (XPosition, YPosition))
     -- ^ position of the mouse according to the event currently being processed
         , currentEvent  :: !(Maybe Event)
     -- ^ event currently being processed
@@ -123,7 +125,7 @@ data XConfig l =
     -- ^ The key binding: a map from key presses and actions
         , mouseBindings :: !(XConfig Layout -> Map (ButtonMask, Button) (Window -> X ()))
     -- ^ The mouse bindings
-        , borderWidth :: !Dimension
+        , borderWidth :: !Thickness
     -- ^ The border width
         , logHook :: !(X ())
     -- ^ The action to perform when the windows set is changed

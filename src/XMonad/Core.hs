@@ -127,6 +127,7 @@ import Data.Set (Set)
 -- -- import qualified Data.Set as Set
 import Data.Typeable
 import Graphics.X11.Xlib
+import Graphics.X11.Xlib.Types (XPosition, YPosition, Width, Height, Thickness)
 import Graphics.X11.Xlib.Extras (Event, WindowAttributes, getWindowAttributes)
 import Lens.Micro (Lens, Lens', to, (%~), (.~))
 import Lens.Micro.Mtl ((%=), (.=))
@@ -156,7 +157,7 @@ data XState =
     -- ^ the Set of mapped windows
         , waitingUnmap    :: !(Map Window Int)
     -- ^ the number of expected UnmapEvents
-        , dragging        :: !(Maybe (Position -> Position -> X (), X ()))
+        , dragging        :: !(Maybe (XPosition -> YPosition -> X (), X ()))
         , numberlockMask  :: !KeyMask
     -- ^ the numlock modifier
         , extensibleState :: !(Map String (Either String StateExtension))
@@ -182,7 +183,7 @@ instance HasNumberlockMask XState where
         (\x -> s {numberlockMask = x}) <$> f (numberlockMask s)
 
 
-_dragging :: Lens' XState (Maybe (Position -> Position -> X (), X ()))
+_dragging :: Lens' XState (Maybe (XPosition -> YPosition -> X (), X ()))
 _dragging f s = (\x -> s {dragging = x}) <$> f (dragging s)
 
 class HasXState a where
@@ -228,7 +229,7 @@ data XConf =
     -- ^ a mapping of button presses to actions
         , mouseFocused  :: !Bool
     -- ^ was refocus caused by mouse action?
-        , mousePosition :: !(Maybe (Position, Position))
+        , mousePosition :: !(Maybe (XPosition, YPosition))
     -- ^ position of the mouse according to the event currently being processed
         , currentEvent  :: !(Maybe Event)
     -- ^ event currently being processed
@@ -275,7 +276,7 @@ instance HasMouseFocused XConf where
     _mouseFocused f s = (\x -> s {mouseFocused = x}) <$> f (mouseFocused s)
 
 class HasMousePosition a where
-    _mousePosition :: Lens' a (Maybe (Position, Position))
+    _mousePosition :: Lens' a (Maybe (XPosition, YPosition))
 
 instance HasMousePosition XConf where
     _mousePosition f s = (\x -> s {mousePosition = x}) <$> f (mousePosition s)
@@ -309,7 +310,7 @@ data XConfig l =
     -- ^ The key binding: a map from key presses and actions
         , mouseBindings :: !(XConfig Layout -> Map (ButtonMask, Button) (Window -> X ()))
     -- ^ The mouse bindings
-        , borderWidth :: !Dimension
+        , borderWidth :: !Thickness
     -- ^ The border width
         , logHook :: !(X ())
     -- ^ The action to perform when the windows set is changed
@@ -347,7 +348,7 @@ instance HasXConfig XConf where
     _XConfig f s = (\x -> s {config = x}) <$> f (config s)
 
 class HasBorderWidth a where
-    _borderWidth :: Lens' a Dimension
+    _borderWidth :: Lens' a Thickness
 
 instance HasBorderWidth (XConfig l) where
     _borderWidth f s = (\x -> s {borderWidth = x}) <$> f (borderWidth s)

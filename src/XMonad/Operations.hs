@@ -45,6 +45,7 @@ import qualified Data.Set as Set
 import Data.Traversable (for)
 
 import Graphics.X11.Xinerama (getScreenInfo)
+import Graphics.X11.Xlib.Types (XPosition, YPosition, Dimension, Width, Height, changeAxis, changeDimension, area, side)
 import Graphics.X11.Xlib
 import Graphics.X11.Xlib.Extras
 
@@ -486,7 +487,7 @@ focus w =
                     pure ()
   where
      mayPointScreen ::
-         Maybe (Position, Position) ->
+         Maybe (XPosition, YPosition) ->
          X (Maybe (W.Screen WorkspaceId (Layout Window) Window ScreenId ScreenDetail))
      mayPointScreen = maybe (pure Nothing) (uncurry pointScreen)
 
@@ -742,16 +743,15 @@ floatLocation w =
 
 -- | Given a point, determine the screen (if any) that contains it.
 pointScreen ::
-       Position
-    -> Position
-    -> X (Maybe (W.Screen WorkspaceId (Layout Window) Window ScreenId ScreenDetail))
+       XPosition -> YPosition ->
+       X (Maybe (W.Screen WorkspaceId (Layout Window) Window ScreenId ScreenDetail))
 pointScreen x y = withWindowSet $ pure . find p . toListOf _screens
   where
     p = pointWithin x y . view _screenRect
 
 -- | @pointWithin x y r@ returns 'True' if the @(x, y)@ co-ordinate is within
 -- @r@.
-pointWithin :: Position -> Position -> Rectangle -> Bool
+pointWithin :: XPosition -> YPosition -> Rectangle -> Bool
 pointWithin x y r = x >= rx && x < rx + rw && y >= ry && y < ry + rh
   where
     rx = rect_x r
@@ -774,7 +774,7 @@ float w = do
 -- ---------------------------------------------------------------------
 -- Mouse handling
 -- | Accumulate mouse motion events
-mouseDrag :: (Position -> Position -> X ()) -> X () -> X ()
+mouseDrag :: (XPosition -> YPosition -> X ()) -> X () -> X ()
 mouseDrag f done =
     whenX
         (use $ _dragging . to isNothing)
@@ -793,7 +793,7 @@ mouseDrag f done =
             none -- Do not display cursor.
             currentTime
 
-    motion :: Position -> Position -> X ()
+    motion :: XPosition -> YPosition -> X ()
     motion x y = f x y >>= (<$ clearEvents pointerMotionMask)
 
     cleanup :: X ()
@@ -839,7 +839,7 @@ mouseResizeWindow w =
 
 -- ---------------------------------------------------------------------
 -- | Support for window size hints
-type D = (Dimension, Dimension)
+type D = (Width, Height)
 
 -- | Given a window, build an adjuster function that will reduce the given
 -- dimensions according to the window's border width and size hints.
@@ -855,14 +855,16 @@ mkAdjust w =
 
 -- | Reduce the dimensions if needed to comply to the given SizeHints, taking
 -- window borders into account.
-applySizeHints :: Integral a => Dimension -> SizeHints -> (a, a) -> D
+-- applySizeHints :: Integral a => Dimension a -> SizeHints -> (a, a) -> D
+applySizeHints :: Dimension a -> SizeHints -> (XPosition, YPosition) -> D
 applySizeHints bw sh =
-    tmap (+ 2 * bw) . applySizeHintsContents sh . tmap (subtract $ 2 * fi bw)
+    pmap (+ 2 * bw) . applySizeHintsContents sh . pmap (subtract $ 2 * fi bw)
   where
-    tmap = join bimap
+    pmap f = bimap f f
 
 -- | Reduce the dimensions if needed to comply to the given SizeHints.
-applySizeHintsContents :: Integral a => SizeHints -> (a, a) -> D
+-- applySizeHintsContents :: Integral a => SizeHints -> (a, a) -> D
+applySizeHintsContents :: SizeHints -> (XPosition, YPosition) -> D
 applySizeHintsContents sh (w, h) =
     applySizeHints' sh (1 `max` fi w, 1 `max` fi h)
 
@@ -881,15 +883,22 @@ applySizeHints' sh =
 
 -- | Reduce the dimensions so their aspect ratio falls between the two given aspect ratios.
 applyAspectHint :: (D, D) -> D -> D
-applyAspectHint ((minx, miny), (maxx, maxy)) d@(w, h)
+applyAspectHint ((minw, minh), (maxw, maxh)) d@(w, h)
     -- Ignore garbage aspect ratio hints (Should this throw an error?):
-    | minimum [minx, miny, maxx, maxy] < 1 = d
+    | minimum [minw, minh', maxw, maxh'] < 1 = d
     -- Aspect ratio is greater than max. Shrink width.
-    | w * maxy > h * maxx = ((h * maxx) `div` maxy, h)
+    | w * maxh' > h' * maxw' = (area maxw h `side` maxh, h)
     -- Aspect ratio is less than min. Shrink height.
-    | w * miny < h * minx = (w, (w * miny) `div` minx)
+    | w * minh' < h' * minw' = (w, area w' minh `side` minw)
     -- Guess it's OK as-is:
     | otherwise = d
+  where
+    w' = fi w
+    h' = fi h
+    minw' = fi minw
+    maxw' = fi maxw
+    minh' = fi minh
+    maxh' = fi maxh
 
 -- | Reduce the dimensions so they are a multiple of the size increments.
 applyResizeIncHint :: D -> D -> D
