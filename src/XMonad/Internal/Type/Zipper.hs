@@ -75,20 +75,36 @@ instance IsZipper (Zipper a) a where
     _dn f s = (\x' -> s {down = x'}) <$> f (down s)
 
 instance IsZipper (IZipper 'NonEmpty a) a where
+    -- _focus f =
+    --     fromIZipperWith
+    --         (\i x xu xd -> Unchecked i . xu . (: xd) <$> f x)
+    --         consDL
+    --         id
+    -- _up f =
+    --     fromIZipperWith
+    --         (\i x xu xd ->
+    --              Unchecked i . List.foldl' (flip (:)) (x : xd) <$> f xu)
+    --         (:)
+    --         []
+    -- _dn f =
+    --     fromIZipperWith
+    --         (\i x xu xd -> Unchecked i . xu . (x :) <$> f xd)
+    --         consDL
+    --         id
     _focus f =
         fromIZipperWith
-            (\i x xu xd -> Unchecked i . xu . (: xd) <$> f x)
+            (\i xu (x : xd) -> Unchecked i . xu . (: xd) <$> f x)
             consDL
             id
     _up f =
         fromIZipperWith
-            (\i x xu xd ->
-                 Unchecked i . List.foldl' (flip (:)) (x : xd) <$> f xu)
+            (\i xu xd ->
+                 Unchecked i . List.foldl' (flip (:)) xd <$> f xu)
             (:)
             []
     _dn f =
         fromIZipperWith
-            (\i x xu xd -> Unchecked i . xu . (x :) <$> f xd)
+            (\i xu (x : xd) -> Unchecked i . xu . (x :) <$> f xd)
             consDL
             id
 
@@ -187,7 +203,6 @@ instance Applicative (IZipper any) where
         Unchecked (((i + 1) * (j + 1)) + 1) (liftA2 f xs ys)
 -- There will be (i + 1) * (j + 1) items up to and including the new focus, which means that the new focus will be at (i + 1) * (j + 1) - 1. This works even for Monoidal IZippers ((-1 + 1) * (-1 + 1) - 1 == -1).
 
--- instance Monad (IZipper any) where
 
 zipperToIZipper :: Zipper a -> IZipper any a
 zipperToIZipper (Stack x xu xd) = loop 0 id xu
@@ -196,20 +211,26 @@ zipperToIZipper (Stack x xu xd) = loop 0 id xu
     loop i a _      = Unchecked i (a (x : xd))
 
 iZipperToZipper :: IZipper 'NonEmpty a -> Zipper a
-iZipperToZipper = fromIZipperWith (pure Stack) (:) []
+-- iZipperToZipper = fromIZipperWith (pure Stack) (:) []
+iZipperToZipper = fromIZipperWith (\ _ us (x : ds) -> Stack x us ds) (:) []
 
-fromIZipperWith ::
-       (Int -> a -> b -> [a] -> c) -- Combine focus, accumulated up, and down.
-    -> (a -> b -> b) -- Accumulate up.
-    -> b -- empty up accumulator
-    -> IZipper 'NonEmpty a
-    -> c
-fromIZipperWith f g z0 (Unchecked i (x:xs)) = loop z0 i x xs
+-- fromIZipperWith ::
+--        (Int -> a -> b -> [a] -> c) -- Combine focus, accumulated up, and down.
+--     -> (a -> b -> b) -- Accumulate up.
+--     -> b -- empty up accumulator
+--     -> IZipper 'NonEmpty a
+--     -> c
+-- fromIZipperWith f g z0 (Unchecked i (x:xs)) = loop z0 i x xs
+--   where
+--     loop z j y (y':ys')
+--         | j > 0 = loop (g y z) (j - 1) y' ys'
+--     loop z j y ys = f j y z ys
+-- fromIZipperWith _ _ _ _ = error "empty IZipper "
+fromIZipperWith f g z0 (Unchecked i xs) = loop z0 i xs
   where
-    loop z j y (y':ys')
-        | j > 0 = loop (g y z) (j - 1) y' ys'
-    loop z j y ys = f j y z ys
-fromIZipperWith _ _ _ _ = error "empty IZipper "
+    loop z j (y:ys)
+        | j > 0 = loop (g y z) (j - 1) ys
+    loop z j ys = f j z ys
 
 ----- Specialized Methods -----
 zipWith :: (a -> b -> c) -> Zipper a -> Zipper b -> Zipper c

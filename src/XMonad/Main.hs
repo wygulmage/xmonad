@@ -295,7 +295,7 @@ launch initxmc
       where
         mouse =
             guard (ev_event_type e `elem` evs)
-            $> join bimap fromIntegral (ev_x_root e, ev_y_root e)
+            $> (fromIntegral (ev_x_root e), fromIntegral (ev_y_root e))
     evs = Set.fromList
         [ keyPress
         , keyRelease

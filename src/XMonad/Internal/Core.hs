@@ -1,4 +1,5 @@
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -25,6 +26,7 @@ import Data.Semigroup
 import Data.Set (Set)
 import Data.Typeable
 import Graphics.X11.Xlib
+import Graphics.X11.Xlib.Types (XPosition, YPosition)
 import Graphics.X11.Xlib.Extras (Event, WindowAttributes, getWindowAttributes)
 import Lens.Micro (Lens, Lens', (%~), (.~))
 import qualified Lens.Micro.Mtl as Lens
@@ -66,7 +68,7 @@ data XState =
     -- ^ the Set of mapped windows
         , waitingUnmap    :: !(Map Window Int)
     -- ^ the number of expected UnmapEvents
-        , dragging        :: !(Maybe (Position -> Position -> X (), X ()))
+        , dragging        :: !(Maybe (XPosition -> YPosition -> X (), X ()))
         , numberlockMask  :: !KeyMask
     -- ^ the numlock modifier
         , extensibleState :: !(Map String (Either String StateExtension))
@@ -94,7 +96,7 @@ data XConf =
     -- ^ a mapping of button presses to actions
         , mouseFocused  :: !Bool
     -- ^ was refocus caused by mouse action?
-        , mousePosition :: !(Maybe (Position, Position))
+        , mousePosition :: !(Maybe (XPosition, YPosition))
     -- ^ position of the mouse according to the event currently being processed
         , currentEvent  :: !(Maybe Event)
     -- ^ event currently being processed

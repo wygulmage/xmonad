@@ -47,6 +47,7 @@ import Data.Traversable (for)
 import Graphics.X11.Xinerama (getScreenInfo)
 import Graphics.X11.Xlib
 import Graphics.X11.Xlib.Extras
+import Graphics.X11.Xlib.Types (XPosition, YPosition, x2y, y2x)
 
 import Lens.Micro (to, toListOf, traverseOf_, (%~), (.~))
 import qualified Lens.Micro as Lens
@@ -271,11 +272,12 @@ scaleRationalRect (Rectangle sx sy sw sh) (W.RationalRect rx ry rw rh) =
     scale s r = floor (toRational s * r)
 
 -- | setWMState.  set the WM_STATE property
+-- FIXME: Don't use Int.
 setWMState :: Window -> Int -> X ()
 setWMState w v =
     withDisplay $ \dpy -> do
         a <- atom_WM_STATE
-        io $ changeProperty32 dpy w a a propModeReplace [fi v, fi (none :: XID)]
+        io $ changeProperty32 dpy w a a propModeReplace [fi v, fi none]
 
 -- | Set the border color using the window's color map, if possible,
 -- otherwise fallback to the color in @Pixel@.
@@ -380,6 +382,7 @@ tileWindow w r =
 strictlyContainedIn :: Rectangle -> Rectangle -> Bool
 strictlyContainedIn r1 r2 = r1 /= r2  &&  r2 `contains` r1
 
+strictlyContains :: Rectangle -> Rectangle -> Bool
 strictlyContains r1 r2 = r1 /= r2  &&  r1 `contains` r2
 
 contains :: Rectangle -> Rectangle -> Bool
@@ -486,7 +489,7 @@ focus w =
                     pure ()
   where
      mayPointScreen ::
-         Maybe (Position, Position) ->
+         Maybe (XPosition, YPosition) ->
          X (Maybe (W.Screen WorkspaceId (Layout Window) Window ScreenId ScreenDetail))
      mayPointScreen = maybe (pure Nothing) (uncurry pointScreen)
 
@@ -742,8 +745,8 @@ floatLocation w =
 
 -- | Given a point, determine the screen (if any) that contains it.
 pointScreen ::
-       Position
-    -> Position
+       XPosition
+    -> YPosition
     -> X (Maybe (W.Screen WorkspaceId (Layout Window) Window ScreenId ScreenDetail))
 pointScreen x y = withWindowSet $ pure . find p . toListOf _screens
   where
@@ -751,7 +754,7 @@ pointScreen x y = withWindowSet $ pure . find p . toListOf _screens
 
 -- | @pointWithin x y r@ returns 'True' if the @(x, y)@ co-ordinate is within
 -- @r@.
-pointWithin :: Position -> Position -> Rectangle -> Bool
+pointWithin :: XPosition -> YPosition -> Rectangle -> Bool
 pointWithin x y r = x >= rx && x < rx + rw && y >= ry && y < ry + rh
   where
     rx = rect_x r
@@ -774,7 +777,7 @@ float w = do
 -- ---------------------------------------------------------------------
 -- Mouse handling
 -- | Accumulate mouse motion events
-mouseDrag :: (Position -> Position -> X ()) -> X () -> X ()
+mouseDrag :: (XPosition -> YPosition -> X ()) -> X () -> X ()
 mouseDrag f done =
     whenX
         (use $ _dragging . to isNothing)
@@ -793,7 +796,7 @@ mouseDrag f done =
             none -- Do not display cursor.
             currentTime
 
-    motion :: Position -> Position -> X ()
+    motion :: XPosition -> YPosition -> X ()
     motion x y = f x y >>= (<$ clearEvents pointerMotionMask)
 
     cleanup :: X ()
@@ -862,7 +865,7 @@ applySizeHints bw sh =
     tmap = join bimap
 
 -- | Reduce the dimensions if needed to comply to the given SizeHints.
-applySizeHintsContents :: Integral a => SizeHints -> (a, a) -> D
+applySizeHintsContents :: (Integral a, Integral b) => SizeHints -> (a, b) -> D
 applySizeHintsContents sh (w, h) =
     applySizeHints' sh (1 `max` fi w, 1 `max` fi h)
 

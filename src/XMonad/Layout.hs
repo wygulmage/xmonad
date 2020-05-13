@@ -42,6 +42,7 @@ import Data.Foldable (asum, toList)
 import qualified Data.List.NonEmpty as NonEmpty (unfoldr)
 import Data.Maybe (fromMaybe)
 import Graphics.X11 (Rectangle (..))
+import Graphics.X11.Xlib.Types (x2y, y2x)
 import qualified XMonad.StackSet as W
 
 ------------------------------------------------------------------------
@@ -167,7 +168,7 @@ instance LayoutClass l a => LayoutClass (Mirror l) a where
 
 -- | Mirror a rectangle.
 mirrorRect :: Rectangle -> Rectangle
-mirrorRect (Rectangle rx ry rw rh) = Rectangle ry rx rh rw
+mirrorRect (Rectangle rx ry rw rh) = Rectangle (y2x ry) (x2y rx) rh rw
 
 ------------------------------------------------------------------------
 -- LayoutClass selection manager
