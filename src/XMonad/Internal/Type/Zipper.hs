@@ -143,7 +143,12 @@ toNonEmpty (Stack x xu xd) =
 
 ----- Instances -----
 instance Foldable Zipper where
-    foldMap = foldMapDefault
+    -- foldMap = foldMapDefault
+    foldMap f (Stack x xu xd) =
+      foldUp xu <> f x <> foldMap f xd
+      where
+        foldUp (y : ys) = foldUp ys <> f y
+        foldUp _ = mempty
     foldr f z = foldr f z . toList
     toList (Stack x xu xd) = foldl (flip (:)) (x : xd) xu
 
