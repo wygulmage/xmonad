@@ -51,9 +51,9 @@ import Prelude
     , error
     , flip
     , otherwise
-    , uncurry
-    , ($)
-    , (||)
+    -- , uncurry
+    -- , ($)
+    -- , (||)
     )
 
 -- |

@@ -19,7 +19,7 @@
 module XMonad.Internal.WindowSet
    where
 
-import Control.Monad.Reader (MonadReader)
+-- import Control.Monad.Reader (MonadReader)
 import Data.List.NonEmpty (NonEmpty ((:|)))
 import Data.Map (Map)
 import Prelude hiding (filter)
@@ -30,7 +30,7 @@ import Lens.Micro (Lens, Lens')
 import qualified Lens.Micro as Lens
 
 import XMonad.Internal.Type.Zipper (Stack (..))
-import qualified XMonad.Internal.Type.Zipper as Stack
+-- import qualified XMonad.Internal.Type.Zipper as Stack
 
 type ScreenId = Int
 type WorkspaceId = String

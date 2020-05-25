@@ -6,9 +6,10 @@ import Test.QuickCheck
 import Instances
 
 import Control.Applicative
+import Data.Bifunctor (bimap)
 import XMonad.StackSet hiding (filter)
 import XMonad.Operations
-import Graphics.X11.Xlib.Types (Dimension)
+import Graphics.X11.Xlib.Types (Dimension, x2y, y2x)
 
 import Graphics.X11 (Rectangle(Rectangle))
 import XMonad.Layout
@@ -51,23 +52,32 @@ prop_aspect_hint_shrink hint (w,h) = case applyAspectHint hint (w,h) of
 
 -- applyAspectHint does nothing when the supplied (x,y) fits
 -- the desired range
+prop_aspect_fits :: Property
 prop_aspect_fits =
-    forAll ((,,,) <$> pos <*> pos <*> pos <*> pos) $ \ (x,y,a,b) -> 
-    let f v = applyAspectHint ((x, y+a), (x+b, y)) v
+    forAll ((,,,) <$> pos <*> pos <*> pos <*> pos) $ \ (x,y,a,b) ->
+    let f = applyAspectHint ((fromIntegral x, fromIntegral (y+a)), (fromIntegral (x+b), y))
     in  and [ noOverflows (*) x (y+a), noOverflows (*) (x+b) y ]
             ==> f (x,y) == (x,y)
 
-  where pos = choose (0, 65535)
-        mul a b = toInteger (a*b) /= toInteger a * toInteger b
+  where
+    pos :: (Integral a)=> Gen a
+    pos = chooseBoundedIntegral (0, 65535)
 
+
+chooseBoundedIntegral :: (Integral a)=> (a, a) -> Gen a
+chooseBoundedIntegral = fmap fromInteger . chooseInteger . bimap toInteger toInteger
+    where
+        chooseInteger = choose
+
+prop_point_within :: Rectangle -> Property
 prop_point_within r @ (Rectangle x y w h) =
     forAll ((,) <$>
-              choose (0, fromIntegral w - 1) <*>
-              choose (0, fromIntegral h - 1)) $
+            chooseBoundedIntegral (0, fromIntegral w - 1) <*>
+            chooseBoundedIntegral (0, fromIntegral h - 1)) $
         \(dx,dy) ->
     and [ dx > 0, dy > 0,
          noOverflows (\ a b -> a + abs b) x w,
          noOverflows (\ a b -> a + abs b) y h ]
       ==> pointWithin (x+dx) (y+dy) r
 
-prop_point_within_mirror r (x,y) = pointWithin x y r == pointWithin y x (mirrorRect r)
+prop_point_within_mirror r (x,y) = pointWithin x y r == pointWithin x y (mirrorRect r)

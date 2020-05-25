@@ -3,8 +3,8 @@
 {-# LANGUAGE FlexibleInstances      #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE KindSignatures         #-}
-{-# LANGUAGE MultiParamTypeClasses  #-}
 {-# LANGUAGE NoImplicitPrelude      #-}
+{-# LANGUAGE PatternGuards          #-}
 {-# LANGUAGE ScopedTypeVariables    #-}
 
 module XMonad.Internal.Type.Zipper
@@ -17,17 +17,17 @@ import Control.Applicative
 import Control.Category
 import Control.Monad
 import Data.Foldable
-import Data.Functor
+-- import Data.Functor
 import qualified Data.List as List
 import Data.List.NonEmpty (NonEmpty ((:|)))
-import qualified Data.List.NonEmpty as NonEmpty
+-- import qualified Data.List.NonEmpty as NonEmpty
 import Data.Maybe
 import Data.Monoid
 import Data.Semigroup
 import Data.Traversable
 import Lens.Micro (Lens')
 import qualified Lens.Micro as Lens
-import qualified Lens.Micro.Internal as Lens
+-- import qualified Lens.Micro.Internal as Lens
 import Prelude
     ( Bool (..)
     , Eq (..)
@@ -39,9 +39,9 @@ import Prelude
     , error
     , flip
     , otherwise
-    , uncurry
-    , ($)
-    , (||)
+    -- , uncurry
+    -- , ($)
+    -- , (||)
     )
 
 type Zipper = Stack
@@ -75,22 +75,6 @@ instance IsZipper (Zipper a) a where
     _dn f s = (\x' -> s {down = x'}) <$> f (down s)
 
 instance IsZipper (IZipper 'NonEmpty a) a where
-    -- _focus f =
-    --     fromIZipperWith
-    --         (\i x xu xd -> Unchecked i . xu . (: xd) <$> f x)
-    --         consDL
-    --         id
-    -- _up f =
-    --     fromIZipperWith
-    --         (\i x xu xd ->
-    --              Unchecked i . List.foldl' (flip (:)) (x : xd) <$> f xu)
-    --         (:)
-    --         []
-    -- _dn f =
-    --     fromIZipperWith
-    --         (\i x xu xd -> Unchecked i . xu . (x :) <$> f xd)
-    --         consDL
-    --         id
     _focus f =
         fromIZipperWith
             (\i xu (x : xd) -> Unchecked i . xu . (: xd) <$> f x)
@@ -231,6 +215,8 @@ iZipperToZipper = fromIZipperWith (\ _ us (x : ds) -> Stack x us ds) (:) []
 --         | j > 0 = loop (g y z) (j - 1) y' ys'
 --     loop z j y ys = f j y z ys
 -- fromIZipperWith _ _ _ _ = error "empty IZipper "
+fromIZipperWith ::
+  (Int -> b -> [a] -> c) -> (a -> b -> b) -> b -> IZipper emptiability a -> c
 fromIZipperWith f g z0 (Unchecked i xs) = loop z0 i xs
   where
     loop z j (y:ys)

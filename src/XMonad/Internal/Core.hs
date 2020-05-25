@@ -8,47 +8,50 @@ module XMonad.Internal.Core where
 
 
 -- import Prelude
-import Control.Applicative (Applicative, liftA2, pure, (<$>))
-import Control.Exception.Extensible
-    (SomeException (..), bracket, finally, fromException, throw, try)
-import qualified Control.Exception.Extensible as E
-import Control.Monad.Fail (MonadFail)
+-- import Control.Applicative (Applicative, liftA2, pure, (<$>))
+-- import Control.Exception.Extensible
+--     (SomeException (..), bracket, finally, fromException, throw, try)
+-- import qualified Control.Exception.Extensible as E
+-- import Control.Monad.Fail (MonadFail)
 import Control.Monad.Reader
 import Control.Monad.State (StateT (..))
-import Data.Default
-import Data.Foldable (fold, for_)
-import Data.Functor (($>))
-import Data.List ((\\))
+-- import Data.Default
+-- import Data.Foldable (fold, for_)
+-- import Data.Functor (($>))
+-- import Data.List ((\\))
 import Data.Map (Map)
-import Data.Maybe (fromMaybe, isJust)
+-- import Data.Maybe (fromMaybe, isJust)
 import Data.Monoid hiding ((<>))
-import Data.Semigroup
+-- import Data.Semigroup
 import Data.Set (Set)
 import Data.Typeable
 import Graphics.X11.Xlib
 import Graphics.X11.Xlib.Types (XPosition, YPosition)
-import Graphics.X11.Xlib.Extras (Event, WindowAttributes, getWindowAttributes)
-import Lens.Micro (Lens, Lens', (%~), (.~))
-import qualified Lens.Micro.Mtl as Lens
-import System.Directory
-import System.Environment (lookupEnv)
-import System.Exit (ExitCode (..))
-import System.FilePath
-import System.Info (arch, os)
-import System.IO
-import System.Posix.Env (getEnv)
-import System.Posix.IO
-import System.Posix.Process
-    (createSession, executeFile, forkProcess, getAnyProcessStatus)
-import System.Posix.Signals
-import System.Posix.Types (ProcessID)
-import System.Process
+import Graphics.X11.Xlib.Extras
+    ( Event
+    -- , WindowAttributes, getWindowAttributes
+    )
+-- import Lens.Micro (Lens, Lens', (%~), (.~))
+-- import qualified Lens.Micro.Mtl as Lens
+-- import System.Directory
+-- import System.Environment (lookupEnv)
+-- import System.Exit (ExitCode (..))
+-- import System.FilePath
+-- import System.Info (arch, os)
+-- import System.IO
+-- import System.Posix.Env (getEnv)
+-- import System.Posix.IO
+-- import System.Posix.Process
+--     (createSession, executeFile, forkProcess, getAnyProcessStatus)
+-- import System.Posix.Signals
+-- import System.Posix.Types (ProcessID)
+-- import System.Process
 
 import XMonad.Internal.Type.Star (Star (..))
 import XMonad.Internal.Type.Zipper
 import XMonad.Internal.WindowSet
 
-type X = Star (StateT XState IO) (XConf)
+type X = Star (StateT XState IO) XConf
 
 type WindowSet = StackSet' (Layout Window)
 

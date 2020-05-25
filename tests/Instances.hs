@@ -84,7 +84,7 @@ instance Arbitrary NonEmptyWindowsStackSet where
     NonEmptyWindowsStackSet `fmap` (arbitrary `suchThat` (not . null . allWindows))
 
 instance Arbitrary Rectangle where
-    arbitrary = Rectangle <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+    arbitrary = Rectangle <$> arbitrarySizedNatural <*> arbitrarySizedNatural <*> arbitrarySizedNatural <*> arbitrarySizedNatural
 
 
 newtype SizedPositive = SizedPositive Int
