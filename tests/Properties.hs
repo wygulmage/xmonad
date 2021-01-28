@@ -47,7 +47,6 @@ tests =
   ,("empty / current",     property prop_empty_current)
   ,("empty / member",      property prop_member_empty)
 
-
   ,("view : invariant",  property prop_view_I)
   ,("view sets current", property prop_view_current)
   ,("view idempotent",   property prop_view_idem)
