@@ -33,6 +33,7 @@ module XMonad.Core (
   ) where
 
 import XMonad.StackSet hiding (modify)
+import XMonad.Internal.Optics ((.~), (%~), (%%~), (^.), to, (&))
 
 import Prelude
 import Control.Exception (fromException, try, bracket, throw, finally, SomeException(..))
@@ -60,6 +61,7 @@ import Graphics.X11.Xlib.Extras (getWindowAttributes, WindowAttributes, Event)
 import Data.Typeable
 import Data.List ((\\))
 import Data.Maybe (isJust,fromMaybe)
+import Data.List.NonEmpty (NonEmpty ((:|)))
 
 import qualified Data.Map as M
 import qualified Data.Set as S
@@ -77,6 +79,45 @@ data XState = XState
     -- The module "XMonad.Util.ExtensibleState" in xmonad-contrib
     -- provides additional information and a simple interface for using this.
     }
+
+-- XState Optics
+-- XState Lenses
+_windowset :: (Functor m)=> (WindowSet -> m WindowSet) -> XState -> m XState
+_windowset f xst =
+    fmap (\ windowset' -> xst{ windowset = windowset' }) (f (windowset xst))
+
+_mapped ::
+    (Functor m)=> (S.Set Window -> m (S.Set Window)) -> XState -> m XState
+_mapped f xst =
+    fmap (\ mapped' -> xst{ mapped = mapped' }) (f (mapped xst))
+
+_waitingUnmap ::
+    (Functor m)=>
+    (M.Map Window Int -> m (M.Map Window Int)) -> XState -> m XState
+_waitingUnmap f xst =
+    fmap (\ waiting' -> xst{ waitingUnmap = waiting' }) (f (waitingUnmap xst))
+
+_dragging ::
+    (Functor m)=>
+    (Maybe (Position -> Position -> X (), X ()) -> m (Maybe (Position -> Position -> X (), X ()))) ->
+    XState -> m XState
+_dragging f xst =
+    fmap (\ dragging' -> xst{ dragging = dragging' }) (f (dragging xst))
+
+_numberlockMask :: (Functor m)=> (KeyMask -> m KeyMask) -> XState -> m XState
+_numberlockMask f xst =
+    fmap
+    (\ numlock' -> xst{ numberlockMask = numlock' })
+    (f (numberlockMask xst))
+
+_extensibleState ::
+    (Functor m)=>
+    (M.Map String (Either String StateExtension) -> m (M.Map String (Either String StateExtension))) ->
+    XState -> m XState
+_extensibleState f xst =
+    fmap
+    (\ state' -> xst{ extensibleState = state' })
+    (f (extensibleState xst))
 
 -- | XConf, the (read-only) window manager configuration.
 data XConf = XConf
@@ -96,6 +137,7 @@ data XConf = XConf
     , currentEvent :: !(Maybe Event)  -- ^ event currently being processed
     , dirs         :: !Dirs           -- ^ directories to use
     }
+
 
 -- todo, better name
 data XConfig l = XConfig
@@ -449,11 +491,7 @@ xfork x = io . forkProcess . finally nullStdin $ do
 -- each workspace with the output of that function being the modified workspace.
 runOnWorkspaces :: (WindowSpace -> X WindowSpace) -> X ()
 runOnWorkspaces job = do
-    ws <- gets windowset
-    h <- mapM job $ hidden ws
-    c:v <- mapM (\s -> (\w -> s { workspace = w}) <$> job (workspace s))
-             $ current ws : visible ws
-    modify $ \s -> s { windowset = ws { current = c, visible = v, hidden = h } }
+    get >>= (_windowset . _workspaces %%~ job) >>= put
 
 -- | All the directories that xmonad will use.  They will be used for
 -- the following purposes:
