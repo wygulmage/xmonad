@@ -47,6 +47,15 @@ module XMonad.StackSet (
         -- * Composite operations
         -- $composite
         shift, shiftWin,
+        -- * Optics (Lenses and Traversals)
+        -- Stack Optics
+        _focus, _up, _down,
+        -- Workspace Optics
+        _tag, _layout, _stack,
+        -- Screen Optics
+        _workspace, _screen, _screenDetail,
+        -- StackSet Optics
+        _workspaces, _screens, _current, _visible, _hidden, _floating,
 
         -- for testing
         abort
@@ -61,7 +70,7 @@ import Data.List ( (\\) )
 import Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.Map  as M (Map,insert,delete,empty)
 
-import XMonad.Internal.Optics ((.~), (%~), (%%~), (&))
+import XMonad.Internal.Optics ((.~), (%~), (%%~), (^.), (^..), to, (&))
 
 -- $intro
 --
@@ -558,7 +567,7 @@ screens s = current s : visible s
 
 -- | Get a list of all workspaces in the 'StackSet'.
 workspaces :: StackSet i l a s sd -> [Workspace i l a]
-workspaces s = workspace (current s) : map workspace (visible s) ++ hidden s
+workspaces = (^.. _workspaces)
 
 -- | Get a list of all windows in the 'StackSet' in no particular order
 allWindows :: Eq a => StackSet i l a s sd -> [a]
@@ -584,16 +593,12 @@ ensureTags :: Eq i => l -> [i] -> StackSet i l a s sd -> StackSet i l a s sd
 ensureTags l allt st = et allt (map tag (workspaces st) \\ allt) st
     where et [] _ s = s
           et (i:is) rn s | i `tagMember` s = et is rn s
-          et (i:is) [] s = et is [] (s { hidden = Workspace i l Nothing : hidden s })
+          et (i:is) [] s = et is [] (s & _hidden %~ (Workspace i l Nothing :))
           et (i:is) (r:rs) s = et is rs $ renameTag r i s
 
 -- | Map a function on all the workspaces in the 'StackSet'.
 mapWorkspace :: (Workspace i l a -> Workspace i l a) -> StackSet i l a s sd -> StackSet i l a s sd
 mapWorkspace f = _workspaces %~ f
--- mapWorkspace f s = s { current = updScr (current s)
---                      , visible = map updScr (visible s)
---                      , hidden  = map f (hidden s) }
---     where updScr scr = scr { workspace = f (workspace scr) }
 
 -- | Map a function on all the layouts in the 'StackSet'.
 mapLayout :: (l -> l') -> StackSet i l a s sd -> StackSet i l' a s sd
