@@ -19,6 +19,7 @@ module XMonad.Operations where
 import XMonad.Core
 import XMonad.Layout (Full(..))
 import qualified XMonad.StackSet as W
+import XMonad.Internal.Optics ((.~), (%~), (^.), (^..), to, (&))
 
 import Data.Maybe
 import Data.Monoid          (Endo(..),Any(..))
@@ -28,6 +29,7 @@ import Data.Function        (on)
 import Data.Ratio
 import qualified Data.Map as M
 import qualified Data.Set as S
+import Data.Foldable (for_)
 
 import Control.Arrow (second)
 import Control.Monad.Reader
@@ -105,8 +107,10 @@ kill = withFocused killWindow
 -- | windows. Modify the current window list with a pure function, and refresh
 windows :: (WindowSet -> WindowSet) -> X ()
 windows f = do
-    XState { windowset = old } <- get
-    let oldvisible = concatMap (W.integrate' . W.stack . W.workspace) $ W.current old : W.visible old
+    old <- gets windowset
+    let
+        oldvisible :: [Window]
+        oldvisible = old ^. W._screens . traverse . W._workspace . W._stack . traverse . to W.integrate
         newwindows = W.allWindows ws \\ W.allWindows old
         ws = f old
     XConf { display = d , normalBorder = nbc, focusedBorder = fbc } <- ask
@@ -117,10 +121,12 @@ windows f = do
       nbs <- asks (normalBorderColor . config)
       setWindowBorderWithFallback d otherw nbs nbc
 
-    modify (\s -> s { windowset = ws })
+    modify $ _windowset .~ ws
 
     -- notify non visibility
-    let tags_oldvisible = map (W.tag . W.workspace) $ W.current old : W.visible old
+    let
+        tags_oldvisible :: [WorkspaceId]
+        tags_oldvisible = old ^.. W._screens . traverse . W._workspace . W._tag
         gottenhidden    = filter (flip elem tags_oldvisible . W.tag) $ W.hidden ws
     mapM_ (sendMessageWithNoRefresh Hide) gottenhidden
 
@@ -178,7 +184,7 @@ windows f = do
 
 -- | Modify the @WindowSet@ in state with no special handling.
 modifyWindowSet :: (WindowSet -> WindowSet) -> X ()
-modifyWindowSet f = modify $ \xst -> xst { windowset = f (windowset xst) }
+modifyWindowSet f = modify $ _windowset %~ f
 
 -- | Perform an @X@ action and check its return value against a predicate p.
 -- If p holds, unwind changes to the @WindowSet@ and replay them using @windows@.
@@ -186,7 +192,7 @@ windowBracket :: (a -> Bool) -> X a -> X a
 windowBracket p action = withWindowSet $ \old -> do
   a <- action
   when (p a) . withWindowSet $ \new -> do
-    modifyWindowSet $ \_ -> old
+    modify $ _windowset .~ old
     windows         $ \_ -> new
   return a
 
@@ -230,8 +236,9 @@ hide w = whenX (gets (S.member w . mapped)) $ withDisplay $ \d -> do
     setWMState w iconicState
     -- this part is key: we increment the waitingUnmap counter to distinguish
     -- between client and xmonad initiated unmaps.
-    modify (\s -> s { waitingUnmap = M.insertWith (+) w 1 (waitingUnmap s)
-                    , mapped       = S.delete w (mapped s) })
+    modify
+        $ (_waitingUnmap %~ M.insertWith (+) w 1)
+        . (_mapped %~ S.delete w)
 
 -- | reveal. Show a window by mapping it and setting Normal
 -- this is harmless if the window was already visible
@@ -239,7 +246,7 @@ reveal :: Window -> X ()
 reveal w = withDisplay $ \d -> do
     setWMState w normalState
     io $ mapWindow d w
-    whenX (isClient w) $ modify (\s -> s { mapped = S.insert w (mapped s) })
+    whenX (isClient w) $ modify $ _mapped %~ S.insert w
 
 -- | Set some properties when we initially gain control of a window
 setInitialProperties :: Window -> X ()
@@ -308,12 +315,14 @@ rescreen :: X ()
 rescreen = do
     xinesc <- withDisplay getCleanedScreenInfo
 
-    windows $ \ws@(W.StackSet { W.current = v, W.visible = vs, W.hidden = hs }) ->
-        let (xs, ys) = splitAt (length xinesc) $ map W.workspace (v:vs) ++ hs
+    windows $ \ws ->
+        let
+            (xs, ys) = splitAt (length xinesc) $ ws ^.. W._workspaces
             (a:as)   = zipWith3 W.Screen xs [0..] $ map SD xinesc
-        in  ws { W.current = a
-               , W.visible = as
-               , W.hidden  = ys }
+        in ws
+           & W._current .~ a
+           & W._visible .~ as
+           & W._hidden  .~ ys
 
 -- ---------------------------------------------------------------------
 
@@ -358,9 +367,11 @@ setFocusX w = withWindowSet $ \ws -> do
     dpy <- asks display
 
     -- clear mouse button grab and border on other windows
-    forM_ (W.current ws : W.visible ws) $ \wk ->
-        forM_ (W.index (W.view (W.tag (W.workspace wk)) ws)) $ \otherw ->
-            setButtonGrab True otherw
+    -- forM_ (ws ^. W._screens) $ \wk ->
+    --     forM_ (W.index (W.view (W.tag (W.workspace wk)) ws)) $
+    --     -- I'm not sure what (W.index (W.view (W.tag (W.workspace wk)) ws)) is supposed to accomplish. It seems like it's just a really circuitous way to create a list of all the workspaces' windows. 'For each workspace in screens, use its tag focus on that workspace, then access the windows of the focused workspace' should just be 'for each workspace in screens, for each window in THAT workspace, set button grab to True'.
+    --         setButtonGrab True
+    for_ (ws ^. W._screens . traverse . W._workspace . W._stack . traverse . to W.integrate) $ setButtonGrab True
 
     -- If we ungrab buttons on the root window, we lose our mouse bindings.
     whenX (not <$> isRoot w) $ setButtonGrab False w
@@ -393,21 +404,16 @@ setFocusX w = withWindowSet $ \ws -> do
 -- layout the windows, in which case changes are handled through a refresh.
 sendMessage :: Message a => a -> X ()
 sendMessage a = windowBracket_ $ do
-    w <- W.workspace . W.current <$> gets windowset
+    w <- gets $ W.workspace . W.current . windowset
     ml' <- handleMessage (W.layout w) (SomeMessage a) `catchX` return Nothing
     whenJust ml' $ \l' ->
-        modifyWindowSet $ \ws -> ws { W.current = (W.current ws)
-                                { W.workspace = (W.workspace $ W.current ws)
-                                  { W.layout = l' }}}
+        modify $ _windowset . W._current . W._workspace . W._layout .~ l'
     return (Any $ isJust ml')
 
 -- | Send a message to all layouts, without refreshing.
 broadcastMessage :: Message a => a -> X ()
-broadcastMessage a = withWindowSet $ \ws -> do
-   let c = W.workspace . W.current $ ws
-       v = map W.workspace . W.visible $ ws
-       h = W.hidden ws
-   mapM_ (sendMessageWithNoRefresh a) (c : v ++ h)
+broadcastMessage a = withWindowSet $ \ws ->
+    mapM_ (sendMessageWithNoRefresh a) (ws ^.. W._workspaces)
 
 -- | Send a message to a layout, without refreshing.
 sendMessageWithNoRefresh :: Message a => a -> W.Workspace WorkspaceId (Layout Window) Window -> X ()
@@ -423,9 +429,10 @@ updateLayout i ml = whenJust ml $ \l ->
 -- | Set the layout of the currently viewed workspace
 setLayout :: Layout Window -> X ()
 setLayout l = do
-    ss@(W.StackSet { W.current = c@(W.Screen { W.workspace = ws })}) <- gets windowset
-    handleMessage (W.layout ws) (SomeMessage ReleaseResources)
-    windows $ const $ ss {W.current = c { W.workspace = ws { W.layout = l } } }
+    ss <- gets windowset
+    handleMessage (W.layout . W.workspace . W.current $ ss)
+        (SomeMessage ReleaseResources)
+    windows $ const $ ss & W._current . W._workspace . W._layout .~ l
 
 ------------------------------------------------------------------------
 -- Utilities
@@ -609,11 +616,11 @@ mouseDrag f done = do
             XConf { theRoot = root, display = d } <- ask
             io $ grabPointer d root False (buttonReleaseMask .|. pointerMotionMask)
                     grabModeAsync grabModeAsync none none currentTime
-            modify $ \s -> s { dragging = Just (motion, cleanup) }
+            modify $ _dragging .~ Just (motion, cleanup)
  where
     cleanup = do
         withDisplay $ io . flip ungrabPointer currentTime
-        modify $ \s -> s { dragging = Nothing }
+        modify $ _dragging .~ Nothing
         done
     motion x y = do z <- f x y
                     clearEvents pointerMotionMask
