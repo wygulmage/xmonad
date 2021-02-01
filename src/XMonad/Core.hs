@@ -29,7 +29,9 @@ module XMonad.Core (
     getAtom, spawn, spawnPID, xfork, recompile, trace, whenJust, whenX,
     getXMonadDir, getXMonadCacheDir, getXMonadDataDir, stateFileName,
     atom_WM_STATE, atom_WM_PROTOCOLS, atom_WM_DELETE_WINDOW, atom_WM_TAKE_FOCUS, withWindowAttributes,
-    ManageHook, Query(..), runQuery, Directories(..), Dirs, getDirs
+    ManageHook, Query(..), runQuery, Directories(..), Dirs, getDirs,
+    -- XState Optics
+    _dragging, _extensibleState, _mapped, _waitingUnmap, _numberlockMask, _windowset,
   ) where
 
 import XMonad.StackSet hiding (modify)
@@ -490,8 +492,7 @@ xfork x = io . forkProcess . finally nullStdin $ do
 -- | This is basically a map function, running a function in the 'X' monad on
 -- each workspace with the output of that function being the modified workspace.
 runOnWorkspaces :: (WindowSpace -> X WindowSpace) -> X ()
-runOnWorkspaces job = do
-    get >>= (_windowset . _workspaces %%~ job) >>= put
+runOnWorkspaces job = get >>= (_windowset . _workspaces %%~ job) >>= put
 
 -- | All the directories that xmonad will use.  They will be used for
 -- the following purposes:
