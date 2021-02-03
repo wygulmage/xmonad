@@ -1,6 +1,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Properties.Stack where
 
 import Test.QuickCheck
@@ -10,6 +11,7 @@ import XMonad.StackSet hiding (filter)
 import qualified XMonad.StackSet as S (filter)
 
 import Data.Maybe
+import Data.Functor.Classes (Eq1 (liftEq), Show1 (liftShowsPrec))
 
 #ifdef VERSION_quickcheck_classes
 import Data.Proxy

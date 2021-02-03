@@ -138,3 +138,4 @@ arbitraryWindow (NonEmptyWindowsStackSet x) = do
   -- We know that there are at least 1 window in a NonEmptyWindowsStackSet.
   idx <- choose(0, (length ws) - 1)
   return $ ws!!idx
+
