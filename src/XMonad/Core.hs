@@ -2,9 +2,9 @@
              MultiParamTypeClasses, TypeSynonymInstances, DeriveDataTypeable,
              LambdaCase, NamedFieldPuns, DeriveTraversable #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -30,12 +30,16 @@ module XMonad.Core (
     StateExtension(..), ExtensionClass(..), ConfExtension(..),
     runX, catchX, userCode, userCodeDef, io, catchIO, installSignalHandlers, uninstallSignalHandlers,
     withDisplay, withWindowSet, isRoot, runOnWorkspaces,
-    getAtom, spawn, spawnPID, xfork, recompile, trace, whenJust, whenX,
-    getXMonadDir, getXMonadCacheDir, getXMonadDataDir, stateFileName,
+    getAtom,
+    spawn, spawnPID, xfork, spawnPipe,
+    recompile, trace, whenJust, whenX,
+    stateFileName,
     atom_WM_STATE, atom_WM_PROTOCOLS, atom_WM_DELETE_WINDOW, atom_WM_TAKE_FOCUS, withWindowAttributes,
     ManageHook, Query(..), runQuery, Directories'(..), Directories, getDirectories,
     -- XState Optics
     _dragging, _extensibleState, _mapped, _waitingUnmap, _numberlockMask, _windowset,
+    -- Deprecated
+    getXMonadDir, getXMonadCacheDir, getXMonadDataDir,
   ) where
 
 import XMonad.StackSet hiding (modify)
@@ -60,6 +64,7 @@ import System.Posix.Signals
 import System.Posix.IO
 import System.Posix.Types (ProcessID)
 import System.Process
+import qualified System.Process.Typed as Process
 import System.Directory
 import System.Exit -- ExitCode
 import Graphics.X11.Xlib
@@ -71,6 +76,7 @@ import Data.List.NonEmpty (NonEmpty ((:|)))
 
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
+
 
 -- | XState, the (mutable) window manager state.
 data XState = XState
@@ -189,7 +195,12 @@ newtype ScreenId    = S Int deriving (Eq,Ord,Show,Read,Enum,Num,Integral,Real)
 
 -- | The 'Rectangle' with screen dimensions
 newtype ScreenDetail = SD { screenRect :: Rectangle }
-    deriving (Eq,Show, Read)
+    deriving (Eq, Show, Read)
+
+_screenRect ::
+   (Functor m)=>
+   (Rectangle -> m Rectangle) -> ScreenDetail -> m (ScreenDetail)
+_screenRect f = fmap SD . f . screenRect
 
 ------------------------------------------------------------------------
 
@@ -412,12 +423,20 @@ instance Show (Layout a) where show (Layout l) = show l
 --
 -- User-extensible messages must be a member of this class.
 --
-class Typeable a => Message a
+class Typeable a => Message a where
+   -- toMessage :: a -> SomeMessage
+   -- toMessage = SomeMessage
+   -- fromMessage :: SomeMessage -> Maybe a
+   -- fromMessage (SomeMessage x) = cast x
 
 -- |
 -- A wrapped value of some type in the 'Message' class.
 --
-data SomeMessage = forall a. Message a => SomeMessage a
+data SomeMessage = forall a. Message a => SomeMessage a deriving Typeable
+
+-- instance Message SomeMessage where
+--    toMessage = id
+--    fromMessage = Just
 
 -- |
 -- And now, unwrap a given, unknown 'Message' type, performing a (dynamic)
@@ -485,7 +504,7 @@ catchIO f = io (f `E.catch` \(SomeException e) -> hPrint stderr e >> hFlush stde
 --
 -- Note this function assumes your locale uses utf8.
 spawn :: MonadIO m => String -> m ()
-spawn x = spawnPID x >> return ()
+spawn x = () <$ spawnPID x
 
 -- | Like 'spawn', but returns the 'ProcessID' of the launched application
 spawnPID :: MonadIO m => String -> m ProcessID
@@ -502,6 +521,12 @@ xfork x = io . forkProcess . finally nullStdin $ do
         fd <- openFd "/dev/null" ReadOnly Nothing defaultFileFlags
         dupTo fd stdInput
         closeFd fd
+
+spawnPipe :: MonadIO m => [Char] -> m Handle
+spawnPipe command = Process.getStdin <$> Process.startProcess cfg
+   where
+   cfg = Process.proc "/bin/sh" ["-c", command]
+         & Process.setStdin Process.createPipe
 
 -- | This is basically a map function, running a function in the 'X' monad on
 -- each workspace with the output of that function being the modified workspace.
@@ -562,6 +587,7 @@ getDirectories = xmEnvDirs <|> xmDirs <|> xdgDirs
                          , cacheDir = "XMONAD_CACHE_DIR"
                          }
         maybe empty pure . sequenceA =<< traverse getEnv xmEnvs
+        -- Note: This will ignore all environment variables if at least one is not set.
 
     -- | Check whether the config file or a build script is in the
     -- @~\/.xmonad@ directory
@@ -599,7 +625,7 @@ getXMonadDataDir = asks (dataDir . directories)
 
 -- | Get the name of the file used to store the xmonad window state.
 stateFileName :: X FilePath
-stateFileName = (</> "xmonad.state") <$> getXMonadDataDir
+stateFileName = (</> "xmonad.state") <$> asks (dataDir . directories)
 
 -- | 'recompile force', recompile the xmonad configuration file when
 -- any of the following apply:

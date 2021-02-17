@@ -21,6 +21,7 @@ module XMonad.ManageHook where
 import XMonad.Core
 import Graphics.X11.Xlib.Extras
 import Graphics.X11.Xlib (Display, Window, internAtom, wM_NAME)
+import Control.Applicative (liftA2)
 import Control.Exception (bracket, SomeException(..))
 import qualified Control.Exception as E
 import Control.Monad.Reader
@@ -34,7 +35,8 @@ liftX :: X a -> Query a
 liftX = Query . lift
 
 -- | The identity hook that returns the WindowSet unchanged.
-idHook :: Monoid m => m
+-- idHook :: Monoid m => m
+idHook :: ManageHook
 idHook = mempty
 
 -- | Infix 'mappend'. Compose two 'ManageHook' from right to left.
@@ -42,7 +44,8 @@ idHook = mempty
 (<+>) = mappend
 
 -- | Compose the list of 'ManageHook's.
-composeAll :: Monoid m => [m] -> m
+-- composeAll :: Monoid m => [m] -> m
+composeAll :: [ManageHook] -> ManageHook
 composeAll = mconcat
 
 infix 0 -->
@@ -54,18 +57,18 @@ infix 0 -->
 p --> f = p >>= \b -> if b then f else return mempty
 
 -- | @q =? x@. if the result of @q@ equals @x@, return 'True'.
-(=?) :: Eq a => Query a -> a -> Query Bool
+(=?) :: (Functor m, Eq a)=> m a -> a -> m Bool
 q =? x = fmap (== x) q
 
 infixr 3 <&&>, <||>
 
 -- | '&&' lifted to a 'Monad'.
-(<&&>) :: Monad m => m Bool -> m Bool -> m Bool
-(<&&>) = liftM2 (&&)
+(<&&>) :: Applicative m => m Bool -> m Bool -> m Bool
+(<&&>) = liftA2 (&&)
 
 -- | '||' lifted to a 'Monad'.
-(<||>) :: Monad m => m Bool -> m Bool -> m Bool
-(<||>) = liftM2 (||)
+(<||>) :: Applicative m => m Bool -> m Bool -> m Bool
+(<||>) = liftA2 (||)
 
 -- | Return the window title.
 title :: Query String
@@ -100,7 +103,7 @@ getStringProperty :: Display -> Window -> String -> X (Maybe String)
 getStringProperty d w p = do
   a  <- getAtom p
   md <- io $ getWindowProperty8 d a w
-  return $ fmap (map (toEnum . fromIntegral)) md
+  return $ fmap (fmap (toEnum . fromIntegral)) md
 
 -- | Modify the 'WindowSet' with a pure function.
 doF :: (s -> s) -> Query (Endo s)
