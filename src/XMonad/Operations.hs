@@ -132,9 +132,7 @@ windows f = do
 
     -- notify non visibility
     let
-        -- tags_oldvisible :: [WorkspaceId]
-        -- tags_oldvisible = old ^.. W._screens . traverse . W._workspace . W._tag
-        tags_oldvisible = old ^.. W._screens . traverse . W._workspace . W._tag & S.fromList
+        tags_oldvisible = old ^. W._screens . traverse . W._workspace . W._tag . to S.singleton
         gottenhidden    = filter (flip elem tags_oldvisible . W.tag) $ W.hidden ws
     mapM_ (sendMessageWithNoRefresh Hide) gottenhidden
 
