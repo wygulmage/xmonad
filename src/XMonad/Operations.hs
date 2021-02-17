@@ -27,7 +27,7 @@ import Data.List            (nub, (\\), find)
 import Data.Bits            ((.|.), (.&.), complement, testBit)
 import Data.Function        (on)
 import Data.Ratio
-import qualified Data.Map as M
+import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import Data.Foldable (for_)
 
@@ -109,13 +109,20 @@ windows :: (WindowSet -> WindowSet) -> X ()
 windows f = do
     old <- gets windowset
     let
-        oldvisible :: [Window]
-        oldvisible = old ^. W._screens . traverse . W._workspace . W._stack . traverse . to W.integrate
-        newwindows = W.allWindows ws \\ W.allWindows old
+        stackToSet = W._stack . traverse . traverse . to S.singleton
+
+        oldWindowsSet :: S.Set Window
+        oldWindowsSet = (old ^. W._hidden . traverse . stackToSet) <> oldvisibleSet
+        oldvisibleSet :: S.Set Window
+        oldvisibleSet = old ^. W._screens . traverse . W._workspace . stackToSet
+        newWindowsSet :: S.Set Window
+        newWindowsSet = ws ^. W._workspaces . stackToSet
+
         ws = f old
     XConf { display = d , normalBorder = nbc, focusedBorder = fbc } <- ask
 
-    mapM_ setInitialProperties newwindows
+    -- mapM_ setInitialProperties newwindows
+    mapM_ setInitialProperties newWindowsSet
 
     whenJust (W.peek old) $ \otherw -> do
       nbs <- asks (normalBorderColor . config)
@@ -125,8 +132,9 @@ windows f = do
 
     -- notify non visibility
     let
-        tags_oldvisible :: [WorkspaceId]
-        tags_oldvisible = old ^.. W._screens . traverse . W._workspace . W._tag
+        -- tags_oldvisible :: [WorkspaceId]
+        -- tags_oldvisible = old ^.. W._screens . traverse . W._workspace . W._tag
+        tags_oldvisible = old ^.. W._screens . traverse . W._workspace . W._tag & S.fromList
         gottenhidden    = filter (flip elem tags_oldvisible . W.tag) $ W.hidden ws
     mapM_ (sendMessageWithNoRefresh Hide) gottenhidden
 
@@ -171,12 +179,14 @@ windows f = do
 
     -- hide every window that was potentially visible before, but is not
     -- given a position by a layout now.
-    mapM_ hide (nub (oldvisible ++ newwindows) \\ visible)
+    -- mapM_ hide (nub (oldvisible <> newwindows) \\ visible)
+    mapM_ hide ((oldvisibleSet <> newWindowsSet) S.\\ S.fromList visible)
 
     -- all windows that are no longer in the windowset are marked as
     -- withdrawn, it is important to do this after the above, otherwise 'hide'
     -- will overwrite withdrawnState with iconicState
-    mapM_ (flip setWMState withdrawnState) (W.allWindows old \\ W.allWindows ws)
+    -- mapM_ (flip setWMState withdrawnState) (W.allWindows old \\ W.allWindows ws)
+    mapM_ (flip setWMState withdrawnState) (oldWindowsSet S.\\ newWindowsSet)
 
     isMouseFocused <- asks mouseFocused
     unless isMouseFocused $ clearEvents enterWindowMask

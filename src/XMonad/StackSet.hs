@@ -63,7 +63,9 @@ module XMonad.StackSet (
 
 import Prelude hiding (filter)
 import Control.Applicative.Backwards (Backwards (Backwards, forwards))
+import Data.Function (on)
 import Data.Foldable (foldr, toList)
+import Data.Function (on)
 import Data.Maybe   (listToMaybe,isJust,fromMaybe)
 import qualified Data.List as L (deleteBy,find,splitAt,filter,nub)
 import Data.List ( (\\) )
@@ -400,16 +402,16 @@ view i s
     -- If it is visible, it is just raised:
     = s
       & (_current .~ x)
-      & (_visible %~ \ vis -> current s : L.deleteBy (equating screen) x vis)
+      -- & (_visible %~ \ vis -> current s : L.deleteBy (equating screen) x vis)
+      & (_visible %~ \ vis -> current s : L.deleteBy (on (==) screen) x vis)
 
     | Just x <- L.find ((i==).tag) (hidden  s) -- Must be hidden then:
     = s
       & _current . _workspace .~ x
-      & (_hidden %~ \ hid -> workspace (current s) : L.deleteBy (equating tag) x hid)
+      & (_hidden %~ \ hid -> workspace (current s) : L.deleteBy (on (==) tag) x hid)
 
     | otherwise = s -- not a member of the stackset
 
-  where equating f = \x y -> f x == f y
 
     -- 'Catch'ing this might be hard. Relies on monotonically increasing
     -- workspace tags defined in 'new'
@@ -579,18 +581,19 @@ currentTag = tag . workspace . current
 
 -- | Is the given tag present in the 'StackSet'?
 tagMember :: Eq i => i -> StackSet i l a s sd -> Bool
-tagMember t = elem t . map tag . workspaces
+tagMember t = elem t . fmap tag . workspaces
 
 -- | Rename a given tag if present in the 'StackSet'.
 renameTag :: Eq i => i -> i -> StackSet i l a s sd -> StackSet i l a s sd
-renameTag o n = mapWorkspace rename
+renameTag o n = _workspaces %~ rename
     where rename w = if tag w == o then w { tag = n } else w
 
 -- | Ensure that a given set of workspace tags is present by renaming
 -- existing workspaces and\/or creating new hidden workspaces as
 -- necessary.
 ensureTags :: Eq i => l -> [i] -> StackSet i l a s sd -> StackSet i l a s sd
-ensureTags l allt st = et allt (map tag (workspaces st) \\ allt) st
+-- ensureTags l allt st = et allt (fmap tag (workspaces st) \\ allt) st
+ensureTags l allt st = et allt ((st ^.. _workspaces . _tag) \\ allt) st
     where et [] _ s = s
           et (i:is) rn s | i `tagMember` s = et is rn s
           et (i:is) [] s = et is [] (s & _hidden %~ (Workspace i l Nothing :))
@@ -733,6 +736,9 @@ shiftWin n w s = case findTag w s of
                     _                                        -> s
  where go from = onWorkspace n (insertUp w) . onWorkspace from (delete' w)
 
-onWorkspace :: (Eq i, Eq s) => i -> (StackSet i l a s sd -> StackSet i l a s sd)
-            -> (StackSet i l a s sd -> StackSet i l a s sd)
+
+onWorkspace ::
+   (Eq i, Eq s) =>
+   i -> (StackSet i l a s sd -> StackSet i l a s sd) ->
+   (StackSet i l a s sd -> StackSet i l a s sd)
 onWorkspace n f s = view (currentTag s) . f . view n $ s

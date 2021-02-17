@@ -1,6 +1,10 @@
 {-# LANGUAGE ExistentialQuantification, FlexibleInstances, GeneralizedNewtypeDeriving,
              MultiParamTypeClasses, TypeSynonymInstances, DeriveDataTypeable,
              LambdaCase, NamedFieldPuns, DeriveTraversable #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE DefaultSignatures #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -40,7 +44,7 @@ import XMonad.Internal.Optics ((.~), (%~), (%%~), (^.), to, (&))
 import Prelude
 import Control.Exception (fromException, try, bracket, throw, finally, SomeException(..))
 import qualified Control.Exception as E
-import Control.Applicative ((<|>), empty)
+import Control.Applicative ((<|>), empty, liftA2)
 import Control.Monad.Fail
 import Control.Monad.State
 import Control.Monad.Reader
@@ -57,7 +61,7 @@ import System.Posix.IO
 import System.Posix.Types (ProcessID)
 import System.Process
 import System.Directory
-import System.Exit
+import System.Exit -- ExitCode
 import Graphics.X11.Xlib
 import Graphics.X11.Xlib.Extras (getWindowAttributes, WindowAttributes, Event)
 import Data.Typeable
@@ -65,7 +69,7 @@ import Data.List ((\\))
 import Data.Maybe (isJust,fromMaybe)
 import Data.List.NonEmpty (NonEmpty ((:|)))
 
-import qualified Data.Map as M
+import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 
 -- | XState, the (mutable) window manager state.
@@ -146,7 +150,7 @@ data XConfig l = XConfig
     { normalBorderColor  :: !String              -- ^ Non focused windows border color. Default: \"#dddddd\"
     , focusedBorderColor :: !String              -- ^ Focused windows border color. Default: \"#ff0000\"
     , terminal           :: !String              -- ^ The preferred terminal application. Default: \"xterm\"
-    , layoutHook         :: !(l Window)          -- ^ The available layouts
+    , layoutHook         :: !(l Window)     -- ^ The available layouts
     , manageHook         :: !ManageHook          -- ^ The action to run when a new window is opened
     , handleEventHook    :: !(Event -> X All)    -- ^ Handle an X event, returns (All True) if the default handler
                                                  -- should also be run afterwards. mappend should be used for combining
@@ -198,38 +202,37 @@ newtype ScreenDetail = SD { screenRect :: Rectangle }
 -- instantiated on 'XConf' and 'XState' automatically.
 --
 newtype X a = X (ReaderT XConf (StateT XState IO) a)
-    deriving (Functor, Monad, MonadFail, MonadIO, MonadState XState, MonadReader XConf)
-
-instance Applicative X where
-  pure = return
-  (<*>) = ap
+   deriving
+      ( Functor, Applicative, Monad, MonadFail
+      , MonadIO, MonadState XState, MonadReader XConf
+      )
 
 instance Semigroup a => Semigroup (X a) where
-    (<>) = liftM2 (<>)
+    (<>) = liftA2 (<>)
 
 instance (Monoid a) => Monoid (X a) where
     mempty  = return mempty
-    mappend = liftM2 mappend
+    mappend = liftA2 mappend
 
 instance Default a => Default (X a) where
-    def = return def
+    def = pure def
 
 type ManageHook = Query (Endo WindowSet)
 newtype Query a = Query (ReaderT Window X a)
-    deriving (Functor, Applicative, Monad, MonadReader Window, MonadIO)
+    deriving (Functor, Applicative, Monad, MonadIO, MonadReader Window)
 
 runQuery :: Query a -> Window -> X a
 runQuery (Query m) w = runReaderT m w
 
 instance Semigroup a => Semigroup (Query a) where
-    (<>) = liftM2 (<>)
+    (<>) = liftA2 (<>)
 
 instance Monoid a => Monoid (Query a) where
-    mempty  = return mempty
-    mappend = liftM2 mappend
+    mempty  = pure mempty
+    mappend = liftA2 mappend
 
 instance Default a => Default (Query a) where
-    def = return def
+    def = pure def
 
 -- | Run the 'X' monad, given a chunk of 'X' monad code, and an initial state
 -- Return the result, and final state
@@ -243,7 +246,7 @@ catchX job errcase = do
     st <- get
     c <- ask
     (a, s') <- io $ runX c st job `E.catch` \e -> case fromException e of
-                        Just x -> throw e `const` (x `asTypeOf` ExitSuccess)
+                        Just (_ :: ExitCode) -> throw e
                         _ -> do hPrint stderr e; runX c st errcase
     put s'
     return a
@@ -390,6 +393,9 @@ class (Show (layout a), Typeable layout) => LayoutClass layout a where
     -- 'show', which is in some cases a poor default.
     description :: layout a -> String
     description      = show
+
+--    toLayout :: layout a -> Layout a
+--    toLayout = Layout
 
 instance LayoutClass Layout Window where
     runLayout (Workspace i (Layout l) ms) r = fmap (fmap Layout) `fmap` runLayout (Workspace i l ms) r
