@@ -59,12 +59,12 @@ q =? x = fmap (== x) q
 
 infixr 3 <&&>, <||>
 
--- | '&&' lifted to a 'Monad'.
-(<&&>) :: Monad m => m Bool -> m Bool -> m Bool
+-- | '&&' lifted to an 'Applicative'.
+(<&&>) :: Applicative m => m Bool -> m Bool -> m Bool
 (<&&>) = liftA2 (&&)
 
--- | '||' lifted to a 'Monad'.
-(<||>) :: Monad m => m Bool -> m Bool -> m Bool
+-- | '||' lifted to an 'Applicative'.
+(<||>) :: Applicative m => m Bool -> m Bool -> m Bool
 (<||>) = liftA2 (||)
 
 -- | Return the window title.
