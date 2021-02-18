@@ -1,4 +1,3 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -21,6 +20,7 @@ module XMonad.ManageHook where
 import XMonad.Core
 import Graphics.X11.Xlib.Extras
 import Graphics.X11.Xlib (Display, Window, internAtom, wM_NAME)
+import Control.Applicative (liftA2)
 import Control.Exception (bracket, SomeException(..))
 import qualified Control.Exception as E
 import Control.Monad.Reader
@@ -51,21 +51,21 @@ infix 0 -->
 --
 -- > (-->) :: Monoid m => Query Bool -> Query m -> Query m -- a simpler type
 (-->) :: (Monad m, Monoid a) => m Bool -> m a -> m a
-p --> f = p >>= \b -> if b then f else return mempty
+p --> f = p >>= \b -> if b then f else pure mempty
 
 -- | @q =? x@. if the result of @q@ equals @x@, return 'True'.
-(=?) :: Eq a => Query a -> a -> Query Bool
+(=?) :: (Functor m, Eq a) => m a -> a -> m Bool
 q =? x = fmap (== x) q
 
 infixr 3 <&&>, <||>
 
--- | '&&' lifted to a 'Monad'.
-(<&&>) :: Monad m => m Bool -> m Bool -> m Bool
-(<&&>) = liftM2 (&&)
+-- | '&&' lifted to an 'Applicative'.
+(<&&>) :: Applicative m => m Bool -> m Bool -> m Bool
+(<&&>) = liftA2 (&&)
 
--- | '||' lifted to a 'Monad'.
-(<||>) :: Monad m => m Bool -> m Bool -> m Bool
-(<||>) = liftM2 (||)
+-- | '||' lifted to an 'Applicative'.
+(<||>) :: Applicative m => m Bool -> m Bool -> m Bool
+(<||>) = liftA2 (||)
 
 -- | Return the window title.
 title :: Query String
@@ -76,8 +76,8 @@ title = ask >>= \w -> liftX $ do
             (internAtom d "_NET_WM_NAME" False >>= getTextProperty d w)
                 `E.catch` \(SomeException _) -> getTextProperty d w wM_NAME
         extract prop = do l <- wcTextPropertyToTextList d prop
-                          return $ if null l then "" else head l
-    io $ bracket getProp (xFree . tp_value) extract `E.catch` \(SomeException _) -> return ""
+                          pure $ if null l then "" else head l
+    io $ bracket getProp (xFree . tp_value) extract `E.catch` \(SomeException _) -> pure ""
 
 -- | Return the application name.
 appName :: Query String
@@ -94,17 +94,18 @@ className = ask >>= (\w -> liftX $ withDisplay $ \d -> fmap resClass $ io $ getC
 -- | A query that can return an arbitrary X property of type 'String',
 --   identified by name.
 stringProperty :: String -> Query String
-stringProperty p = ask >>= (\w -> liftX $ withDisplay $ \d -> fmap (fromMaybe "") $ getStringProperty d w p)
+stringProperty p =
+  ask >>= (\w -> liftX $ withDisplay $ \d -> fromMaybe "" <$> getStringProperty d w p)
 
 getStringProperty :: Display -> Window -> String -> X (Maybe String)
 getStringProperty d w p = do
   a  <- getAtom p
   md <- io $ getWindowProperty8 d a w
-  return $ fmap (map (toEnum . fromIntegral)) md
+  pure $ fmap (fmap (toEnum . fromIntegral)) md
 
 -- | Modify the 'WindowSet' with a pure function.
 doF :: (s -> s) -> Query (Endo s)
-doF = return . Endo
+doF = pure . Endo
 
 -- | Move the window to the floating layer.
 doFloat :: ManageHook
@@ -112,7 +113,7 @@ doFloat = ask >>= \w -> doF . W.float w . snd =<< liftX (floatLocation w)
 
 -- | Map the window and remove it from the 'WindowSet'.
 doIgnore :: ManageHook
-doIgnore = ask >>= \w -> liftX (reveal w) >> doF (W.delete w)
+doIgnore = ask >>= \w -> liftX (reveal w) *> doF (W.delete w)
 
 -- | Move the window to a given workspace
 doShift :: WorkspaceId -> ManageHook
