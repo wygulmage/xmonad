@@ -20,6 +20,8 @@ import XMonad.Core
 import XMonad.Layout (Full(..))
 import qualified XMonad.StackSet as W
 
+import Data.Int (Int32)
+import Data.Word (Word32)
 import Data.Maybe
 import Data.Monoid          (Endo(..),Any(..))
 import Data.List            (nub, (\\), find)
@@ -37,6 +39,7 @@ import qualified Control.Exception as C
 import System.IO
 import System.Directory
 import System.Posix.Process (executeFile)
+import Foreign.C.Types (CInt)
 import Graphics.X11.Xlib
 import Graphics.X11.Xinerama (getScreenInfo)
 import Graphics.X11.Xlib.Extras
@@ -544,11 +547,13 @@ floatLocation w =
       sc <- gets $ W.current . windowset
       return (W.screen sc, W.RationalRect 0 0 1 1)
 
-  where fi x = fromIntegral x
+  where
+        fi :: CInt -> Position
+        fi = fromIntegral
         go = withDisplay $ \d -> do
           ws <- gets windowset
           wa <- io $ getWindowAttributes d w
-          let bw = (fromIntegral . wa_border_width) wa
+          let bw = wa_border_width wa
           point_sc <- pointScreen (fi $ wa_x wa) (fi $ wa_y wa)
           managed <- isClient w
 
@@ -559,15 +564,21 @@ floatLocation w =
               sc = fromMaybe (W.current ws) $
                   if managed || point_sc `sr_eq` Just (W.current ws) then point_sc else Nothing
               sr = screenRect . W.screenDetail $ sc
-              x = (fi (wa_x wa) - fi (rect_x sr)) % fi (rect_width sr)
-              y = (fi (wa_y wa) - fi (rect_y sr)) % fi (rect_height sr)
-              width  = fi (wa_width  wa + bw*2) % fi (rect_width sr)
-              height = fi (wa_height wa + bw*2) % fi (rect_height sr)
+              x = (fromCInt (wa_x wa) - fromInt32 (rect_x sr)) % fromWord32 (rect_width sr)
+              y = (fromCInt (wa_y wa) - fromInt32 (rect_y sr)) % fromWord32 (rect_height sr)
+              width  = fromCInt (wa_width  wa + bw*2) % fromWord32 (rect_width sr)
+              height = fromCInt (wa_height wa + bw*2) % fromWord32 (rect_height sr)
               -- adjust x/y of unmanaged windows if we ignored or didn't get pointScreen,
               -- it might be out of bounds otherwise
               rr = if managed || point_sc `sr_eq` Just sc
                   then W.RationalRect x y width height
                   else W.RationalRect (0.5 - width/2) (0.5 - height/2) width height
+              fromCInt :: CInt -> Integer
+              fromCInt = toInteger
+              fromInt32 :: Int32 -> Integer
+              fromInt32 = toInteger
+              fromWord32 :: Word32 -> Integer
+              fromWord32 = toInteger
 
           return (W.screen sc, rr)
 
@@ -624,28 +635,31 @@ mouseMoveWindow :: Window -> X ()
 mouseMoveWindow w = whenX (isClient w) $ withDisplay $ \d -> do
     wa <- io $ getWindowAttributes d w
     (_, _, _, ox', oy', _, _, _) <- io $ queryPointer d w
-    let ox = fromIntegral ox'
-        oy = fromIntegral oy'
     mouseDrag (\ex ey -> do
-                  io $ moveWindow d w (fromIntegral (fromIntegral (wa_x wa) + (ex - ox)))
-                                      (fromIntegral (fromIntegral (wa_y wa) + (ey - oy)))
-                  float w
-              )
+                  io $ moveWindow d w (fromCInt (wa_x wa) + (ex - fromCInt ox'))
+                                      (fromCInt (wa_y wa) + (ey - fromCInt oy'))
+                  float w)
               (float w)
+  where
+    fromCInt :: CInt -> Position
+    fromCInt = fromIntegral
 
 -- | resize the window under the cursor with the mouse while it is dragged
 mouseResizeWindow :: Window -> X ()
 mouseResizeWindow w = whenX (isClient w) $ withDisplay $ \d -> do
     wa <- io $ getWindowAttributes d w
     sh <- io $ getWMNormalHints d w
-    io $ warpPointer d none w 0 0 0 0 (fromIntegral (wa_width wa)) (fromIntegral (wa_height wa))
+    io $ warpPointer d none w 0 0 0 0 (fromCInt (wa_width wa)) (fromCInt (wa_height wa))
     mouseDrag (\ex ey -> do
                  io $ resizeWindow d w `uncurry`
-                    applySizeHintsContents sh (ex - fromIntegral (wa_x wa),
-                                               ey - fromIntegral (wa_y wa))
+                    applySizeHintsContents sh (ex - fromCInt (wa_x wa),
+                                               ey - fromCInt (wa_y wa))
                  float w)
 
               (float w)
+  where
+    fromCInt :: CInt -> Position
+    fromCInt = fromIntegral
 
 -- ---------------------------------------------------------------------
 -- | Support for window size hints
@@ -661,18 +675,21 @@ mkAdjust w = withDisplay $ \d -> liftIO $ do
     case (wa :: Either C.SomeException WindowAttributes) of
          Left  _   -> pure id
          Right wa' ->
-            let bw = fromIntegral $ wa_border_width wa'
+            let bw = fromCInt $ wa_border_width wa'
             in  return $ applySizeHints bw sh
+  where
+    fromCInt :: CInt -> Dimension
+    fromCInt = fromIntegral
 
 -- | Reduce the dimensions if needed to comply to the given SizeHints, taking
 -- window borders into account.
-applySizeHints :: Integral a => Dimension -> SizeHints -> (a, a) -> D
+applySizeHints :: Dimension -> SizeHints -> D -> D
 applySizeHints bw sh =
-    tmap (+ 2 * bw) . applySizeHintsContents sh . tmap (subtract $ 2 * fromIntegral bw)
+    tmap (+ 2 * bw) . applySizeHintsContents sh . tmap (subtract $ 2 * bw)
     where
     tmap f (x, y) = (f x, f y)
 
--- | Reduce the dimensions if needed to comply to the given SizeHints.
+-- | Reduce the dimensions if needed to comply to the given SizeHints. This is more polymorphic because it needs to operate on pairs of 'Dimension's and pairs of 'Position's.
 applySizeHintsContents :: Integral a => SizeHints -> (a, a) -> D
 applySizeHintsContents sh (w, h) =
     applySizeHints' sh (fromIntegral $ max 1 w, fromIntegral $ max 1 h)
