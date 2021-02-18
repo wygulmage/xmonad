@@ -1,9 +1,13 @@
-{-# LANGUAGE ExistentialQuantification, FlexibleInstances, GeneralizedNewtypeDeriving,
-             MultiParamTypeClasses, TypeSynonymInstances, DeriveDataTypeable,
-             LambdaCase, NamedFieldPuns, DeriveTraversable,
-             RankNTypes,
-             FlexibleContexts,
-             ScopedTypeVariables #-}
+{-# LANGUAGE ExistentialQuantification
+           , FlexibleContexts
+           , FlexibleInstances
+           , GeneralizedNewtypeDeriving
+           , MultiParamTypeClasses
+           , DeriveDataTypeable
+           , NamedFieldPuns
+           , DeriveTraversable
+           , ScopedTypeVariables
+  #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -51,7 +55,7 @@ import XMonad.Internal.Optics ((%%~), (&), (.=), use)
 import Prelude hiding (fail)
 import Control.Exception (fromException, try, throw, finally, SomeException(..))
 import qualified Control.Exception as E
-import Control.Applicative (liftA2, Alternative, (<|>), empty)
+import Control.Applicative (Alternative, (<|>), empty, liftA2)
 import Control.Monad (filterM, guard, when)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Fail (MonadFail (fail))
@@ -60,6 +64,7 @@ import Control.Monad.Reader (MonadReader (..), ReaderT (..), asks)
 import Control.Monad.Writer (MonadWriter (..))
 import Data.Semigroup
 import Data.Functor ((<&>))
+import Data.Foldable (for_)
 import Data.Traversable (for)
 import Data.Function (fix)
 import Data.Default
@@ -364,9 +369,9 @@ catchX job errcase = do
     c <- ask
     (a, s') <- io $ runX c st job `E.catch` \e -> case fromException e of
                         Just (_ :: ExitCode) -> throw e
-                        _ -> do hPrint stderr e; runX c st errcase
+                        Nothing -> do hPrint stderr e; runX c st errcase
     put s'
-    return a
+    pure a
 
 -- | Execute the argument, catching all exceptions.  Either this function or
 -- 'catchX' should be used at all callsites of user customized code.
@@ -393,7 +398,7 @@ withWindowSet f = gets windowset >>= f
 withWindowAttributes :: Display -> Window -> (WindowAttributes -> X ()) -> X ()
 withWindowAttributes dpy win f = do
     wa <- userCode (io $ getWindowAttributes dpy win)
-    catchX (whenJust wa f) (return ())
+    catchX (whenJust wa f) (pure ())
 
 -- | True if the given window is the root window
 isRoot :: Window -> X Bool
@@ -474,7 +479,7 @@ class (Show (layout a), Typeable layout) => LayoutClass layout a where
     -- own state should implement 'pureLayout' instead of 'doLayout'.
     doLayout    :: layout a -> Rectangle -> Stack a
                 -> X ([(a, Rectangle)], Maybe (layout a))
-    doLayout l r s   = return (pureLayout l r s, Nothing)
+    doLayout l r s   = pure (pureLayout l r s, Nothing)
 
     -- | This is a pure version of 'doLayout', for cases where we
     -- don't need access to the 'X' monad to determine how to lay out
@@ -484,7 +489,7 @@ class (Show (layout a), Typeable layout) => LayoutClass layout a where
 
     -- | 'emptyLayout' is called when there are no windows.
     emptyLayout :: layout a -> Rectangle -> X ([(a, Rectangle)], Maybe (layout a))
-    emptyLayout _ _ = return ([], Nothing)
+    emptyLayout _ _ = pure ([], Nothing)
 
     -- | 'handleMessage' performs message handling.  If
     -- 'handleMessage' returns @Nothing@, then the layout did not
@@ -497,7 +502,7 @@ class (Show (layout a), Typeable layout) => LayoutClass layout a where
     -- 'handleMessage' (this restricts the risk of error, and makes
     -- testing much easier).
     handleMessage :: layout a -> SomeMessage -> X (Maybe (layout a))
-    handleMessage l  = return . pureMessage l
+    handleMessage l  = pure . pureMessage l
 
     -- | Respond to a message by (possibly) changing our layout, but
     -- taking no other action.  If the layout changes, the screen will
@@ -603,7 +608,7 @@ io = liftIO
 -- | Lift an 'IO' action into the 'X' monad.  If the action results in an 'IO'
 -- exception, log the exception to stderr and continue normal execution.
 catchIO :: MonadIO m => IO () -> m ()
-catchIO f = io (f `E.catch` \(SomeException e) -> hPrint stderr e >> hFlush stderr)
+catchIO f = io (f `E.catch` \(SomeException e) -> hPrint stderr e *> hFlush stderr)
 
 -- | spawn. Launch an external application. Specifically, it double-forks and
 -- runs the 'String' you pass as a command to \/bin\/sh.
@@ -642,6 +647,7 @@ runOnWorkspaces job = do
    ws' <- _workspaces %%~ job =<< use _windowset
    _windowset .= ws'
    -- WARNING: This has changed the order of runOnWorkspaces. Carefully check whether anything depended on acting on hidden workspaces first!
+{-# SPECIALIZE runOnWorkspaces :: (WindowSpace -> X WindowSpace) -> X () #-}
 
 -- | All the directories that xmonad will use.  They will be used for
 -- the following purposes:
@@ -758,14 +764,14 @@ stateFileName = (</> "xmonad.state") <$> asks (dataDir . directories)
 --
 recompile :: MonadIO m => Directories -> Bool -> m Bool
 recompile Directories{ cfgDir, dataDir } force = io $ do
-    let binn = "xmonad-"++arch++"-"++os
+    let binn = "xmonad-" <> arch <> "-" <> os
         bin  = dataDir </> binn
         err  = dataDir </> "xmonad.errors"
         src  = cfgDir  </> "xmonad.hs"
         lib  = cfgDir  </> "lib"
         buildscript = cfgDir </> "build"
 
-    libTs <- mapM getModTime . Prelude.filter isSource =<< allFiles lib
+    libTs <- traverse getModTime . Prelude.filter isSource =<< allFiles lib
     srcT <- getModTime src
     binT <- getModTime bin
 
@@ -776,29 +782,29 @@ recompile Directories{ cfgDir, dataDir } force = io $ do
           isExe <- isExecutable buildscript
           if isExe
             then do
-              trace $ "XMonad will use build script at " ++ show buildscript ++ " to recompile."
-              return True
+              trace $ "XMonad will use build script at " <> show buildscript <> " to recompile."
+              pure True
             else do
               trace $ unlines
-                [ "XMonad will not use build script, because " ++ show buildscript ++ " is not executable."
-                , "Suggested resolution to use it: chmod u+x " ++ show buildscript
+                [ "XMonad will not use build script, because " <> show buildscript <> " is not executable."
+                , "Suggested resolution to use it: chmod u+x " <> show buildscript
                 ]
-              return False
+              pure False
         else do
           trace $
-            "XMonad will use ghc to recompile, because " ++ show buildscript ++ " does not exist."
-          return False
+            "XMonad will use ghc to recompile, because " <> show buildscript <> " does not exist."
+          pure False
 
     shouldRecompile <-
       if useBuildscript || force
-        then return True
+        then pure True
         else if any (binT <) (srcT : libTs)
           then do
             trace "XMonad doing recompile because some files have changed."
-            return True
+            pure True
           else do
             trace "XMonad skipping recompile because it is not forced (e.g. via --recompile), and neither xmonad.hs nor any *.hs / *.lhs / *.hsc files in lib/ have been changed."
-            return False
+            pure False
 
     if shouldRecompile
       then do
@@ -818,26 +824,26 @@ recompile Directories{ cfgDir, dataDir } force = io $ do
             else do
                 ghcErr <- readFile err
                 let msg = unlines $
-                        ["Error detected while loading xmonad configuration file: " ++ src]
-                        ++ lines (if null ghcErr then show status else ghcErr)
-                        ++ ["","Please check the file for errors."]
+                        ["Error detected while loading xmonad configuration file: " <> src]
+                        <> lines (if null ghcErr then show status else ghcErr)
+                        <> ["","Please check the file for errors."]
                 -- nb, the ordering of printing, then forking, is crucial due to
                 -- lazy evaluation
                 hPutStrLn stderr msg
                 forkProcess $ executeFile "xmessage" True ["-default", "okay", replaceUnicode msg] Nothing
-                return ()
-        return (status == ExitSuccess)
-      else return True
- where getModTime f = E.catch (Just <$> getModificationTime f) (\(SomeException _) -> return Nothing)
+                pure ()
+        pure (status == ExitSuccess)
+      else pure True
+ where getModTime f = E.catch (Just <$> getModificationTime f) (\(SomeException _) -> pure Nothing)
        isSource = flip elem [".hs",".lhs",".hsc"] . takeExtension
-       isExecutable f = E.catch (executable <$> getPermissions f) (\(SomeException _) -> return False)
+       isExecutable f = E.catch (executable <$> getPermissions f) (\(SomeException _) -> pure False)
        allFiles t = do
-            let prep = map (t</>) . Prelude.filter (`notElem` [".",".."])
-            cs <- prep <$> E.catch (getDirectoryContents t) (\(SomeException _) -> return [])
+            let prep = fmap (t </>) . Prelude.filter (`notElem` [".",".."])
+            cs <- prep <$> E.catch (getDirectoryContents t) (\(SomeException _) -> pure [])
             ds <- filterM doesDirectoryExist cs
-            concat . ((cs \\ ds):) <$> mapM allFiles ds
+            concat . ((cs \\ ds):) <$> traverse allFiles ds
        -- Replace some of the unicode symbols GHC uses in its output
-       replaceUnicode = map $ \c -> case c of
+       replaceUnicode = fmap $ \c -> case c of
            '\8226' -> '*'  -- •
            '\8216' -> '`'  -- ‘
            '\8217' -> '`'  -- ’
@@ -857,11 +863,12 @@ recompile Directories{ cfgDir, dataDir } force = io $ do
 
 -- | Conditionally run an action, using a @Maybe a@ to decide.
 whenJust :: Monad m => Maybe a -> (a -> m ()) -> m ()
-whenJust mg f = maybe (return ()) f mg
+whenJust = for_
 
--- | Conditionally run an action, using a 'X' event to decide
-whenX :: X Bool -> X () -> X ()
+-- | Conditionally run an action, using a monadic event to decide
+whenX :: Monad m => m Bool -> m () -> m ()
 whenX a f = a >>= \b -> when b f
+{-# INLINE whenX #-}
 
 -- | A 'trace' for the 'X' monad. Logs a string to stderr. The result may
 -- be found in your .xsession-errors file
@@ -878,10 +885,10 @@ installSignalHandlers = io $ do
       $ fix $ \more -> do
         x <- getAnyProcessStatus False False
         when (isJust x) more
-    return ()
+    pure ()
 
 uninstallSignalHandlers :: MonadIO m => m ()
 uninstallSignalHandlers = io $ do
     installHandler openEndedPipe Default Nothing
     installHandler sigCHLD Default Nothing
-    return ()
+    pure ()

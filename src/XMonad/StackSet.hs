@@ -366,7 +366,7 @@ _down f sta = fmap (\ dn' -> sta{ down = dn' }) (f (down sta))
 
 -- | this function indicates to catch that an error is expected
 abort :: String -> a
-abort x = error $ "xmonad: StackSet: " ++ x
+abort x = error $ "xmonad: StackSet: " <> x
 
 -- ---------------------------------------------------------------------
 -- $construction
@@ -382,7 +382,7 @@ abort x = error $ "xmonad: StackSet: " ++ x
 new :: (Integral s) => l -> [i] -> [sd] -> StackSet i l a s sd
 new l wids m | not (null wids) && length m <= length wids && not (null m)
   = StackSet cur visi unseen M.empty
-  where (seen,unseen) = L.splitAt (length m) $ map (\i -> Workspace i l Nothing) wids
+  where (seen,unseen) = L.splitAt (length m) $ fmap (\i -> Workspace i l Nothing) wids
         (cur:visi)    = [ Screen i s sd |  (i, s, sd) <- zip3 seen [0..] m ]
                 -- now zip up visibles with their screen id
 new _ _ _ = abort "non-positive argument to StackSet.new"
@@ -482,18 +482,18 @@ modify' f = _current . _workspace . _stack . traverse %~ f
 -- Return 'Just' that element, or 'Nothing' for an empty stack.
 --
 peek :: StackSet i l a s sd -> Maybe a
-peek = with Nothing (return . focus)
+peek = with Nothing (pure . focus)
 
 -- |
 -- /O(n)/. Flatten a 'Stack' into a list.
 --
 integrate :: Stack a -> [a]
-integrate (Stack x l r) = reverse l ++ x : r
+integrate (Stack x l r) = reverse l <> (x : r)
 
 -- |
 -- /O(n)/ Flatten a possibly empty stack into a list.
 integrate' :: Maybe (Stack a) -> [a]
-integrate' = maybe [] integrate
+integrate' = foldMap integrate
 
 -- |
 -- /O(n)/. Turn a list into a possibly empty stack (i.e., a zipper):
@@ -565,7 +565,7 @@ focusWindow :: (Eq s, Eq a, Eq i) => a -> StackSet i l a s sd -> StackSet i l a 
 focusWindow w s | Just w == peek s = s
                 | otherwise        = fromMaybe s $ do
                     n <- findTag w s
-                    return $ until ((Just w ==) . peek) focusUp (view n s)
+                    pure $ until ((Just w ==) . peek) focusUp (view n s)
 
 -- | Get a list of all screens in the 'StackSet'.
 screens :: StackSet i l a s sd -> [Screen i l a s sd]
@@ -596,7 +596,6 @@ renameTag o n = _workspaces %~ rename
 -- existing workspaces and\/or creating new hidden workspaces as
 -- necessary.
 ensureTags :: Eq i => l -> [i] -> StackSet i l a s sd -> StackSet i l a s sd
--- ensureTags l allt st = et allt (fmap tag (workspaces st) \\ allt) st
 ensureTags l allt st = et allt ((st ^.. _workspaces . _tag) \\ allt) st
     where et [] _ s = s
           et (i:is) rn s | i `tagMember` s = et is rn s
@@ -622,7 +621,7 @@ findTag :: Eq a => a -> StackSet i l a s sd -> Maybe i
 findTag a s = listToMaybe
     [ tag w | w <- workspaces s, has a (stack w) ]
     where has _ Nothing         = False
-          has x (Just (Stack t l r)) = x `elem` (t : l ++ r)
+          has x (Just (Stack t l r)) = x `elem` (t : l <> r)
 
 -- ---------------------------------------------------------------------
 -- $modifyStackset
@@ -694,7 +693,7 @@ sink w = _floating %~ M.delete w
 swapMaster :: StackSet i l a s sd -> StackSet i l a s sd
 swapMaster = modify' $ \c -> case c of
     Stack _ [] _  -> c    -- already master.
-    Stack t ls rs -> Stack t [] (xs ++ x : rs) where (x:xs) = reverse ls
+    Stack t ls rs -> Stack t [] (xs <> (x : rs)) where x : xs = reverse ls
 
 -- natural! keep focus, move current to the top, move top to current.
 
@@ -705,13 +704,13 @@ swapMaster = modify' $ \c -> case c of
 shiftMaster :: StackSet i l a s sd -> StackSet i l a s sd
 shiftMaster = modify' $ \c -> case c of
     Stack _ [] _ -> c     -- already master.
-    Stack t ls rs -> Stack t [] (reverse ls ++ rs)
+    Stack t ls rs -> Stack t [] (reverse ls <> rs)
 
 -- | /O(s)/. Set focus to the master window.
 focusMaster :: StackSet i l a s sd -> StackSet i l a s sd
 focusMaster = modify' $ \c -> case c of
     Stack _ [] _  -> c
-    Stack t ls rs -> Stack x [] (xs ++ t : rs) where (x:xs) = reverse ls
+    Stack t ls rs -> Stack x [] (xs <> (t : rs)) where x : xs = reverse ls
 
 --
 -- ---------------------------------------------------------------------

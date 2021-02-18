@@ -20,6 +20,8 @@ import qualified Control.Exception as E
 import Data.Bits
 import Data.List ((\\))
 import Data.Function
+import Data.Foldable (for_, traverse_)
+import Data.Traversable (for)
 import qualified Data.Map as M
 import qualified Data.Set as S
 import Control.Monad.Reader
@@ -75,13 +77,13 @@ xmonad conf = do
         ["--recompile"]       -> recompile dirs True >>= flip unless exitFailure
         ["--restart"]         -> sendRestart
         ["--version"]         -> putStrLn $ unwords shortVersion
-        ["--verbose-version"] -> putStrLn . unwords $ shortVersion ++ longVersion
-        "--replace" : args'   -> sendReplace >> launch' args'
+        ["--verbose-version"] -> putStrLn . unwords $ shortVersion <> longVersion
+        "--replace" : args'   -> sendReplace *> launch' args'
         _                     -> launch' args
  where
     shortVersion = ["xmonad", showVersion version]
     longVersion  = [ "compiled by", compilerName, showVersion compilerVersion
-                   , "for",  arch ++ "-" ++ os
+                   , "for",  arch <> "-" <> os
                    , "\nXinerama:", show compiledWithXinerama ]
 
 
@@ -117,7 +119,7 @@ usage = do
 buildLaunch :: Directories -> IO ()
 buildLaunch dirs@Directories{ dataDir } = do
     whoami <- getProgName
-    let compiledConfig = "xmonad-"++arch++"-"++os
+    let compiledConfig = "xmonad-" <> arch <> "-" <> os
     unless (whoami == compiledConfig) $ do
       trace $ concat
         [ "XMonad is recompiling and replacing itself with another XMonad process because the current process is called "
@@ -197,17 +199,17 @@ launch initxmc drs = do
 
     nbc    <- do v            <- initColor dpy $ normalBorderColor  xmc
                  ~(Just nbc_) <- initColor dpy $ normalBorderColor Default.def
-                 return (fromMaybe nbc_ v)
+                 pure (fromMaybe nbc_ v)
 
     fbc    <- do v <- initColor dpy $ focusedBorderColor xmc
                  ~(Just fbc_)  <- initColor dpy $ focusedBorderColor Default.def
-                 return (fromMaybe fbc_ v)
+                 pure (fromMaybe fbc_ v)
 
     hSetBuffering stdout NoBuffering
 
     let layout = layoutHook xmc
-        initialWinset = let padToLen n xs = take (max n (length xs)) $ xs ++ repeat ""
-            in new layout (padToLen (length xinesc) (workspaces xmc)) $ map SD xinesc
+        initialWinset = let padToLen n xs = take (max n (length xs)) $ xs <> repeat ""
+            in new layout (padToLen (length xinesc) (workspaces xmc)) $ fmap SD xinesc
 
         cf = XConf
             { display       = dpy
@@ -238,7 +240,7 @@ launch initxmc drs = do
             serializedSt <- do
                 path <- stateFileName
                 exists <- io (doesFileExist path)
-                if exists then readStateFile initxmc else return Nothing
+                if exists then readStateFile initxmc else pure Nothing
 
             -- restore extensibleState if we read it from a file.
             _extensibleState .= foldMap extensibleState serializedSt
@@ -260,7 +262,7 @@ launch initxmc drs = do
             windows . const . foldr W.delete winset $ W.allWindows winset \\ ws
 
             -- manage the as-yet-unmanaged windows
-            mapM_ manage (ws \\ W.allWindows winset)
+            traverse_ manage (ws \\ W.allWindows winset)
 
             userCode $ startupHook initxmc
 
@@ -268,13 +270,13 @@ launch initxmc drs = do
             let rrUpdate = when (isJust rrData) . void . xrrUpdateConfiguration
 
             -- main loop, for all you HOF/recursion fans out there.
-            forever $ prehandle =<< io (nextEvent dpy e >> rrUpdate e >> getEvent e)
+            forever $ prehandle =<< io (nextEvent dpy e *> rrUpdate e *> getEvent e)
 
-    return ()
+    pure ()
       where
         -- if the event gives us the position of the pointer, set mousePosition
         prehandle e = let mouse = do guard (ev_event_type e `elem` evs)
-                                     return (fromIntegral (ev_x_root e)
+                                     pure (fromIntegral (ev_x_root e)
                                             ,fromIntegral (ev_y_root e))
                       in local ((_mousePosition .~ mouse) . (_currentEvent .~ Just e)) (handleWithHook e)
         evs = [ keyPress, keyRelease, enterNotify, leaveNotify
@@ -327,7 +329,7 @@ handle DestroyWindowEvent{ ev_window = w } = whenX (isClient w) $ do
 -- We track expected unmap events in waitingUnmap.  We ignore this event unless
 -- it is synthetic or we are not expecting an unmap notification from a window.
 handle UnmapEvent{ ev_window = w, ev_send_event = synthetic } = whenX (isClient w) $ do
-    e <- gets (fromMaybe 0 . M.lookup w . waitingUnmap)
+    e <- gets (sum . M.lookup w . waitingUnmap)
     if synthetic || e == 0
         then unmanage w
         else _waitingUnmap %= M.update mpred w
@@ -422,8 +424,8 @@ handle ConfigureEvent{ev_window = w} = whenX (isRoot w) rescreen
 
 -- property notify
 handle event@PropertyEvent{ ev_event_type = t, ev_atom = a }
-    | t == propertyNotify && a == wM_NAME = asks (logHook . config) >>= userCodeDef () >>
-                                         broadcastMessage event
+    | t == propertyNotify && a == wM_NAME
+    = (asks (logHook . config) >>= userCodeDef ()) *> broadcastMessage event
 
 handle e@ClientMessageEvent { ev_message_type = mt } = do
     a <- getAtom "XMONAD_RESTART"
@@ -452,21 +454,21 @@ scan dpy rootw = do
                   let ic = case p of
                             Just (3:_) -> True -- 3 for iconified
                             _          -> False
-                  return $ not (wa_override_redirect wa)
+                  pure $ not (wa_override_redirect wa)
                          && (wa_map_state wa == waIsViewable || ic)
 
         skip :: E.SomeException -> IO Bool
-        skip _ = return False
+        skip _ = pure False
 
 setNumlockMask :: X ()
 setNumlockMask = do
     dpy <- asks display
     ms <- io $ getModifierMapping dpy
-    xs <- sequence [ do
-                        ks <- io $ keycodeToKeysym dpy kc 0
-                        if ks == xK_Num_Lock
-                            then return (setBit 0 (fromIntegral m))
-                            else return (0 :: KeyMask)
+    xs <- sequence [ io $
+                         (\ ks -> if ks == xK_Num_Lock
+                            then setBit 0 (fromIntegral m)
+                            else 0 :: KeyMask)
+                        <$> keycodeToKeysym dpy kc 0
                         | (m, kcs) <- ms, kc <- kcs, kc /= 0]
     _numberlockMask .= foldl' (.|.) 0 xs
 
@@ -481,15 +483,16 @@ grabKeys = do
     ks <- asks keyActions
     -- build a map from keysyms to lists of keysyms (doing what
     -- XGetKeyboardMapping would do if the X11 package bound it)
-    syms <- forM allCodes $ \code -> io (keycodeToKeysym dpy code 0)
-    let keysymMap' = M.fromListWith (++) (zip syms [[code] | code <- allCodes])
+    syms <- for allCodes $ \ code -> io (keycodeToKeysym dpy code 0)
+    let
+      keysymMap' = M.fromListWith (<>) (zip syms [[code] | code <- allCodes])
     -- keycodeToKeysym returns noSymbol for all unbound keycodes, and we don't
     -- want to grab those whenever someone accidentally uses def :: KeySym
-    let keysymMap = M.delete noSymbol keysymMap'
-    let keysymToKeycodes sym = M.findWithDefault [] sym keysymMap
-    forM_ (M.keys ks) $ \(mask,sym) ->
-         forM_ (keysymToKeycodes sym) $ \kc ->
-              mapM_ (grab kc . (mask .|.)) =<< extraModifiers
+      keysymMap = M.delete noSymbol keysymMap'
+      keysymToKeycodes sym = M.findWithDefault [] sym keysymMap
+    for_ (M.keys ks) $ \ (mask, sym) ->
+         for_ (keysymToKeycodes sym) $ \ kc ->
+              traverse_ (grab kc . (mask .|.)) =<< extraModifiers
 
 -- | Grab the buttons
 grabButtons :: X ()
@@ -500,13 +503,13 @@ grabButtons = do
     io $ ungrabButton dpy anyButton anyModifier rootw
     ems <- extraModifiers
     ba <- asks buttonActions
-    mapM_ (\(m,b) -> mapM_ (grab b . (m .|.)) ems) (M.keys ba)
+    traverse_ (\(m,b) -> traverse_ (grab b . (m .|.)) ems) (M.keys ba)
 
 -- | @replace@ to signals compliant window managers to exit.
 replace :: Display -> ScreenNumber -> Window -> IO ()
 replace dpy dflt rootw = do
     -- check for other WM
-    wmSnAtom <- internAtom dpy ("WM_S" ++ show dflt) False
+    wmSnAtom <- internAtom dpy ("WM_S" <> show dflt) False
     currentWmSnOwner <- xGetSelectionOwner dpy wmSnAtom
     when (currentWmSnOwner /= 0) $ do
         -- prepare to receive destroyNotify for old WM

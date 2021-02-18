@@ -51,26 +51,29 @@ instance LayoutClass Full a
 
 -- | The builtin tiling mode of xmonad. Supports 'Shrink', 'Expand' and
 -- 'IncMasterN'.
-data Tall a = Tall { tallNMaster :: !Int               -- ^ The default number of windows in the master pane (default: 1)
-                   , tallRatioIncrement :: !Rational   -- ^ Percent of screen to increment by when resizing panes (default: 3/100)
-                   , tallRatio :: !Rational            -- ^ Default proportion of screen occupied by master pane (default: 1/2)
-                   }
-                deriving (Show, Read)
-                        -- TODO should be capped [0..1] ..
+data Tall a = Tall
+    { tallNMaster :: !Int               -- ^ The default number of windows in the master pane (default: 1)
+    , tallRatioIncrement :: !Rational   -- ^ Percent of screen to increment by when resizing panes (default: 3/100)
+    , tallRatio :: !Rational            -- ^ Default proportion of screen occupied by master pane (default: 1/2)
+    } -- TODO should be capped [0..1] ..
+  deriving (Show, Read)
+
 
 -- a nice pure layout, lots of properties for the layout, and its messages, in Properties.hs
 instance LayoutClass Tall a where
     pureLayout (Tall nmaster _ frac) r s = zip ws rs
-      where ws = W.integrate s
-            rs = tile frac r nmaster (length ws)
+      where
+      ws = W.integrate s
+      rs = tile frac r nmaster (length ws)
 
     pureMessage (Tall nmaster delta frac) m =
             msum [fmap resize     (fromMessage m)
                  ,fmap incmastern (fromMessage m)]
 
-      where resize Shrink             = Tall nmaster delta (max 0 $ frac-delta)
-            resize Expand             = Tall nmaster delta (min 1 $ frac+delta)
-            incmastern (IncMasterN d) = Tall (max 0 (nmaster+d)) delta frac
+      where
+        resize Shrink             = Tall nmaster delta (max 0 $ frac-delta)
+        resize Expand             = Tall nmaster delta (min 1 $ frac+delta)
+        incmastern (IncMasterN d) = Tall (max 0 (nmaster+d)) delta frac
 
     description _ = "Tall"
 
@@ -86,9 +89,11 @@ tile
     -> Int       -- ^ @nmaster@, the number of windows in the master pane
     -> Int       -- ^ @n@, the total number of windows to tile
     -> [Rectangle]
-tile f r nmaster n = if n <= nmaster || nmaster == 0
-    then splitVertically n r
-    else splitVertically nmaster r1 ++ splitVertically (n-nmaster) r2 -- two columns
+tile f r nmaster n
+    | nmaster == 0 || n <= nmaster
+    = splitVertically n r
+    | otherwise
+    = splitVertically nmaster r1 <> splitVertically (n-nmaster) r2 -- two columns
   where (r1,r2) = splitHorizontallyBy f r
 
 --
@@ -101,10 +106,11 @@ splitVertically n (Rectangle sx sy sw sh) = Rectangle sx sy sw smallh :
   where smallh = sh `div` fromIntegral n --hmm, this is a fold or map.
 
 -- Not used in the core, but exported
-splitHorizontally n = map mirrorRect . splitVertically n . mirrorRect
+splitHorizontally n = fmap mirrorRect . splitVertically n . mirrorRect
 
 -- Divide the screen into two rectangles, using a rational to specify the ratio
-splitHorizontallyBy, splitVerticallyBy :: RealFrac r => r -> Rectangle -> (Rectangle, Rectangle)
+splitHorizontallyBy, splitVerticallyBy ::
+    RealFrac r => r -> Rectangle -> (Rectangle, Rectangle)
 splitHorizontallyBy f (Rectangle sx sy sw sh) =
     ( Rectangle sx sy leftw sh
     , Rectangle (sx + fromIntegral leftw) sy (sw-fromIntegral leftw) sh)
@@ -119,10 +125,10 @@ splitVerticallyBy f = (mirrorRect *** mirrorRect) . splitHorizontallyBy f . mirr
 newtype Mirror l a = Mirror (l a) deriving (Show, Read)
 
 instance LayoutClass l a => LayoutClass (Mirror l) a where
-    runLayout (W.Workspace i (Mirror l) ms) r = (map (second mirrorRect) *** fmap Mirror)
+    runLayout (W.Workspace i (Mirror l) ms) r = (fmap (second mirrorRect) *** fmap Mirror)
                                                 `fmap` runLayout (W.Workspace i l ms) (mirrorRect r)
     handleMessage (Mirror l) = fmap (fmap Mirror) . handleMessage l
-    description (Mirror l) = "Mirror "++ description l
+    description (Mirror l) = "Mirror " <> description l
 
 -- | Mirror a rectangle.
 mirrorRect :: Rectangle -> Rectangle
@@ -189,16 +195,18 @@ handle l m = handleMessage l (SomeMessage m)
 -- | A smart constructor that takes some potential modifications, returns a
 -- new structure if any fields have changed, and performs any necessary cleanup
 -- on newly non-visible layouts.
-choose :: (LayoutClass l a, LayoutClass r a)
-       => Choose l r a -> CLR -> Maybe (l a) -> Maybe (r a) -> X (Maybe (Choose l r a))
-choose (Choose d _ _) d' Nothing Nothing | d == d' = return Nothing
+choose ::
+    (LayoutClass l a, LayoutClass r a)=>
+    Choose l r a -> CLR -> Maybe (l a) -> Maybe (r a) ->
+    X (Maybe (Choose l r a))
+choose (Choose d _ _) d' Nothing Nothing | d == d' = pure Nothing
 choose (Choose d l r) d' ml      mr = f lr
- where
+  where
     (l', r') = (fromMaybe l ml, fromMaybe r mr)
     lr       = case (d, d') of
-                    (CL, CR) -> (hide l'  , return r')
-                    (CR, CL) -> (return l', hide r'  )
-                    (_ , _ ) -> (return l', return r')
+                   (CL, CR) -> (hide l', pure r')
+                   (CR, CL) -> (pure l', hide r')
+                   (_ , _ ) -> (pure l', pure r')
     f (x,y)  = Just <$> liftA2 (Choose d') x y
     hide x   = fromMaybe x <$> handle x Hide
 
@@ -213,7 +221,7 @@ instance (LayoutClass l a, LayoutClass r a) => LayoutClass (Choose l r) a where
 
     handleMessage lr m | Just NextLayout <- fromMessage m = do
         mlr' <- handle lr NextNoWrap
-        maybe (handle lr FirstLayout) (return . Just) mlr'
+        maybe (handle lr FirstLayout) (pure . Just) mlr'
 
     handleMessage c@(Choose d l r) m | Just NextNoWrap <- fromMessage m =
         case d of
@@ -242,8 +250,8 @@ instance (LayoutClass l a, LayoutClass r a) => LayoutClass (Choose l r) a where
     handleMessage c@(Choose d l r) m = do
         ml' <- case d of
                 CL -> handleMessage l m
-                CR -> return Nothing
+                CR -> pure Nothing
         mr' <- case d of
-                CL -> return Nothing
+                CL -> pure Nothing
                 CR -> handleMessage r m
         choose c d ml' mr'

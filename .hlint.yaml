@@ -40,6 +40,17 @@
 # Will suggest replacing "wibbleMany [myvar]" with "wibbleOne myvar"
 # - error: {lhs: "wibbleMany [x]", rhs: wibbleOne x}
 
+- warn: {lhs: "mapM_", rhs: "traverse_"}
+- warn: {lhs: "forM_", rhs: "for_"}
+- warn: {lhs: "mapM", rhs: "traverse"}
+- warn: {lhs: "forM", rhs: "for"}
+
+- warn: {lhs: "liftM", rhs: "fmap"}
+- warn: {lhs: "liftM2", rhs: "liftA2"}
+- warn: {lhs: "liftM3", rhs: "liftA3"}
+- warn: {lhs: "x >> y", rhs: "x *> y"}
+- warn: {lhs: "y << x", rhs: "y <* x"}
+
 # The hints are named by the string they display in warning messages.
 # For example, if you see a warning starting like
 #
