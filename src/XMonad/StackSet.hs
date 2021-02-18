@@ -396,13 +396,12 @@ new _ _ _ = abort "non-positive argument to StackSet.new"
 
 view :: (Eq s, Eq i) => i -> StackSet i l a s sd -> StackSet i l a s sd
 view i s
-    | i == currentTag s = s  -- current
+    | i == currentTag s = s
 
     | Just x <- L.find ((i==).tag.workspace) (visible s)
     -- If it is visible, it is just raised:
     = s
       & (_current .~ x)
-      -- & (_visible %~ \ vis -> current s : L.deleteBy (equating screen) x vis)
       & (_visible %~ \ vis -> current s : L.deleteBy (on (==) screen) x vis)
 
     | Just x <- L.find ((i==).tag) (hidden  s) -- Must be hidden then:
