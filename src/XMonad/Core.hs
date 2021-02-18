@@ -291,7 +291,7 @@ withWindowAttributes dpy win f = do
 
 -- | True if the given window is the root window
 isRoot :: Window -> X Bool
-isRoot w = (w==) <$> asks theRoot
+isRoot w = asks $ (w ==) . theRoot
 
 -- | Wrapper for the common case of atom internment
 getAtom :: String -> X Atom
@@ -694,7 +694,7 @@ recompile Directories{ cfgDir, dataDir } force = io $ do
       then do
         -- temporarily disable SIGCHLD ignoring:
         uninstallSignalHandlers
-        status <- bracket (openFile err WriteMode) hClose $ \errHandle ->
+        status <- withFile err WriteMode $ \errHandle ->
             waitForProcess =<< if useBuildscript
                                then compileScript bin cfgDir buildscript errHandle
                                else compileGHC bin cfgDir errHandle

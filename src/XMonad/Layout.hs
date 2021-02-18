@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses, PatternGuards, TypeSynonymInstances, DeriveDataTypeable, LambdaCase, MultiWayIf #-}
+{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses, PatternGuards, DeriveDataTypeable #-}
 
 -- --------------------------------------------------------------------------
 -- |
@@ -29,6 +29,7 @@ import XMonad.Core
 import Graphics.X11 (Rectangle(..))
 import qualified XMonad.StackSet as W
 import Control.Arrow ((***), second)
+import Control.Applicative (liftA2)
 import Control.Monad
 import Data.Maybe (fromMaybe)
 
@@ -38,7 +39,7 @@ import Data.Maybe (fromMaybe)
 data Resize     = Shrink | Expand
 
 -- | Increase the number of clients in the master pane.
-data IncMasterN = IncMasterN !Int
+newtype IncMasterN = IncMasterN Int
 
 instance Message Resize
 instance Message IncMasterN
@@ -198,8 +199,8 @@ choose (Choose d l r) d' ml      mr = f lr
                     (CL, CR) -> (hide l'  , return r')
                     (CR, CL) -> (return l', hide r'  )
                     (_ , _ ) -> (return l', return r')
-    f (x,y)  = fmap Just $ liftM2 (Choose d') x y
-    hide x   = fmap (fromMaybe x) $ handle x Hide
+    f (x,y)  = Just <$> liftA2 (Choose d') x y
+    hide x   = fromMaybe x <$> handle x Hide
 
 instance (LayoutClass l a, LayoutClass r a) => LayoutClass (Choose l r) a where
     runLayout (W.Workspace i (Choose CL l r) ms) =
@@ -228,7 +229,7 @@ instance (LayoutClass l a, LayoutClass r a) => LayoutClass (Choose l r) a where
         flip (choose c CL) Nothing =<< handle l FirstLayout
 
     handleMessage c@(Choose d l r) m | Just ReleaseResources <- fromMessage m =
-        join $ liftM2 (choose c d) (handle l ReleaseResources) (handle r ReleaseResources)
+        join $ liftA2 (choose c d) (handle l ReleaseResources) (handle r ReleaseResources)
 
     handleMessage c@(Choose d l r) m | Just (JumpToLayout desc) <- fromMessage m = do
         ml <- handleMessage l m

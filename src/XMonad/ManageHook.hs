@@ -1,4 +1,3 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -97,7 +96,8 @@ className = ask >>= (\w -> liftX $ withDisplay $ \d -> fmap resClass $ io $ getC
 -- | A query that can return an arbitrary X property of type 'String',
 --   identified by name.
 stringProperty :: String -> Query String
-stringProperty p = ask >>= (\w -> liftX $ withDisplay $ \d -> fmap (fromMaybe "") $ getStringProperty d w p)
+stringProperty p =
+  ask >>= (\w -> liftX $ withDisplay $ \d -> fromMaybe "" <$> getStringProperty d w p)
 
 getStringProperty :: Display -> Window -> String -> X (Maybe String)
 getStringProperty d w p = do
