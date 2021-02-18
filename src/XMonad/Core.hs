@@ -1,6 +1,6 @@
 {-# LANGUAGE ExistentialQuantification, FlexibleInstances, GeneralizedNewtypeDeriving,
-             MultiParamTypeClasses, TypeSynonymInstances, DeriveDataTypeable,
-             LambdaCase, NamedFieldPuns, DeriveTraversable #-}
+             MultiParamTypeClasses, DeriveDataTypeable,
+             NamedFieldPuns, DeriveTraversable, ScopedTypeVariables #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -37,7 +37,7 @@ import XMonad.StackSet hiding (modify)
 import Prelude
 import Control.Exception (fromException, try, bracket, throw, finally, SomeException(..))
 import qualified Control.Exception as E
-import Control.Applicative ((<|>), empty)
+import Control.Applicative ((<|>), empty, liftA2)
 import Control.Monad.Fail
 import Control.Monad.State
 import Control.Monad.Reader
@@ -149,18 +149,14 @@ newtype ScreenDetail = SD { screenRect :: Rectangle }
 -- instantiated on 'XConf' and 'XState' automatically.
 --
 newtype X a = X (ReaderT XConf (StateT XState IO) a)
-    deriving (Functor, Monad, MonadFail, MonadIO, MonadState XState, MonadReader XConf, Typeable)
-
-instance Applicative X where
-  pure = return
-  (<*>) = ap
+    deriving (Functor, Applicative, Monad, MonadFail, MonadIO, MonadState XState, MonadReader XConf, Typeable)
 
 instance Semigroup a => Semigroup (X a) where
-    (<>) = liftM2 (<>)
+    (<>) = liftA2 (<>)
 
 instance (Monoid a) => Monoid (X a) where
     mempty  = return mempty
-    mappend = liftM2 mappend
+    mappend = liftA2 mappend
 
 instance Default a => Default (X a) where
     def = return def
@@ -173,11 +169,11 @@ runQuery :: Query a -> Window -> X a
 runQuery (Query m) w = runReaderT m w
 
 instance Semigroup a => Semigroup (Query a) where
-    (<>) = liftM2 (<>)
+    (<>) = liftA2 (<>)
 
 instance Monoid a => Monoid (Query a) where
     mempty  = return mempty
-    mappend = liftM2 mappend
+    mappend = liftA2 mappend
 
 instance Default a => Default (Query a) where
     def = return def
@@ -194,7 +190,7 @@ catchX job errcase = do
     st <- get
     c <- ask
     (a, s') <- io $ runX c st job `E.catch` \e -> case fromException e of
-                        Just x -> throw e `const` (x `asTypeOf` ExitSuccess)
+                        Just (_ :: ExitCode) -> throw e
                         _ -> do hPrint stderr e; runX c st errcase
     put s'
     return a
@@ -202,12 +198,12 @@ catchX job errcase = do
 -- | Execute the argument, catching all exceptions.  Either this function or
 -- 'catchX' should be used at all callsites of user customized code.
 userCode :: X a -> X (Maybe a)
-userCode a = catchX (Just `liftM` a) (return Nothing)
+userCode a = catchX (Just `fmap` a) (return Nothing)
 
 -- | Same as userCode but with a default argument to return instead of using
 -- Maybe, provided for convenience.
 userCodeDef :: a -> X a -> X a
-userCodeDef defValue a = fromMaybe defValue `liftM` userCode a
+userCodeDef defValue a = fromMaybe defValue `fmap` userCode a
 
 -- ---------------------------------------------------------------------
 -- Convenient wrappers to state
@@ -228,7 +224,7 @@ withWindowAttributes dpy win f = do
 
 -- | True if the given window is the root window
 isRoot :: Window -> X Bool
-isRoot w = (w==) <$> asks theRoot
+isRoot w = asks $ (w ==) . theRoot
 
 -- | Wrapper for the common case of atom internment
 getAtom :: String -> X Atom
@@ -427,7 +423,7 @@ catchIO f = io (f `E.catch` \(SomeException e) -> hPrint stderr e >> hFlush stde
 --
 -- Note this function assumes your locale uses utf8.
 spawn :: MonadIO m => String -> m ()
-spawn x = spawnPID x >> return ()
+spawn x = () <$ spawnPID x
 
 -- | Like 'spawn', but returns the 'ProcessID' of the launched application
 spawnPID :: MonadIO m => String -> m ProcessID
@@ -615,7 +611,7 @@ recompile Dirs{ cfgDir, dataDir } force = io $ do
       then do
         -- temporarily disable SIGCHLD ignoring:
         uninstallSignalHandlers
-        status <- bracket (openFile err WriteMode) hClose $ \errHandle ->
+        status <- withFile err WriteMode $ \errHandle ->
             waitForProcess =<< if useBuildscript
                                then compileScript bin cfgDir buildscript errHandle
                                else compileGHC bin cfgDir errHandle
