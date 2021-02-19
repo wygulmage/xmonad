@@ -83,7 +83,9 @@ library
                  , unix
                  , utf8-string           >= 0.3 && < 1.1
   ghc-options:     -funbox-strict-fields -Wall -Wno-unused-do-bind
-
+  -- Make sure we have Contravariant functors for Setters
+  if !impl(ghc >= 8.6.1)
+    build-depends: contravariant
   -- Keep this in sync with the oldest version in 'tested-with'
   if impl(ghc > 8.4.4)
     ghc-options:   -Wno-unused-imports
