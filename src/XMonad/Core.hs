@@ -34,15 +34,19 @@ module XMonad.Core (
 
 import XMonad.StackSet hiding (modify)
 
-import Prelude
+import Prelude hiding (fail)
 import Control.Exception (fromException, try, bracket, throw, finally, SomeException(..))
 import qualified Control.Exception as E
-import Control.Applicative ((<|>), empty)
-import Control.Monad.Fail
-import Control.Monad.State
-import Control.Monad.Reader
+import Control.Applicative (liftA2, Alternative, (<|>), empty)
+import Control.Monad (filterM, guard, when)
+import Control.Monad.IO.Class (MonadIO (liftIO))
+import Control.Monad.Fail (MonadFail (fail))
+import Control.Monad.State (MonadState (..), modify, gets)
+import Control.Monad.Reader (MonadReader (..), ReaderT (..), asks)
+import Control.Monad.Writer (MonadWriter (..))
 import Data.Semigroup
 import Data.Traversable (for)
+import Data.Function (fix)
 import Data.Default
 import System.FilePath
 import System.IO
@@ -63,6 +67,8 @@ import Data.Maybe (isJust,fromMaybe)
 
 import qualified Data.Map as M
 import qualified Data.Set as S
+
+
 
 -- | XState, the (mutable) window manager state.
 data XState = XState
@@ -148,22 +154,105 @@ newtype ScreenDetail = SD { screenRect :: Rectangle }
 -- with 'ask'. With newtype deriving we get readers and state monads
 -- instantiated on 'XConf' and 'XState' automatically.
 --
-newtype X a = X (ReaderT XConf (StateT XState IO) a)
-    deriving (Functor, Monad, MonadFail, MonadIO, MonadState XState, MonadReader XConf, Typeable)
+-- newtype X a = X (ReaderT XConf (StateT XState IO) a)
+--     deriving (Functor, Monad, MonadFail, MonadIO, MonadState XState, MonadReader XConf, Typeable)
+-- @X'@ is like 'X', except it includes the need to refresh.
+-- To say that you need a refresh, use @tell (Any True)@.
+-- To determine whether you need a refresh, use @getAny . snd <$> listen@.
+newtype X a = X (XConf -> XState -> Any -> IO (XResult a))
+  deriving
+    ( Functor
+    , Typeable
+    )
+
+-- mkX :: (XConf -> XState -> IO (XResult a)) -> X a
+-- mkX f = X $ \ r s w -> f r s <&> \ (XResult s' w' a) -> XResult s' (w <> w') a
+
+unX :: X a -> XConf -> XState -> Any -> IO (XResult a)
+unX (X act) = act
+
+-- runXWith :: XConf -> XState -> X a -> IO (XResult a)
+-- runXWith conf stat (X act) = act conf stat mempty
+
+-- | Run the 'X' monad, given a chunk of 'X' monad code, and an initial state
+-- Return the result, and final state
+runX :: XConf -> XState -> X a -> IO (a, XState)
+runX conf stat (X act)= do
+    XResult s _ a <- act conf stat mempty
+    pure (a, s)
+-- runX c st (X a) = runStateT (runReaderT a c) st
+
+data XResult a = XResult !XState !Any a
+  deriving (Functor, Typeable)
+
+instance Monad X where
+    X act >>= f = X $ \ r s w -> do
+        XResult s' w' a <- act r s w
+        unX (f a) r s' w'
+    {-# INLINE (>>=) #-}
 
 instance Applicative X where
-  pure = return
-  (<*>) = ap
+    pure a = X $ \ _ s w -> pure (XResult s w a)
+    {-# INLINE pure #-}
+    liftA2 f (X act1) (X act2) = X $ \ r s w -> do
+        XResult s' w' a <- act1 r s w
+        XResult s'' w'' b <- act2 r s' w'
+        pure (XResult s'' w'' (f a b))
+    {-# INLINE liftA2 #-}
+
+instance Alternative X where
+    empty = X $ \ _ _ _ -> empty
+    {-# INLINE empty #-}
+    X act1 <|> X act2 = X $ \ r s w -> act1 r s w <|> act2 r s w
+    {-# INLINE (<|>) #-}
+
+instance MonadFail X where
+    fail message = X $ \ _ _ _ -> fail message
+    {-# INLINE fail #-}
+
+instance MonadIO X where
+    liftIO act = X $ \ _ s w -> XResult s w <$> act
+    {-# INLINE liftIO #-}
+
+instance MonadReader XConf X where
+    reader f = X $ \ r s w -> pure (XResult s w (f r))
+    {-# INLINE reader #-}
+    ask = X $ \ r s w -> pure (XResult s w r)
+    {-# INLINE ask #-}
+    local f (X act) = X $ \ r s w -> act (f r) s w
+    {-# INLINE local #-}
+
+instance MonadState XState X where
+    state f = X $ \ _ s w -> case f s of (a, s') -> pure (XResult s' w a)
+    {-# INLINE state #-}
+    get = X $ \ _ s w -> pure (XResult s w s)
+    {-# INLINE get #-}
+    put s = X $ \ _ _ w -> pure (XResult s w ())
+    {-# INLINE put #-}
+
+instance MonadWriter Any X where
+    writer (a, w) = X $ \ _ s w' -> pure (XResult s (w <> w') a)
+    {-# INLINE writer #-}
+    tell w = X $ \ _ s w' -> pure (XResult s (w <> w') ())
+    {-# INLINE tell #-}
+    listen (X act) = X $ \ r s w -> do
+        XResult s' w' a <- act r s w
+        pure (XResult s' w' (a, w'))
+    {-# INLINE listen #-}
+    pass (X act) = X $ \ r s w -> do
+        XResult s' w' (a, f) <- act r s w
+        pure (XResult s' (f w') a)
+    {-# INLINE pass #-}
 
 instance Semigroup a => Semigroup (X a) where
-    (<>) = liftM2 (<>)
+    (<>) = liftA2 (<>)
 
 instance (Monoid a) => Monoid (X a) where
-    mempty  = return mempty
-    mappend = liftM2 mappend
+    mempty  = pure mempty
+    mappend = liftA2 mappend
 
 instance Default a => Default (X a) where
-    def = return def
+    def = pure def
 
 type ManageHook = Query (Endo WindowSet)
 newtype Query a = Query (ReaderT Window X a)
@@ -173,19 +262,14 @@ runQuery :: Query a -> Window -> X a
 runQuery (Query m) w = runReaderT m w
 
 instance Semigroup a => Semigroup (Query a) where
-    (<>) = liftM2 (<>)
+    (<>) = liftA2 (<>)
 
 instance Monoid a => Monoid (Query a) where
     mempty  = return mempty
-    mappend = liftM2 mappend
+    mappend = liftA2 mappend
 
 instance Default a => Default (Query a) where
     def = return def
-
--- | Run the 'X' monad, given a chunk of 'X' monad code, and an initial state
--- Return the result, and final state
-runX :: XConf -> XState -> X a -> IO (a, XState)
-runX c st (X a) = runStateT (runReaderT a c) st
 
 -- | Run in the 'X' monad, and in case of exception, and catch it and log it
 -- to stderr, and run the error case.
@@ -202,12 +286,12 @@ catchX job errcase = do
 -- | Execute the argument, catching all exceptions.  Either this function or
 -- 'catchX' should be used at all callsites of user customized code.
 userCode :: X a -> X (Maybe a)
-userCode a = catchX (Just `liftM` a) (return Nothing)
+userCode a = catchX (Just `fmap` a) (return Nothing)
 
 -- | Same as userCode but with a default argument to return instead of using
 -- Maybe, provided for convenience.
 userCodeDef :: a -> X a -> X a
-userCodeDef defValue a = fromMaybe defValue `liftM` userCode a
+userCodeDef defValue a = fromMaybe defValue `fmap` userCode a
 
 -- ---------------------------------------------------------------------
 -- Convenient wrappers to state
