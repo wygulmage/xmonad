@@ -23,7 +23,7 @@ import XMonad.Internal.Optics ((.~), (%~), (^.), (^..), to, (&))
 
 import Data.Maybe
 import Data.Monoid          (Endo(..),Any(..))
-import Data.List            (nub, (\\), find)
+import Data.List            (nub, find)
 import Data.Bits            ((.|.), (.&.), complement, testBit)
 import Data.Function        (on)
 import Data.Ratio

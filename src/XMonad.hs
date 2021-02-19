@@ -31,7 +31,7 @@ module XMonad (
 
 -- core modules
 import XMonad.Main
-import XMonad.Core hiding (spawnPipe)
+import XMonad.Core
 import XMonad.Config
 import XMonad.Layout
 import XMonad.ManageHook

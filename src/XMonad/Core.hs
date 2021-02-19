@@ -31,7 +31,7 @@ module XMonad.Core (
     runX, catchX, userCode, userCodeDef, io, catchIO, installSignalHandlers, uninstallSignalHandlers,
     withDisplay, withWindowSet, isRoot, runOnWorkspaces,
     getAtom,
-    spawn, spawnPID, xfork, spawnPipe,
+    spawn, spawnPID, xfork, -- spawnPipe,
     recompile, trace, whenJust, whenX,
     stateFileName,
     atom_WM_STATE, atom_WM_PROTOCOLS, atom_WM_DELETE_WINDOW, atom_WM_TAKE_FOCUS, withWindowAttributes,
@@ -43,16 +43,16 @@ module XMonad.Core (
   ) where
 
 import XMonad.StackSet hiding (modify)
-import XMonad.Internal.Optics ((.~), (%~), (%%~), (^.), to, (&))
+import XMonad.Internal.Optics ((%%~), (&))
 
 import Prelude hiding (fail)
-import Control.Exception (fromException, try, bracket, throw, finally, SomeException(..))
+import Control.Exception (fromException, try, throw, finally, SomeException(..))
 import qualified Control.Exception as E
 import Control.Applicative (liftA2, Alternative, (<|>), empty)
 import Control.Monad (filterM, guard, when)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Fail (MonadFail (fail))
-import Control.Monad.State (MonadState (..), modify, gets)
+import Control.Monad.State (MonadState (..), gets)
 import Control.Monad.Reader (MonadReader (..), ReaderT (..), asks)
 import Control.Monad.Writer (MonadWriter (..))
 import Data.Semigroup
@@ -75,8 +75,7 @@ import Graphics.X11.Xlib
 import Graphics.X11.Xlib.Extras (getWindowAttributes, WindowAttributes, Event)
 import Data.Typeable
 import Data.List ((\\))
-import Data.Maybe (isJust,fromMaybe)
-import Data.List.NonEmpty (NonEmpty ((:|)))
+import Data.Maybe (isJust)
 
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
