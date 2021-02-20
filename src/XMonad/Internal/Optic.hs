@@ -36,6 +36,7 @@ infixl 8 ^.
 
 (^..) :: c -> ((a -> Const (Endo [a]) a) -> c -> Const (Endo [a]) c) -> [a]
 x ^.. o = x ^. o . to (Endo #. (:)) & (`appEndo` [])
+infixl 8 ^..
 {-# INLINE (^..) #-}
 
 to :: (Contravariant m)=> (a -> b) -> (b -> m b) -> a -> m a
