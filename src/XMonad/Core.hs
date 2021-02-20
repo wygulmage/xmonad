@@ -34,7 +34,7 @@ module XMonad.Core (
 
 import XMonad.StackSet hiding (modify)
 
-import Prelude
+import Prelude hiding (fail)
 import Control.Exception (fromException, try, throw, finally, SomeException(..))
 import qualified Control.Exception as E
 import Control.Applicative ((<|>), empty, liftA2)
