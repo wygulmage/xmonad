@@ -25,7 +25,8 @@ module XMonad.StackSet (
         -- ** Master and Focus
         -- $focus
 
-        StackSet(..), Workspace(..), Screen(..), Stack(..), RationalRect(..),
+        StackSet(..), _screens,
+        Workspace(..), Screen(..), Stack(..), RationalRect(..),
         -- *  Construction
         -- $construction
         new, view, greedyView,
@@ -58,6 +59,7 @@ import Data.Foldable (foldr, toList)
 import Data.Maybe   (listToMaybe,isJust,fromMaybe)
 import qualified Data.List as L (deleteBy,find,splitAt,filter,nub)
 import Data.List ( (\\) )
+import Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.Map  as M (Map,insert,delete,empty)
 
 -- $intro
@@ -140,6 +142,13 @@ data StackSet i l a sid sd =
              , hidden   :: [Workspace i l a]         -- ^ workspaces not visible anywhere
              , floating :: M.Map a RationalRect      -- ^ floating windows
              } deriving (Show, Read, Eq)
+
+_screens ::
+    (Functor m)=>
+    (NonEmpty (Screen i l a sid sd) -> m (NonEmpty (Screen i l a sid' sd'))) ->
+    StackSet i l a sid sd -> m (StackSet i l a sid' sd')
+_screens f (StackSet cur vis hid flo) =
+    (\ (cur' :| vis') -> StackSet cur' vis' hid flo) <$> f (cur :| vis)
 
 -- | Visible workspaces, and their Xinerama screens.
 data Screen i l a sid sd = Screen { workspace :: !(Workspace i l a)
