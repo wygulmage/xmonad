@@ -159,11 +159,11 @@ _workspaces ::
     (Applicative m)=>
     (Workspace i l a -> m (Workspace i' l' a)) ->
     StackSet i l a sid sd -> m (StackSet i' l' a sid sd)
-_workspaces f (StackSet cur vis hid flo) =
+_workspaces f (StackSet cur vis hid flo) = liftA3
     (\ cur' vis' hid' -> StackSet cur' vis' hid' flo)
-    <$> (cur & _workspace %%~ f)
-    <*> (vis & traverse . _workspace %%~ f)
-    <*> (hid & traverse %%~ f)
+    (cur & _workspace %%~ f)
+    (vis & traverse . _workspace %%~ f)
+    (hid & traverse %%~ f)
 
 -- | Visible workspaces, and their Xinerama screens.
 data Screen i l a sid sd = Screen { workspace :: !(Workspace i l a)
