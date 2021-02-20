@@ -25,7 +25,7 @@ module XMonad.StackSet (
         -- ** Master and Focus
         -- $focus
 
-        StackSet(..), _screens,
+        StackSet(..), _screens, _workspaces,
         Workspace(..), Screen(..), Stack(..), RationalRect(..),
         -- *  Construction
         -- $construction
@@ -165,6 +165,20 @@ _screens ::
 _screens f (StackSet cur vis hid flo) =
     (\ (cur' :| vis') -> StackSet cur' vis' hid flo) <$> f (cur :| vis)
 
+_current ::
+    (Functor m)=>
+    (Screen i l a sid sd -> m (Screen i l a sid sd)) ->
+    StackSet i l a sid sd -> m (StackSet i l a sid sd)
+_current f (StackSet cur vis hid flo) =
+    (\ cur' -> StackSet cur' vis hid flo) <$> f cur
+
+_visible ::
+    (Functor m)=>
+    ([Screen i l a sid sd] -> m [Screen i l a sid sd]) ->
+    StackSet i l a sid sd -> m (StackSet i l a sid sd)
+_visible f (StackSet cur vis hid flo) =
+    (\ vis' -> StackSet cur vis' hid flo) <$> f vis
+
 _hidden ::
     (Functor m)=>
     ([Workspace i l a] -> m [Workspace i l a]) ->
@@ -177,7 +191,7 @@ _floating ::
     (M.Map a RationalRect -> m (M.Map a RationalRect)) ->
     StackSet i l a sid sd -> m (StackSet i l a sid sd)
 _floating f (StackSet cur vis hid flo) =
-    (\ flo' -> StackSet cur vis hid flo') <$> f flo
+    StackSet cur vis hid <$> f flo
 
 -- | Visible workspaces, and their Xinerama screens.
 data Screen i l a sid sd = Screen { workspace :: !(Workspace i l a)
@@ -344,15 +358,19 @@ with dflt f = maybe dflt f . stack . workspace . current
 -- Apply a function, and a default value for 'Nothing', to modify the current stack.
 --
 modify :: Maybe (Stack a) -> (Stack a -> Maybe (Stack a)) -> StackSet i l a s sd -> StackSet i l a s sd
-modify d f s = s { current = (current s)
-                        { workspace = (workspace (current s)) { stack = with d f s }}}
+modify d f = _current . _workspace . _stack %~ maybe d f
 
 -- |
 -- Apply a function to modify the current stack if it isn't empty, and we don't
 --  want to empty it.
 --
 modify' :: (Stack a -> Stack a) -> StackSet i l a s sd -> StackSet i l a s sd
-modify' f = modify Nothing (Just . f)
+modify' f = _modify' %~ f
+
+_modify' ::
+    (Applicative m)=>
+    (Stack a -> m (Stack a)) -> StackSet i l a s sd -> m (StackSet i l a s sd)
+_modify' = _current . _workspace . _stack . traverse
 
 -- |
 -- /O(1)/. Extract the focused element of the current stack.
@@ -452,10 +470,14 @@ screens ss = ss ^. _screens & toList
 workspaces :: StackSet i l a s sd -> [Workspace i l a]
 workspaces = (^.. _workspaces)
 
-
 -- | Get a list of all windows in the 'StackSet' in no particular order
 allWindows :: Eq a => StackSet i l a s sd -> [a]
-allWindows = L.nub . concatMap (integrate' . stack) . workspaces
+allWindows ss = ss ^.. _tiledWindows & L.nub
+
+_tiledWindows ::
+    (Applicative m)=>
+    (a -> m a) -> StackSet i l a s sd -> m (StackSet i l a s sd)
+_tiledWindows = _workspaces . _stack . traverse . traverse
 
 -- | Get the tag of the currently focused workspace.
 currentTag :: StackSet i l a s sd -> i
@@ -463,7 +485,7 @@ currentTag = tag . workspace . current
 
 -- | Is the given tag present in the 'StackSet'?
 tagMember :: Eq i => i -> StackSet i l a s sd -> Bool
-tagMember t = elem t . map tag . workspaces
+tagMember t ss = ss ^.. _workspaces . _tag & elem t
 
 -- | Rename a given tag if present in the 'StackSet'.
 renameTag :: Eq i => i -> i -> StackSet i l a s sd -> StackSet i l a s sd
@@ -552,22 +574,18 @@ delete w = sink w . delete' w
 -- | Only temporarily remove the window from the stack, thereby not destroying special
 -- information saved in the 'Stackset'
 delete' :: (Eq a) => a -> StackSet i l a s sd -> StackSet i l a s sd
-delete' w s = s { current = removeFromScreen        (current s)
-                , visible = map removeFromScreen    (visible s)
-                , hidden  = map removeFromWorkspace (hidden  s) }
-    where removeFromWorkspace ws = ws { stack = stack ws >>= filter (/=w) }
-          removeFromScreen scr   = scr { workspace = removeFromWorkspace (workspace scr) }
+delete' w = _workspaces . _stack %~ (>>= filter (/= w))
 
 ------------------------------------------------------------------------
 
 -- | Given a window, and its preferred rectangle, set it as floating
 -- A floating window should already be managed by the 'StackSet'.
 float :: Ord a => a -> RationalRect -> StackSet i l a s sd -> StackSet i l a s sd
-float w r s = s { floating = M.insert w r (floating s) }
+float w r = _floating %~ M.insert w r
 
 -- | Clear the floating status of a window
 sink :: Ord a => a -> StackSet i l a s sd -> StackSet i l a s sd
-sink w s = s { floating = M.delete w (floating s) }
+sink w = _floating %~ M.delete w
 
 ------------------------------------------------------------------------
 -- $settingMW
@@ -622,6 +640,7 @@ shiftWin n w s = case findTag w s of
                     _                                        -> s
  where go from = onWorkspace n (insertUp w) . onWorkspace from (delete' w)
 
+-- | Apply a function to a 'StackSet' as though the 'Workspace' with tag @n@ were current.
 onWorkspace :: (Eq i, Eq s) => i -> (StackSet i l a s sd -> StackSet i l a s sd)
             -> (StackSet i l a s sd -> StackSet i l a s sd)
 onWorkspace n f s = view (currentTag s) . f . view n $ s
