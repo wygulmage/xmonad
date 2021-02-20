@@ -1,12 +1,14 @@
 
 module XMonad.Internal.Optic
-   ((%%~), (%~), (.~), sets, (^.), to)
+   ((%%~), (%~), (.~), sets, (^.), (^..), to)
    where
 
+import Data.Coerce (Coercible, coerce)
+import Data.Function ((&))
 import Data.Functor.Contravariant (Contravariant (contramap))
 import Data.Functor.Const (Const (Const, getConst))
 import Data.Functor.Identity (Identity (Identity, runIdentity))
-import Data.Coerce (Coercible, coerce)
+import Data.Semigroup (Endo (Endo, appEndo))
 
 (%%~) :: o -> o
 (%%~) = id
@@ -31,6 +33,10 @@ sets f g = Identity #. f (runIdentity #. g)
 x ^. o = getConst (o Const x)
 infixl 8 ^.
 {-# INLINE (^.) #-}
+
+(^..) :: c -> ((a -> Const (Endo [a]) a) -> c -> Const (Endo [a]) c) -> [a]
+x ^.. o = x ^. o . to (Endo #. (:)) & (`appEndo` [])
+{-# INLINE (^..) #-}
 
 to :: (Contravariant m)=> (a -> b) -> (b -> m b) -> a -> m a
 to f g = contramap f . g . f
