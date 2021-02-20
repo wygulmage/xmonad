@@ -56,11 +56,14 @@ module XMonad.StackSet (
 import Prelude hiding (filter)
 import Control.Applicative.Backwards (Backwards (Backwards, forwards))
 import Data.Foldable (foldr, toList)
+import Data.Function ((&))
 import Data.Maybe   (listToMaybe,isJust,fromMaybe)
 import qualified Data.List as L (deleteBy,find,splitAt,filter,nub)
 import Data.List ( (\\) )
 import Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.Map  as M (Map,insert,delete,empty)
+
+import XMonad.Internal.Optic
 
 -- $intro
 --
@@ -150,11 +153,28 @@ _screens ::
 _screens f (StackSet cur vis hid flo) =
     (\ (cur' :| vis') -> StackSet cur' vis' hid flo) <$> f (cur :| vis)
 
+_workspaces ::
+    (Applicative m)=>
+    (Workspace i l a -> m (Workspace i' l' a)) ->
+    StackSet i l a sid sd -> m (StackSet i' l' a sid sd)
+_workspaces f (StackSet cur vis hid flo) =
+    (\ cur' vis' hid' -> StackSet cur' vis' hid' flo)
+    <$> (cur & _workspace %%~ f)
+    <*> (vis & traverse . _workspace %%~ f)
+    <*> (hid & traverse %%~ f)
+
 -- | Visible workspaces, and their Xinerama screens.
 data Screen i l a sid sd = Screen { workspace :: !(Workspace i l a)
                                   , screen :: !sid
                                   , screenDetail :: !sd }
     deriving (Show, Read, Eq)
+
+_workspace ::
+    (Functor m)=>
+    (Workspace i l a -> m (Workspace i' l' a')) ->
+    Screen i l a sid sd -> m (Screen i' l' a' sid sd)
+_workspace f (Screen wks sid sd) =
+    (\ wks' -> Screen wks' sid sd) <$> f wks
 
 -- |
 -- A workspace is just a tag, a layout, and a stack.
