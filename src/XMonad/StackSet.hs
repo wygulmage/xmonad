@@ -148,13 +148,6 @@ data StackSet i l a sid sd =
              , floating :: M.Map a RationalRect      -- ^ floating windows
              } deriving (Show, Read, Eq)
 
-_screens ::
-    (Functor m)=>
-    (NonEmpty (Screen i l a sid sd) -> m (NonEmpty (Screen i l a sid' sd'))) ->
-    StackSet i l a sid sd -> m (StackSet i l a sid' sd')
-_screens f (StackSet cur vis hid flo) =
-    (\ (cur' :| vis') -> StackSet cur' vis' hid flo) <$> f (cur :| vis)
-
 _workspaces ::
     (Applicative m)=>
     (Workspace i l a -> m (Workspace i' l' a)) ->
@@ -164,6 +157,27 @@ _workspaces f (StackSet cur vis hid flo) = liftA3
     (cur & _workspace %%~ f)
     (vis & traverse . _workspace %%~ f)
     (hid & traverse %%~ f)
+
+_screens ::
+    (Functor m)=>
+    (NonEmpty (Screen i l a sid sd) -> m (NonEmpty (Screen i l a sid' sd'))) ->
+    StackSet i l a sid sd -> m (StackSet i l a sid' sd')
+_screens f (StackSet cur vis hid flo) =
+    (\ (cur' :| vis') -> StackSet cur' vis' hid flo) <$> f (cur :| vis)
+
+_hidden ::
+    (Functor m)=>
+    ([Workspace i l a] -> m [Workspace i l a]) ->
+    StackSet i l a sid sd -> m (StackSet i l a sid sd)
+_hidden f (StackSet cur vis hid flo) =
+    (\ hid' -> StackSet cur vis hid' flo) <$> f hid
+
+_floating ::
+    (Functor m)=>
+    (M.Map a RationalRect -> m (M.Map a RationalRect)) ->
+    StackSet i l a sid sd -> m (StackSet i l a sid sd)
+_floating f (StackSet cur vis hid flo) =
+    (\ flo' -> StackSet cur vis hid flo') <$> f flo
 
 -- | Visible workspaces, and their Xinerama screens.
 data Screen i l a sid sd = Screen { workspace :: !(Workspace i l a)
