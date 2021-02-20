@@ -57,6 +57,7 @@ import Prelude hiding (filter)
 import Control.Applicative.Backwards (Backwards (Backwards, forwards))
 import Data.Foldable (foldr, toList)
 import Data.Function ((&))
+import Data.Foldable (toList)
 import Data.Maybe   (listToMaybe,isJust,fromMaybe)
 import qualified Data.List as L (deleteBy,find,splitAt,filter,nub)
 import Data.List ( (\\) )
@@ -418,11 +419,12 @@ focusWindow w s | Just w == peek s = s
 
 -- | Get a list of all screens in the 'StackSet'.
 screens :: StackSet i l a s sd -> [Screen i l a s sd]
-screens s = current s : visible s
+screens ss = ss ^. _screens & toList
 
 -- | Get a list of all workspaces in the 'StackSet'.
 workspaces :: StackSet i l a s sd -> [Workspace i l a]
-workspaces s = workspace (current s) : map workspace (visible s) ++ hidden s
+workspaces = (^.. _workspaces)
+
 
 -- | Get a list of all windows in the 'StackSet' in no particular order
 allWindows :: Eq a => StackSet i l a s sd -> [a]
@@ -453,10 +455,7 @@ ensureTags l allt st = et allt (map tag (workspaces st) \\ allt) st
 
 -- | Map a function on all the workspaces in the 'StackSet'.
 mapWorkspace :: (Workspace i l a -> Workspace i l a) -> StackSet i l a s sd -> StackSet i l a s sd
-mapWorkspace f s = s { current = updScr (current s)
-                     , visible = map updScr (visible s)
-                     , hidden  = map f (hidden s) }
-    where updScr scr = scr { workspace = f (workspace scr) }
+mapWorkspace = (_workspaces %~)
 
 -- | Map a function on all the layouts in the 'StackSet'.
 mapLayout :: (l -> l') -> StackSet i l a s sd -> StackSet i l' a s sd
