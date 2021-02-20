@@ -1,6 +1,6 @@
 
 module XMonad.Internal.Optic
-   ((%%~), (%~), (.~), sets, (^.), (^..), to)
+   ((%%~), (%~), (.~), sets, (^.), (^..), to, (#.))
    where
 
 import Data.Coerce (Coercible, coerce)
