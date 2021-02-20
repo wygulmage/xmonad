@@ -198,6 +198,18 @@ _workspace f (Screen wks sid sd) =
 data Workspace i l a = Workspace  { tag :: !i, layout :: l, stack :: Maybe (Stack a) }
     deriving (Show, Read, Eq)
 
+_tag :: (Functor m)=> (i -> m i') -> Workspace i l a -> m (Workspace i' l a)
+_tag f (Workspace tg lay sta) = (\ tg' -> Workspace tg' lay sta) <$> f tg
+
+_layout :: (Functor m)=> (l -> m l') -> Workspace i l a -> m (Workspace i l' a)
+_layout f (Workspace tg lay sta) = (\ lay' -> Workspace tg lay' sta) <$> f lay
+
+_stack ::
+    (Functor m)=>
+    (Maybe (Stack a) -> m (Maybe (Stack a'))) ->
+    Workspace i l a -> m (Workspace i l a')
+_stack f (Workspace tg lay sta) = Workspace tg lay <$> f sta
+
 -- | A structure for window geometries
 data RationalRect = RationalRect !Rational !Rational !Rational !Rational
     deriving (Show, Read, Eq)
