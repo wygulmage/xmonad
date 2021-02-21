@@ -19,7 +19,7 @@
 
 module XMonad.Core (
     X, WindowSet, WindowSpace, WorkspaceId,
-    ScreenId(..), ScreenDetail(..), XState(..),
+    ScreenId(..), ScreenDetail(..), XState(..), _windowset,
     XConf(..), XConfig(..), LayoutClass(..),
     Layout(..), readsLayout, Typeable, Message,
     SomeMessage(..), fromMessage, LayoutMessages(..),

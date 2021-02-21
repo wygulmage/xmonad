@@ -19,7 +19,7 @@ module XMonad.Operations where
 import XMonad.Core
 import XMonad.Layout (Full(..))
 import qualified XMonad.StackSet as W
-import XMonad.Internal.Optic ((^..))
+import XMonad.Internal.Optic ((%~), (^..))
 
 import Data.Int (Int32)
 import Data.Word (Word32)
@@ -183,7 +183,7 @@ windows f = do
 
 -- | Modify the @WindowSet@ in state with no special handling.
 modifyWindowSet :: (WindowSet -> WindowSet) -> X ()
-modifyWindowSet f = modify $ \xst -> xst { windowset = f (windowset xst) }
+modifyWindowSet f = modify $ _windowset %~ f
 
 -- | Perform an @X@ action and check its return value against a predicate p.
 -- If p holds, unwind changes to the @WindowSet@ and replay them using @windows@.
