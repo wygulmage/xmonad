@@ -482,8 +482,8 @@ initColor dpy c = C.handle (\(C.SomeException _) -> return Nothing) $
 
 -- | A type to help serialize xmonad's state to a file.
 data StateFile = StateFile
-  { sfWins :: W.StackSet  WorkspaceId String Window ScreenId ScreenDetail
-  , sfExt  :: [(String, String)]
+  { sfWins :: !(W.StackSet  WorkspaceId String Window ScreenId ScreenDetail)
+  , sfExt  :: ![(String, String)]
   } deriving (Show, Read)
 
 -- | Write the current window state (and extensible state) to a file

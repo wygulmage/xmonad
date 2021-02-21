@@ -209,7 +209,7 @@ _workspace f (Screen wks sid sd) =
 -- |
 -- A workspace is just a tag, a layout, and a stack.
 --
-data Workspace i l a = Workspace  { tag :: !i, layout :: l, stack :: Maybe (Stack a) }
+data Workspace i l a = Workspace  { tag :: !i, layout :: l, stack :: !(Maybe (Stack a)) }
     deriving (Show, Read, Eq)
 
 _tag :: (Functor m)=> (i -> m i') -> Workspace i l a -> m (Workspace i' l a)
