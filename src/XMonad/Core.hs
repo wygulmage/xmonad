@@ -19,7 +19,8 @@
 
 module XMonad.Core (
     X, WindowSet, WindowSpace, WorkspaceId,
-    ScreenId(..), ScreenDetail(..), XState(..), _windowset, _needsRefresh,
+    ScreenId(..), ScreenDetail(..),
+    XState(..), _windowset, _mapped, _waitingUnmap, _needsRefresh,
     XConf(..), XConfig(..), LayoutClass(..),
     Layout(..), readsLayout, Typeable, Message,
     SomeMessage(..), fromMessage, LayoutMessages(..),
@@ -38,7 +39,7 @@ import XMonad.Internal.Optic ((%%~))
 import Prelude hiding (fail)
 import Control.Exception (fromException, try, throw, finally, SomeException(..))
 import qualified Control.Exception as E
-import Control.Applicative ((<|>), empty, liftA2)
+import Control.Applicative (Alternative, (<|>), empty, liftA2)
 import Control.Monad (filterM, guard, when, liftM2)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Fail (MonadFail (fail))
@@ -90,6 +91,16 @@ _needsRefresh f xs =
 _windowset ::
     (Functor m)=> (WindowSet -> m WindowSet) -> XState -> m XState
 _windowset f xs = (\ ws' -> xs{ windowset = ws' }) <$> f (windowset xs)
+
+_mapped ::
+    (Functor m)=> (S.Set Window -> m (S.Set Window)) -> XState -> m XState
+_mapped f xs = (\ mpd' -> xs{ mapped = mpd' }) <$> f (mapped xs)
+
+_waitingUnmap ::
+    (Functor m)=>
+    (M.Map Window Int -> m (M.Map Window Int)) -> XState -> m XState
+_waitingUnmap f xs =
+    (\ wum' -> xs{ waitingUnmap = wum' }) <$> f (waitingUnmap xs)
 
 -- | XConf, the (read-only) window manager configuration.
 data XConf = XConf
@@ -162,7 +173,7 @@ newtype ScreenDetail = SD { screenRect :: Rectangle }
 -- The need to refresh can be retrieved with 'listen'
 --
 newtype X a = X (ReaderT XConf (StateT XState IO) a)
-    deriving (Functor, Applicative, Monad, MonadFail, MonadIO, MonadState XState, MonadReader XConf, Typeable)
+    deriving (Functor, Applicative, Alternative, Monad, MonadFail, MonadIO, MonadState XState, MonadReader XConf, Typeable)
 
 instance Semigroup a => Semigroup (X a) where
     (<>) = liftA2 (<>)
@@ -176,7 +187,7 @@ instance Default a => Default (X a) where
 
 type ManageHook = Query (Endo WindowSet)
 newtype Query a = Query (ReaderT Window X a)
-    deriving (Functor, Applicative, Monad, MonadReader Window, MonadIO)
+    deriving (Functor, Applicative, Alternative, Monad, MonadReader Window, MonadIO)
 
 runQuery :: Query a -> Window -> X a
 runQuery (Query m) w = runReaderT m w

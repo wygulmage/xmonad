@@ -19,8 +19,9 @@ module XMonad.Operations where
 import XMonad.Core
 import XMonad.Layout (Full(..))
 import qualified XMonad.StackSet as W
-import XMonad.Internal.Optic ((%~), (.~), (^..))
+import XMonad.Internal.Optic ((%~), (.~), (^.), (^..))
 
+import Data.Function ((&))
 import Data.Int (Int32)
 import Data.Word (Word32)
 import Data.Maybe
@@ -202,10 +203,12 @@ windowBracket_ = void . windowBracket getAny
 
 -- | A version of 'windowBracket' that listens to the X state to decide whether to refresh.
 windowBracket' :: X a -> X a
-windowBracket' act = withWindowSet $ \ old -> do
+windowBracket' act = do
+    old <- gets windowset
     a <- act
     b <- State.gets needsRefresh
-    when b $ withWindowSet $ \ new -> do
+    when b $ do
+        new <- gets windowset
         State.modify' $ _windowset .~ old
         windows $ \_-> new
     State.modify' $ _needsRefresh .~ False
@@ -246,8 +249,9 @@ hide w = whenX (gets (S.member w . mapped)) $ withDisplay $ \d -> do
     setWMState w iconicState
     -- this part is key: we increment the waitingUnmap counter to distinguish
     -- between client and xmonad initiated unmaps.
-    State.modify' (\s -> s { waitingUnmap = M.insertWith (+) w 1 (waitingUnmap s)
-                    , mapped       = S.delete w (mapped s) })
+    State.modify'
+        $ (_mapped %~ S.delete w)
+        . (_waitingUnmap %~ M.insertWith (+) w 1)
 
 -- | reveal. Show a window by mapping it and setting Normal
 -- this is harmless if the window was already visible
@@ -375,7 +379,8 @@ setFocusX w = withWindowSet $ \ws -> do
     dpy <- asks display
 
     -- clear mouse button grab and border on other windows
-    forM_ (W.current ws : W.visible ws) $ \wk ->
+    -- forM_ (W.current ws : W.visible ws) $ \wk ->
+    forM_ (ws ^. W._screens) $ \wk ->
         forM_ (W.index (W.view (W.tag (W.workspace wk)) ws)) $ \otherw ->
             setButtonGrab True otherw
 
@@ -410,21 +415,16 @@ setFocusX w = withWindowSet $ \ws -> do
 -- layout the windows, in which case changes are handled through a refresh.
 sendMessage :: Message a => a -> X ()
 sendMessage a = windowBracket' $ do
-    w <- gets $ W.workspace . W.current . windowset
-    ml' <- handleMessage (W.layout w) (SomeMessage a) `catchX` return Nothing
+    l <- gets $ W.layout . W.workspace . W.current . windowset
+    ml' <- handleMessage l (SomeMessage a) `catchX` return Nothing
     whenJust ml' $ \l' -> do
-        modifyWindowSet $ \ws -> ws { W.current = (W.current ws)
-                                { W.workspace = (W.workspace $ W.current ws)
-                                  { W.layout = l' }}}
+        State.modify' $ _windowset . W._current . W._workspace . W._layout .~ l'
         State.modify' $ _needsRefresh .~ True
 
 -- | Send a message to all layouts, without refreshing.
 broadcastMessage :: Message a => a -> X ()
-broadcastMessage a = withWindowSet $ \ws -> do
-   let c = W.workspace . W.current $ ws
-       v = map W.workspace . W.visible $ ws
-       h = W.hidden ws
-   mapM_ (sendMessageWithNoRefresh a) (c : v ++ h)
+broadcastMessage a = withWindowSet $ \ ws -> do
+   mapM_ (sendMessageWithNoRefresh a) (ws ^.. W._workspaces)
 
 -- | Send a message to a layout, without refreshing.
 sendMessageWithNoRefresh :: Message a => a -> W.Workspace WorkspaceId (Layout Window) Window -> X ()
@@ -440,9 +440,10 @@ updateLayout i ml = whenJust ml $ \l ->
 -- | Set the layout of the currently viewed workspace
 setLayout :: Layout Window -> X ()
 setLayout l = do
-    ss@W.StackSet{ W.current = c@W.Screen{ W.workspace = ws } } <- gets windowset
-    handleMessage (W.layout ws) (SomeMessage ReleaseResources)
-    windows $ const $ ss {W.current = c { W.workspace = ws { W.layout = l } } }
+    ss <- gets windowset
+    let l0 = W.layout . W.workspace . W.current $ ss
+    handleMessage l0 (SomeMessage ReleaseResources)
+    windows $ const $ ss & W._current . W._workspace . W._layout .~ l
 
 ------------------------------------------------------------------------
 -- Utilities

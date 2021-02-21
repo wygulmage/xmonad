@@ -25,8 +25,10 @@ module XMonad.StackSet (
         -- ** Master and Focus
         -- $focus
 
-        StackSet(..), _screens, _workspaces,
-        Workspace(..), Screen(..), Stack(..), RationalRect(..),
+        StackSet(..), _screens, _workspaces, _current,
+        Workspace(..), _layout,
+        Screen(..), _workspace,
+        Stack(..), RationalRect(..),
         -- *  Construction
         -- $construction
         new, view, greedyView,
