@@ -20,7 +20,7 @@ import qualified Control.Exception as E
 import Data.Bits
 import Data.List ((\\))
 import Data.Function
-import qualified Data.Map as M
+import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import Control.Monad.Reader
 import Control.Monad.State

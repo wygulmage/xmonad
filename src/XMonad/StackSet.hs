@@ -55,7 +55,7 @@ import Prelude hiding (filter)
 import Data.Maybe   (listToMaybe,isJust,fromMaybe)
 import qualified Data.List as L (deleteBy,find,splitAt,filter,nub)
 import Data.List ( (\\) )
-import qualified Data.Map  as M (Map,insert,delete,empty)
+import qualified Data.Map.Strict  as M (Map,insert,delete,empty)
 
 -- $intro
 --
@@ -133,9 +133,9 @@ import qualified Data.Map  as M (Map,insert,delete,empty)
 
 data StackSet i l a sid sd =
     StackSet { current  :: !(Screen i l a sid sd)    -- ^ currently focused workspace
-             , visible  :: [Screen i l a sid sd]     -- ^ non-focused workspaces, visible in xinerama
-             , hidden   :: [Workspace i l a]         -- ^ workspaces not visible anywhere
-             , floating :: M.Map a RationalRect      -- ^ floating windows
+             , visible  :: ![Screen i l a sid sd]     -- ^ non-focused workspaces, visible in xinerama
+             , hidden   :: ![Workspace i l a]         -- ^ workspaces not visible anywhere
+             , floating :: !(M.Map a RationalRect)      -- ^ floating windows
              } deriving (Show, Read, Eq)
 
 -- | Visible workspaces, and their Xinerama screens.
@@ -147,7 +147,7 @@ data Screen i l a sid sd = Screen { workspace :: !(Workspace i l a)
 -- |
 -- A workspace is just a tag, a layout, and a stack.
 --
-data Workspace i l a = Workspace  { tag :: !i, layout :: l, stack :: Maybe (Stack a) }
+data Workspace i l a = Workspace  { tag :: !i, layout :: l, stack :: !(Maybe (Stack a)) }
     deriving (Show, Read, Eq)
 
 -- | A structure for window geometries

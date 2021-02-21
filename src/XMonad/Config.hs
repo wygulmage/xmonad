@@ -41,7 +41,7 @@ import qualified XMonad.StackSet as W
 import Data.Bits ((.|.))
 import Data.Default
 import Data.Monoid
-import qualified Data.Map as M
+import qualified Data.Map.Strict as M
 import System.Exit
 import Graphics.X11.Xlib
 import Graphics.X11.Xlib.Extras

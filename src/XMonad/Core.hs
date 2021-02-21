@@ -39,7 +39,7 @@ import Control.Exception (fromException, try, bracket, throw, finally, SomeExcep
 import qualified Control.Exception as E
 import Control.Applicative ((<|>), empty)
 import Control.Monad.Fail
-import Control.Monad.State
+import Control.Monad.State.Strict
 import Control.Monad.Reader
 import Data.Semigroup
 import Data.Traversable (for)
@@ -61,7 +61,7 @@ import Data.Typeable
 import Data.List ((\\))
 import Data.Maybe (isJust,fromMaybe)
 
-import qualified Data.Map as M
+import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 
 -- | XState, the (mutable) window manager state.

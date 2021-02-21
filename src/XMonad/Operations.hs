@@ -26,7 +26,7 @@ import Data.List            (nub, (\\), find)
 import Data.Bits            ((.|.), (.&.), complement, testBit)
 import Data.Function        (on)
 import Data.Ratio
-import qualified Data.Map as M
+import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 
 import Control.Arrow (second)
@@ -466,8 +466,8 @@ initColor dpy c = C.handle (\(C.SomeException _) -> return Nothing) $
 
 -- | A type to help serialize xmonad's state to a file.
 data StateFile = StateFile
-  { sfWins :: W.StackSet  WorkspaceId String Window ScreenId ScreenDetail
-  , sfExt  :: [(String, String)]
+  { sfWins :: !(W.StackSet  WorkspaceId String Window ScreenId ScreenDetail)
+  , sfExt  :: ![(String, String)]
   } deriving (Show, Read)
 
 -- | Write the current window state (and extensible state) to a file
