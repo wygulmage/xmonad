@@ -19,7 +19,7 @@ module XMonad.Operations where
 import XMonad.Core
 import XMonad.Layout (Full(..))
 import qualified XMonad.StackSet as W
-import XMonad.Internal.Optic ((%~), (^..))
+import XMonad.Internal.Optic ((%~), (.~), (^..))
 
 import Data.Int (Int32)
 import Data.Word (Word32)
@@ -191,8 +191,8 @@ windowBracket :: (a -> Bool) -> X a -> X a
 windowBracket p action = withWindowSet $ \old -> do
   a <- action
   when (p a) . withWindowSet $ \new -> do
-    modifyWindowSet $ \_ -> old
-    windows         $ \_ -> new
+    modify $ _windowset .~ old
+    windows $ \_ -> new
   return a
 
 -- | A version of @windowBracket@ that discards the return value, and handles an
@@ -205,8 +205,8 @@ windowBracket' :: X a -> X a
 windowBracket' act = withWindowSet $ \ old -> do
     (a, b) <- Writer.listens getAny act
     when b $ withWindowSet $ \ new -> do
-        modifyWindowSet $ \_-> old
-        windows         $ \_-> new
+        modify $ _windowset .~ old
+        windows $ \_-> new
     pure a
 
 -- | Produce the actual rectangle from a screen and a ratio on that screen.
