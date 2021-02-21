@@ -514,7 +514,7 @@ tagMember t ss = ss ^.. _workspaces . _tag & elem t
 -- | Rename a given tag if present in the 'StackSet'.
 renameTag :: Eq i => i -> i -> StackSet i l a s sd -> StackSet i l a s sd
 renameTag o n = _workspaces %~ rename
-    where rename w = if tag w == o then w { tag = n } else w
+    where rename w = if tag w == o then w { tag = n } else w -- add some complexity to avoid changing a tag to itself.
 
 -- | Ensure that a given set of workspace tags is present by renaming
 -- existing workspaces and\/or creating new hidden workspaces as
@@ -553,7 +553,7 @@ _layouts = _workspaces . _layout
 
 -- | /O(n)/. Is a window in the 'StackSet'?
 member :: Eq a => a -> StackSet i l a s sd -> Bool
-member a s = isJust (findTag a s)
+member a s = s ^.. _tiledWindows & elem a
 
 -- | /O(1) on current window, O(n) in general/.
 -- Return 'Just' the workspace tag of the given window, or 'Nothing'
