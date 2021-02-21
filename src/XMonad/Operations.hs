@@ -29,7 +29,7 @@ import Data.List            (nub, (\\), find)
 import Data.Bits            ((.|.), (.&.), complement, testBit)
 import Data.Function        (on)
 import Data.Ratio
-import qualified Data.Map as M
+import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 
 import Control.Arrow (second)
