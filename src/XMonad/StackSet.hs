@@ -64,7 +64,7 @@ import Data.Maybe   (listToMaybe,isJust,fromMaybe)
 import qualified Data.List as L
 import Data.List ( (\\) )
 import Data.List.NonEmpty (NonEmpty ((:|)))
-import qualified Data.Map  as M (Map,insert,delete,empty)
+import qualified Data.Map.Strict  as M (Map,insert,delete,empty)
 
 import XMonad.Internal.Optic
 
