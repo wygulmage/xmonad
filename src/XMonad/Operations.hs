@@ -122,7 +122,7 @@ windows f = do
       nbs <- asks (normalBorderColor . config)
       setWindowBorderWithFallback d otherw nbs nbc
 
-    modify (\s -> s { windowset = ws })
+    State.modify' $ _windowset .~ ws
 
     -- notify non visibility
     let tags_oldvisible = map (W.tag . W.workspace) $ W.current old : W.visible old
@@ -183,7 +183,7 @@ windows f = do
 
 -- | Modify the @WindowSet@ in state with no special handling.
 modifyWindowSet :: (WindowSet -> WindowSet) -> X ()
-modifyWindowSet f = modify $ _windowset %~ f
+modifyWindowSet f = State.modify' $ _windowset %~ f
 
 -- | Perform an @X@ action and check its return value against a predicate p.
 -- If p holds, unwind changes to the @WindowSet@ and replay them using @windows@.
@@ -191,7 +191,7 @@ windowBracket :: (a -> Bool) -> X a -> X a
 windowBracket p action = withWindowSet $ \old -> do
   a <- action
   when (p a) . withWindowSet $ \new -> do
-    modify $ _windowset .~ old
+    modify' $ _windowset .~ old
     windows $ \_ -> new
   return a
 
@@ -206,9 +206,9 @@ windowBracket' act = withWindowSet $ \ old -> do
     a <- act
     b <- State.gets needsRefresh
     when b $ withWindowSet $ \ new -> do
-        modify $ _windowset .~ old
+        State.modify' $ _windowset .~ old
         windows $ \_-> new
-    State.modify $ _needsRefresh .~ False
+    State.modify' $ _needsRefresh .~ False
     pure a
 
 -- | Produce the actual rectangle from a screen and a ratio on that screen.
@@ -246,7 +246,7 @@ hide w = whenX (gets (S.member w . mapped)) $ withDisplay $ \d -> do
     setWMState w iconicState
     -- this part is key: we increment the waitingUnmap counter to distinguish
     -- between client and xmonad initiated unmaps.
-    modify (\s -> s { waitingUnmap = M.insertWith (+) w 1 (waitingUnmap s)
+    State.modify' (\s -> s { waitingUnmap = M.insertWith (+) w 1 (waitingUnmap s)
                     , mapped       = S.delete w (mapped s) })
 
 -- | reveal. Show a window by mapping it and setting Normal
@@ -255,7 +255,7 @@ reveal :: Window -> X ()
 reveal w = withDisplay $ \d -> do
     setWMState w normalState
     io $ mapWindow d w
-    whenX (isClient w) $ modify (\s -> s { mapped = S.insert w (mapped s) })
+    whenX (isClient w) $ State.modify' (\s -> s { mapped = S.insert w (mapped s) })
 
 -- | Set some properties when we initially gain control of a window
 setInitialProperties :: Window -> X ()
@@ -416,7 +416,7 @@ sendMessage a = windowBracket' $ do
         modifyWindowSet $ \ws -> ws { W.current = (W.current ws)
                                 { W.workspace = (W.workspace $ W.current ws)
                                   { W.layout = l' }}}
-        State.modify $ _needsRefresh .~ True
+        State.modify' $ _needsRefresh .~ True
 
 -- | Send a message to all layouts, without refreshing.
 broadcastMessage :: Message a => a -> X ()
@@ -635,11 +635,11 @@ mouseDrag f done = do
             XConf { theRoot = root, display = d } <- ask
             io $ grabPointer d root False (buttonReleaseMask .|. pointerMotionMask)
                     grabModeAsync grabModeAsync none none currentTime
-            modify $ \s -> s { dragging = Just (motion, cleanup) }
+            State.modify' $ \s -> s { dragging = Just (motion, cleanup) }
  where
     cleanup = do
         withDisplay $ io . flip ungrabPointer currentTime
-        modify $ \s -> s { dragging = Nothing }
+        State.modify' $ \s -> s { dragging = Nothing }
         done
     motion x y = do z <- f x y
                     clearEvents pointerMotionMask
