@@ -19,6 +19,7 @@ module XMonad.Operations where
 import XMonad.Core
 import XMonad.Layout (Full(..))
 import qualified XMonad.StackSet as W
+import XMonad.Internal.Optic ((^..))
 
 import Data.Int (Int32)
 import Data.Word (Word32)
@@ -311,8 +312,9 @@ rescreen :: X ()
 rescreen = do
     xinesc <- withDisplay getCleanedScreenInfo
 
-    windows $ \ws@W.StackSet{ W.current = v, W.visible = vs, W.hidden = hs } ->
-        let (xs, ys) = splitAt (length xinesc) $ map W.workspace (v:vs) ++ hs
+    windows $ \ws ->
+        let
+            (xs, ys) = splitAt (length xinesc) $ ws ^.. W._workspaces
             (a:as)   = zipWith3 W.Screen xs [0..] $ map SD xinesc
         in  ws { W.current = a
                , W.visible = as
