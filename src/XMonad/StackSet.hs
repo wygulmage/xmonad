@@ -307,18 +307,17 @@ view :: (Eq s, Eq i) => i -> StackSet i l a s sd -> StackSet i l a s sd
 view i s
     | i == currentTag s = s  -- current
 
-    | Just x <- L.find ((i==).tag.workspace) (visible s)
-    -- if it is visible, it is just raised
-    = s { current = x, visible = current s : L.deleteBy (equating screen) x (visible s) }
+    -- If it is visible, it is raised:
+    | (x : bug, vis') <- L.partition ((i ==)  . tag . workspace) (visible s)
+    = s{ current = x
+       , visible = current s : bug <> vis' }
 
-    | Just x <- L.find ((i==).tag)           (hidden  s) -- must be hidden then
-    -- if it was hidden, it is raised on the xine screen currently used
-    = s { current = (current s) { workspace = x }
-        , hidden = workspace (current s) : L.deleteBy (equating tag) x (hidden s) }
+    -- If it was hidden, it is raised on the xine screen currently used:
+    | (x : bug, hid') <- L.partition ((i ==) . tag) (hidden s)
+    = s{ current = (current s){ workspace = x }
+       , hidden = workspace (current s) : bug <> hid' }
 
     | otherwise = s -- not a member of the stackset
-
-  where equating f = \x y -> f x == f y
 
     -- 'Catch'ing this might be hard. Relies on monotonically increasing
     -- workspace tags defined in 'new'
@@ -337,7 +336,9 @@ greedyView :: (Eq s, Eq i) => i -> StackSet i l a s sd -> StackSet i l a s sd
 greedyView w ws
      | any wTag (hidden ws) = view w ws
      | (Just s) <- L.find (wTag . workspace) (visible ws)
+                            -- Set the current workspace of ws to the workspace of s:
                             = ws { current = (current ws) { workspace = workspace s }
+                            -- Set the workspace of s to the current workspace of ws and add it to the visible workspaces filtered of s:
                                  , visible = s { workspace = workspace (current ws) }
                                            : L.filter (not . wTag . workspace) (visible ws) }
      | otherwise = ws
@@ -386,7 +387,7 @@ _modify' = _current . _workspace . _stack . traverse
 -- Return 'Just' that element, or 'Nothing' for an empty stack.
 --
 peek :: StackSet i l a s sd -> Maybe a
-peek = with Nothing (return . focus)
+peek = with Nothing (Just . focus)
 
 -- |
 -- /O(n)/. Flatten a 'Stack' into a list.
@@ -397,7 +398,7 @@ integrate (Stack x l r) = reverse l ++ x : r
 -- |
 -- /O(n)/ Flatten a possibly empty stack into a list.
 integrate' :: Maybe (Stack a) -> [a]
-integrate' = maybe [] integrate
+integrate' = foldMap integrate
 
 -- |
 -- /O(n)/. Turn a list into a possibly empty stack (i.e., a zipper):
@@ -440,11 +441,11 @@ index = with [] integrate
 -- the current stack.
 --
 focusUp, focusDown, swapUp, swapDown :: StackSet i l a s sd -> StackSet i l a s sd
-focusUp   = modify' focusUp'
-focusDown = modify' focusDown'
+focusUp   = _modify' %~ focusUp'
+focusDown = _modify' %~ focusDown'
 
-swapUp    = modify' swapUp'
-swapDown  = modify' (reverseStack . swapUp' . reverseStack)
+swapUp    = _modify' %~ swapUp'
+swapDown  = _modify' %~ (reverseStack . swapUp' . reverseStack)
 
 -- | Variants of 'focusUp' and 'focusDown' that work on a
 -- 'Stack' rather than an entire 'StackSet'.
@@ -498,7 +499,7 @@ tagMember t ss = ss ^.. _workspaces . _tag & elem t
 
 -- | Rename a given tag if present in the 'StackSet'.
 renameTag :: Eq i => i -> i -> StackSet i l a s sd -> StackSet i l a s sd
-renameTag o n = mapWorkspace rename
+renameTag o n = _workspaces %~ rename
     where rename w = if tag w == o then w { tag = n } else w
 
 -- | Ensure that a given set of workspace tags is present by renaming
@@ -617,7 +618,7 @@ sink w = _floating %~ M.delete w
 -- The old master window is swapped in the tiling order with the focused window.
 -- Focus stays with the item moved.
 swapMaster :: StackSet i l a s sd -> StackSet i l a s sd
-swapMaster = modify' $ \c -> case c of
+swapMaster = _modify' %~ \c -> case c of
     Stack _ [] _  -> c    -- already master.
     Stack t ls rs -> Stack t [] (xs ++ x : rs) where (x:xs) = reverse ls
 
@@ -628,13 +629,13 @@ swapMaster = modify' $ \c -> case c of
 -- just hit mod-shift-k a bunch of times.
 -- Focus stays with the item moved.
 shiftMaster :: StackSet i l a s sd -> StackSet i l a s sd
-shiftMaster = modify' $ \c -> case c of
+shiftMaster = _modify' %~ \c -> case c of
     Stack _ [] _ -> c     -- already master.
     Stack t ls rs -> Stack t [] (reverse ls ++ rs)
 
 -- | /O(s)/. Set focus to the master window.
 focusMaster :: StackSet i l a s sd -> StackSet i l a s sd
-focusMaster = modify' $ \c -> case c of
+focusMaster = _modify' %~ \c -> case c of
     Stack _ [] _  -> c
     Stack t ls rs -> Stack x [] (xs ++ t : rs) where (x:xs) = reverse ls
 
