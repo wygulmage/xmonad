@@ -35,7 +35,7 @@ import qualified Data.Set as S
 import Control.Arrow (second)
 import Control.Monad.Reader
 import Control.Monad.State
-import qualified Control.Monad.Writer as Writer
+import qualified Control.Monad.State as State
 import qualified Control.Exception as C
 
 import System.IO
@@ -200,13 +200,15 @@ windowBracket p action = withWindowSet $ \old -> do
 windowBracket_ :: X Any -> X ()
 windowBracket_ = void . windowBracket getAny
 
--- | A version of 'windowBracket' that listens to the X Writer state to decide whether to refresh.
+-- | A version of 'windowBracket' that listens to the X state to decide whether to refresh.
 windowBracket' :: X a -> X a
 windowBracket' act = withWindowSet $ \ old -> do
-    (a, b) <- Writer.listens getAny act
+    a <- act
+    b <- State.gets needsRefresh
     when b $ withWindowSet $ \ new -> do
         modify $ _windowset .~ old
         windows $ \_-> new
+    State.modify $ _needsRefresh .~ False
     pure a
 
 -- | Produce the actual rectangle from a screen and a ratio on that screen.
@@ -414,7 +416,7 @@ sendMessage a = windowBracket' $ do
         modifyWindowSet $ \ws -> ws { W.current = (W.current ws)
                                 { W.workspace = (W.workspace $ W.current ws)
                                   { W.layout = l' }}}
-        Writer.tell (Any True)
+        State.modify $ _needsRefresh .~ True
 
 -- | Send a message to all layouts, without refreshing.
 broadcastMessage :: Message a => a -> X ()
@@ -525,6 +527,7 @@ readStateFile xmc = do
                     , waitingUnmap    = M.empty
                     , dragging        = Nothing
                     , extensibleState = extState
+                    , needsRefresh    = True
                     }
   where
     layout = Layout (layoutHook xmc)

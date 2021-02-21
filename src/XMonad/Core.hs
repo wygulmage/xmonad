@@ -19,7 +19,7 @@
 
 module XMonad.Core (
     X, WindowSet, WindowSpace, WorkspaceId,
-    ScreenId(..), ScreenDetail(..), XState(..), _windowset,
+    ScreenId(..), ScreenDetail(..), XState(..), _windowset, _needsRefresh,
     XConf(..), XConfig(..), LayoutClass(..),
     Layout(..), readsLayout, Typeable, Message,
     SomeMessage(..), fromMessage, LayoutMessages(..),
@@ -80,7 +80,12 @@ data XState = XState
     --
     -- The module "XMonad.Util.ExtensibleState" in xmonad-contrib
     -- provides additional information and a simple interface for using this.
+    , needsRefresh :: !Bool
     }
+
+_needsRefresh :: (Functor m)=> (Bool -> m Bool) -> XState -> m XState
+_needsRefresh f xs =
+    (\ nr' -> xs{ needsRefresh = nr' }) <$> f (needsRefresh xs)
 
 _windowset ::
     (Functor m)=> (WindowSet -> m WindowSet) -> XState -> m XState

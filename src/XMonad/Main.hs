@@ -226,6 +226,7 @@ launch initxmc drs = do
             , waitingUnmap    = M.empty
             , dragging        = Nothing
             , extensibleState = M.empty
+            , needsRefresh    = True
             }
 
     allocaXEvent $ \e ->
