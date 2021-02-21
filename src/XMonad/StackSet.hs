@@ -53,7 +53,7 @@ module XMonad.StackSet (
 
 import Prelude hiding (filter)
 import Data.Maybe   (listToMaybe,isJust,fromMaybe)
-import qualified Data.List as L (deleteBy,find,partition,splitAt,filter,nub)
+import qualified Data.List as L (splitAt,filter,nub)
 import Data.List ( (\\) )
 import qualified Data.Map  as M (Map,insert,delete,empty)
 
@@ -213,9 +213,9 @@ view i s
     | i == currentTag s = s  -- current
 
     -- If it is visible, it is raised:
-    | (x : bug, vis') <- L.partition ((i ==)  . tag . workspace) (visible s)
+    | (Just x, vis') <- popByList ((i ==)  . tag . workspace) (visible s)
     = s{ current = x
-       , visible = current s : bug <> vis' }
+       , visible = current s : vis' }
 
     -- If it was hidden, it is raised on the xine screen currently used:
     | otherwise = viewHidden i s
@@ -234,9 +234,9 @@ view i s
 -- swapped.
 greedyView :: (Eq s, Eq i) => i -> StackSet i l a s sd -> StackSet i l a s sd
 greedyView w ws
-     | (s : bug, vis') <- L.partition ((w ==) . tag . workspace) (visible ws)
+     | (Just s, vis') <- popByList ((w ==) . tag . workspace) (visible ws)
      = ws{ current = (current ws) { workspace = workspace s }
-         , visible = s { workspace = workspace (current ws) } : (bug <> vis') }
+         , visible = s { workspace = workspace (current ws) } : vis' }
 
      | otherwise = viewHidden w ws
 
@@ -244,11 +244,17 @@ greedyView w ws
 -- Set the focus to the 'Workspace' with tag @i@ if it is hidden, otherwise do nothing.
 viewHidden :: (Eq s, Eq i) => i -> StackSet i l a s sd -> StackSet i l a s sd
 viewHidden i s
-    | (x : bug, hid') <- L.partition ((i ==) . tag) (hidden s)
+    | (Just x, hid') <- popByList ((i ==) . tag) (hidden s)
     = s{ current = (current s){ workspace = x }
-       , hidden = workspace (current s) : bug <> hid' }
+       , hidden = workspace (current s) : hid' }
 
     | otherwise = s
+
+popByList :: (a -> Bool) -> [a] -> (Maybe a, [a])
+popByList _ [] = (Nothing, [])
+popByList p (x : xs)
+    | p x = (Just x, xs)
+    | otherwise = (mx, x : xs') where ~(mx, xs') = popByList p xs
 
 -- ---------------------------------------------------------------------
 -- $xinerama
