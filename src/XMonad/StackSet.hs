@@ -504,8 +504,8 @@ ensureTags l allt st =
         -- Add the remaining ensured tags as empty hidden Workspaces:
         st' & _hidden %~ (fmap (\ i -> Workspace i l Nothing) remainingTags <>)
   where
+  -- ensureState lets you traverse over all of the tags, keeping track of the tags that still need to be ensured.
   ensureState :: (Eq i)=> i -> State [i] i
-  -- Keep track of the ensured tags you have not yet seen.
   ensureState i = state $ \ is ->
     case is of
     -- If there are no ensured tags, return the current tag.
