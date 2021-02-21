@@ -143,9 +143,9 @@ import XMonad.Internal.Optic
 
 data StackSet i l a sid sd =
     StackSet { current  :: !(Screen i l a sid sd)    -- ^ currently focused workspace
-             , visible  :: [Screen i l a sid sd]     -- ^ non-focused workspaces, visible in xinerama
-             , hidden   :: [Workspace i l a]         -- ^ workspaces not visible anywhere
-             , floating :: M.Map a RationalRect      -- ^ floating windows
+             , visible  :: ![Screen i l a sid sd]    -- ^ non-focused workspaces, visible in xinerama
+             , hidden   :: ![Workspace i l a]        -- ^ workspaces not visible anywhere
+             , floating :: !(M.Map a RationalRect)   -- ^ floating windows
              } deriving (Show, Read, Eq)
 
 _workspaces ::
