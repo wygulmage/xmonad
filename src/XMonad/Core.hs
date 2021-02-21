@@ -148,13 +148,13 @@ newtype ScreenDetail = SD { screenRect :: Rectangle }
 
 ------------------------------------------------------------------------
 
--- | The X monad, 'ReaderT' and 'StateT' transformers over 'IO'
+-- | The X monad, 'Reader' and 'State' transformers over 'IO'
 -- encapsulating the window manager configuration and state,
 -- respectively.
 --
 -- Dynamic components may be retrieved with 'get', static components
--- with 'ask'. With newtype deriving we get readers and state monads
--- instantiated on 'XConf' and 'XState' automatically.
+-- with 'ask'.
+-- The need to refresh can be retrieved with 'listen'
 --
 newtype X a = X (ReaderT XConf (StateT XState IO) a)
     deriving (Functor, Applicative, Monad, MonadFail, MonadIO, MonadState XState, MonadReader XConf, Typeable)

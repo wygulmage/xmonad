@@ -35,6 +35,7 @@ import qualified Data.Set as S
 import Control.Arrow (second)
 import Control.Monad.Reader
 import Control.Monad.State
+import qualified Control.Monad.Writer as Writer
 import qualified Control.Exception as C
 
 import System.IO
@@ -198,6 +199,15 @@ windowBracket p action = withWindowSet $ \old -> do
 -- @X@ action reporting its need for refresh via @Any@.
 windowBracket_ :: X Any -> X ()
 windowBracket_ = void . windowBracket getAny
+
+-- | A version of 'windowBracket' that listens to the X Writer state to decide whether to refresh.
+windowBracket' :: X a -> X a
+windowBracket' act = withWindowSet $ \ old -> do
+    (a, b) <- Writer.listens getAny act
+    when b $ withWindowSet $ \ new -> do
+        modifyWindowSet $ \_-> old
+        windows         $ \_-> new
+    pure a
 
 -- | Produce the actual rectangle from a screen and a ratio on that screen.
 scaleRationalRect :: Rectangle -> W.RationalRect -> Rectangle
@@ -397,14 +407,14 @@ setFocusX w = withWindowSet $ \ws -> do
 -- | Throw a message to the current 'LayoutClass' possibly modifying how we
 -- layout the windows, in which case changes are handled through a refresh.
 sendMessage :: Message a => a -> X ()
-sendMessage a = windowBracket_ $ do
+sendMessage a = windowBracket' $ do
     w <- gets $ W.workspace . W.current . windowset
     ml' <- handleMessage (W.layout w) (SomeMessage a) `catchX` return Nothing
-    whenJust ml' $ \l' ->
+    whenJust ml' $ \l' -> do
         modifyWindowSet $ \ws -> ws { W.current = (W.current ws)
                                 { W.workspace = (W.workspace $ W.current ws)
                                   { W.layout = l' }}}
-    return (Any $ isJust ml')
+        Writer.tell (Any True)
 
 -- | Send a message to all layouts, without refreshing.
 broadcastMessage :: Message a => a -> X ()
