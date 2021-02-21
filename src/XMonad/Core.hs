@@ -59,7 +59,7 @@ import Graphics.X11.Xlib
 import Graphics.X11.Xlib.Extras (getWindowAttributes, WindowAttributes, Event)
 import Data.Typeable
 import Data.List ((\\))
-import Data.Maybe (isJust,fromMaybe)
+import Data.Maybe (isJust)
 
 import qualified Data.Map as M
 import qualified Data.Set as S
