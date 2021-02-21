@@ -497,15 +497,22 @@ renameTag o n = mapWorkspace rename
 -- existing workspaces and\/or creating new hidden workspaces as
 -- necessary.
 ensureTags :: Eq i => l -> [i] -> StackSet i l a s sd -> StackSet i l a s sd
-ensureTags l allt st = case st & _workspaces . _tag %%~ ensureState & (`runState` allt) of
+ensureTags l allt st =
+    -- Replace existing workspace tags as needed:
+    case st & _workspaces . _tag %%~ ensureState & (`runState` allt) of
     (st', remainingTags) ->
+        -- Add the remaining ensured tags as empty hidden Workspaces:
         st' & _hidden %~ (fmap (\ i -> Workspace i l Nothing) remainingTags <>)
   where
   ensureState :: (Eq i)=> i -> State [i] i
+  -- Keep track of the ensured tags you have not yet seen.
   ensureState i = state $ \ is ->
     case is of
-    _ | elem i is -> (i,  L.delete i is)
+    -- If there are no ensured tags, return the current tag.
     []            -> (i,  [])
+    -- If the current tag is ensured, return it and delete it from the state.
+    _ | elem i is -> (i,  L.delete i is)
+    -- Otherwise replace the current tag with the first ensured tag.
     i' : is'      -> (i', is')
 
 -- | Map a function on all the workspaces in the 'StackSet'.
