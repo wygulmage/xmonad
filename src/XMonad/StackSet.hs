@@ -53,7 +53,7 @@ module XMonad.StackSet (
 
 import Prelude hiding (filter)
 import Data.Maybe   (listToMaybe,isJust,fromMaybe)
-import qualified Data.List as L (deleteBy,find,splitAt,filter,nub)
+import qualified Data.List as L (deleteBy,find,partition,splitAt,filter,nub)
 import Data.List ( (\\) )
 import qualified Data.Map  as M (Map,insert,delete,empty)
 
@@ -208,23 +208,17 @@ new _ _ _ = abort "non-positive argument to StackSet.new"
 -- Xinerama: If the workspace is not visible on any Xinerama screen, it
 -- becomes the current screen. If it is in the visible list, it becomes
 -- current.
-
 view :: (Eq s, Eq i) => i -> StackSet i l a s sd -> StackSet i l a s sd
 view i s
     | i == currentTag s = s  -- current
 
-    | Just x <- L.find ((i==).tag.workspace) (visible s)
-    -- if it is visible, it is just raised
-    = s { current = x, visible = current s : L.deleteBy (equating screen) x (visible s) }
+    -- If it is visible, it is raised:
+    | (x : bug, vis') <- L.partition ((i ==)  . tag . workspace) (visible s)
+    = s{ current = x
+       , visible = current s : bug <> vis' }
 
-    | Just x <- L.find ((i==).tag)           (hidden  s) -- must be hidden then
-    -- if it was hidden, it is raised on the xine screen currently used
-    = s { current = (current s) { workspace = x }
-        , hidden = workspace (current s) : L.deleteBy (equating tag) x (hidden s) }
-
-    | otherwise = s -- not a member of the stackset
-
-  where equating f = \x y -> f x == f y
+    -- If it was hidden, it is raised on the xine screen currently used:
+    | otherwise = viewHidden i s
 
     -- 'Catch'ing this might be hard. Relies on monotonically increasing
     -- workspace tags defined in 'new'
@@ -238,16 +232,23 @@ view i s
 -- current workspace to 'hidden'.  If that workspace is 'visible' on another
 -- screen, the workspaces of the current screen and the other screen are
 -- swapped.
-
 greedyView :: (Eq s, Eq i) => i -> StackSet i l a s sd -> StackSet i l a s sd
 greedyView w ws
-     | any wTag (hidden ws) = view w ws
-     | (Just s) <- L.find (wTag . workspace) (visible ws)
-                            = ws { current = (current ws) { workspace = workspace s }
-                                 , visible = s { workspace = workspace (current ws) }
-                                           : L.filter (not . wTag . workspace) (visible ws) }
-     | otherwise = ws
-   where wTag = (w == ) . tag
+     | (s : bug, vis') <- L.partition ((w ==) . tag . workspace) (visible ws)
+     = ws{ current = (current ws) { workspace = workspace s }
+         , visible = s { workspace = workspace (current ws) } : (bug <> vis') }
+
+     | otherwise = viewHidden w ws
+
+-- |
+-- Set the focus to the 'Workspace' with tag @i@ if it is hidden, otherwise do nothing.
+viewHidden :: (Eq s, Eq i) => i -> StackSet i l a s sd -> StackSet i l a s sd
+viewHidden i s
+    | (x : bug, hid') <- L.partition ((i ==) . tag) (hidden s)
+    = s{ current = (current s){ workspace = x }
+       , hidden = workspace (current s) : bug <> hid' }
+
+    | otherwise = s
 
 -- ---------------------------------------------------------------------
 -- $xinerama
