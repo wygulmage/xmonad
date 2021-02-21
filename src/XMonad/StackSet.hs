@@ -60,7 +60,7 @@ import Control.Monad.State.Strict (State, runState, state)
 import Data.Foldable (toList)
 import Data.Traversable (foldMapDefault)
 import Data.Function ((&))
-import Data.Maybe   (listToMaybe,isJust,fromMaybe)
+import Data.Maybe   (listToMaybe,fromMaybe)
 import qualified Data.List as L
 import Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.Map.Strict  as M (Map,insert,delete,empty)

@@ -59,7 +59,7 @@ import Graphics.X11.Xlib
 import Graphics.X11.Xlib.Extras (getWindowAttributes, WindowAttributes, Event)
 import Data.Typeable
 import Data.List ((\\))
-import Data.Maybe (isJust,fromMaybe)
+import Data.Maybe (isJust)
 
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
@@ -198,12 +198,12 @@ catchX job errcase = do
 -- | Execute the argument, catching all exceptions.  Either this function or
 -- 'catchX' should be used at all callsites of user customized code.
 userCode :: X a -> X (Maybe a)
-userCode a = catchX (Just `fmap` a) (return Nothing)
+userCode act = userCodeDef Nothing (fmap Just act)
 
 -- | Same as userCode but with a default argument to return instead of using
 -- Maybe, provided for convenience.
 userCodeDef :: a -> X a -> X a
-userCodeDef defValue a = fromMaybe defValue `fmap` userCode a
+userCodeDef defValue act = act `catchX` pure defValue
 
 -- ---------------------------------------------------------------------
 -- Convenient wrappers to state
