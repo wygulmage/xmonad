@@ -56,7 +56,7 @@ module XMonad.StackSet (
 import Prelude hiding (filter)
 import Control.Applicative (liftA3)
 import Control.Applicative.Backwards (Backwards (Backwards, forwards))
-import Control.Monad.State (State, runState, state)
+import Control.Monad.State.Strict (State, runState, state)
 import Data.Foldable (toList)
 import Data.Traversable (foldMapDefault)
 import Data.Function ((&))
