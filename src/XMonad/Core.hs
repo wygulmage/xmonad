@@ -33,6 +33,7 @@ module XMonad.Core (
   ) where
 
 import XMonad.StackSet hiding (modify)
+import XMonad.Internal.Optic ((%%~))
 
 import Prelude hiding (fail)
 import Control.Exception (fromException, try, throw, finally, SomeException(..))
@@ -77,6 +78,10 @@ data XState = XState
     -- The module "XMonad.Util.ExtensibleState" in xmonad-contrib
     -- provides additional information and a simple interface for using this.
     }
+
+_windowset ::
+    (Functor m)=> (WindowSet -> m WindowSet) -> XState -> m XState
+_windowset f xs = (\ ws' -> xs{ windowset = ws' }) <$> f (windowset xs)
 
 -- | XConf, the (read-only) window manager configuration.
 data XConf = XConf
@@ -189,10 +194,10 @@ catchX :: X a -> X a -> X a
 catchX job errcase = do
     st <- get
     c <- ask
-    (a, s') <- io $ runX c st job `E.catch` \e -> case fromException e of
+    (a, st') <- io $ runX c st job `E.catch` \e -> case fromException e of
                         Just (_ :: ExitCode) -> throw e
                         _ -> do hPrint stderr e; runX c st errcase
-    put s'
+    put st'
     return a
 
 -- | Execute the argument, catching all exceptions.  Either this function or
@@ -444,12 +449,8 @@ xfork x = io . forkProcess . finally nullStdin $ do
 -- | This is basically a map function, running a function in the 'X' monad on
 -- each workspace with the output of that function being the modified workspace.
 runOnWorkspaces :: (WindowSpace -> X WindowSpace) -> X ()
-runOnWorkspaces job = do
-    ws <- gets windowset
-    h <- mapM job $ hidden ws
-    c:v <- mapM (\s -> (\w -> s { workspace = w}) <$> job (workspace s))
-             $ current ws : visible ws
-    modify $ \s -> s { windowset = ws { current = c, visible = v, hidden = h } }
+runOnWorkspaces job =
+    get >>= (_windowset . _workspaces %%~ job) >>= put
 
 -- | All the directories that xmonad will use.  They will be used for
 -- the following purposes:
