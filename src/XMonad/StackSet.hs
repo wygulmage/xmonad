@@ -56,11 +56,12 @@ module XMonad.StackSet (
 import Prelude hiding (filter)
 import Control.Applicative (liftA3)
 import Control.Applicative.Backwards (Backwards (Backwards, forwards))
-import Data.Foldable (foldr, toList)
+import Control.Monad.State (State, runState, state)
+import Data.Foldable (toList)
 import Data.Traversable (foldMapDefault)
 import Data.Function ((&))
 import Data.Maybe   (listToMaybe,isJust,fromMaybe)
-import qualified Data.List as L (deleteBy,find,splitAt,filter,nub)
+import qualified Data.List as L
 import Data.List ( (\\) )
 import Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.Map  as M (Map,insert,delete,empty)
@@ -496,11 +497,16 @@ renameTag o n = mapWorkspace rename
 -- existing workspaces and\/or creating new hidden workspaces as
 -- necessary.
 ensureTags :: Eq i => l -> [i] -> StackSet i l a s sd -> StackSet i l a s sd
-ensureTags l allt st = et allt (map tag (workspaces st) \\ allt) st
-    where et [] _ s = s
-          et (i:is) rn s | i `tagMember` s = et is rn s
-          et (i:is) [] s = et is [] (s { hidden = Workspace i l Nothing : hidden s })
-          et (i:is) (r:rs) s = et is rs $ renameTag r i s
+ensureTags l allt st = case st & _workspaces . _tag %%~ ensureState & (`runState` allt) of
+    (st', remainingTags) ->
+        st' & _hidden %~ (fmap (\ i -> Workspace i l Nothing) remainingTags <>)
+  where
+  ensureState :: (Eq i)=> i -> State [i] i
+  ensureState i = state $ \ is ->
+    case is of
+    _ | elem i is -> (i,  L.delete i is)
+    []            -> (i,  [])
+    i' : is'      -> (i', is')
 
 -- | Map a function on all the workspaces in the 'StackSet'.
 mapWorkspace :: (Workspace i l a -> Workspace i l a) -> StackSet i l a s sd -> StackSet i l a s sd
