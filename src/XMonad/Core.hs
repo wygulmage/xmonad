@@ -61,7 +61,7 @@ import Data.Typeable
 import Data.List ((\\))
 import Data.Maybe (isJust,fromMaybe)
 
-import qualified Data.Map as M
+import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 
 -- | XState, the (mutable) window manager state.
