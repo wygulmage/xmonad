@@ -39,12 +39,15 @@ import Prelude hiding (fail)
 import Control.Exception (fromException, try, throw, finally, SomeException(..))
 import qualified Control.Exception as E
 import Control.Applicative ((<|>), empty, liftA2)
-import Control.Monad.Fail
-import Control.Monad.State
-import Control.Monad.Reader
+import Control.Monad (filterM, guard, when, liftM2)
+import Control.Monad.IO.Class (MonadIO (liftIO))
+import Control.Monad.Fail (MonadFail (fail))
+import Control.Monad.State (MonadState (..), StateT (..), gets)
+import Control.Monad.Reader (MonadReader (..), ReaderT (..), asks)
 import Data.Semigroup
 import Data.Traversable (for)
 import Data.Default
+import Data.Function (fix)
 import System.FilePath
 import System.IO
 import System.Info
@@ -223,9 +226,8 @@ withWindowSet f = gets windowset >>= f
 
 -- | Safely access window attributes.
 withWindowAttributes :: Display -> Window -> (WindowAttributes -> X ()) -> X ()
-withWindowAttributes dpy win f = do
-    wa <- userCode (io $ getWindowAttributes dpy win)
-    catchX (whenJust wa f) (return ())
+withWindowAttributes dpy win f =
+   (io (getWindowAttributes dpy win) >>= f) `catchX` pure ()
 
 -- | True if the given window is the root window
 isRoot :: Window -> X Bool
