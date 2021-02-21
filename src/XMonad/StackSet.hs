@@ -302,22 +302,18 @@ new _ _ _ = abort "non-positive argument to StackSet.new"
 -- Xinerama: If the workspace is not visible on any Xinerama screen, it
 -- becomes the current screen. If it is in the visible list, it becomes
 -- current.
-
 view :: (Eq s, Eq i) => i -> StackSet i l a s sd -> StackSet i l a s sd
 view i s
     | i == currentTag s = s  -- current
 
     -- If it is visible, it is raised:
-    | (x : bug, vis') <- L.partition ((i ==)  . tag . workspace) (visible s)
+    | Just (x, vis') <- popByList ((i ==) . tag . workspace) (visible s)
     = s{ current = x
-       , visible = current s : bug <> vis' }
+       , visible = current s : vis' }
 
     -- If it was hidden, it is raised on the xine screen currently used:
-    | (x : bug, hid') <- L.partition ((i ==) . tag) (hidden s)
-    = s{ current = (current s){ workspace = x }
-       , hidden = workspace (current s) : bug <> hid' }
-
-    | otherwise = s -- not a member of the stackset
+    | otherwise
+    = viewHidden i s
 
     -- 'Catch'ing this might be hard. Relies on monotonically increasing
     -- workspace tags defined in 'new'
@@ -331,20 +327,38 @@ view i s
 -- current workspace to 'hidden'.  If that workspace is 'visible' on another
 -- screen, the workspaces of the current screen and the other screen are
 -- swapped.
-
 greedyView :: (Eq s, Eq i) => i -> StackSet i l a s sd -> StackSet i l a s sd
 greedyView w ws
-     | any wTag (hidden ws) = view w ws
-     | (Just s) <- L.find (wTag . workspace) (visible ws)
-                            -- Set the current workspace of ws to the workspace of s:
-                            = ws { current = (current ws) { workspace = workspace s }
-                            -- Set the workspace of s to the current workspace of ws and add it to the visible workspaces filtered of s:
-                                 , visible = s { workspace = workspace (current ws) }
-                                           : L.filter (not . wTag . workspace) (visible ws) }
-     | otherwise = ws
-   where wTag = (w == ) . tag
+     | Just (s, vis') <- popByList ((w ==) . tag . workspace) (visible ws)
+     = ws{ current = (current ws) { workspace = workspace s }
+         , visible = s { workspace = workspace (current ws) } : vis' }
 
--- ---------------------------------------------------------------------
+     | otherwise
+     = viewHidden w ws
+
+-- |
+-- Set the focus to the 'Workspace' with tag @i@ if it is hidden, otherwise do nothing.
+viewHidden :: (Eq s, Eq i) => i -> StackSet i l a s sd -> StackSet i l a s sd
+viewHidden i s
+    | Just (x, hid') <- popByList ((i ==) . tag) (hidden s)
+    = s{ current = (current s){ workspace = x }
+       , hidden = workspace (current s) : hid' }
+    | otherwise
+    = s
+
+-- | If an item matching the predicate is in the list, return the item and the list with the item deleted. Otherwise Nothing.
+-- I am desperately trying to be as lazy as possible here.
+popByList :: (a -> Bool) -> [a] -> Maybe (a, [a])
+-- Should this be (a -> Bool) -> [a] -> (Maybe a, [a])? That would make deleteBy p = snd . popByList p, and find = fst . popByList p. (Currently it's fmap fst . popByList p and maybe xs snd (popByList p xs).)
+popByList p xs = pop xs & _1 id
+    where
+    _1 f ab = (\ a' -> (a', snd ab)) <$> f (fst ab)
+    pop [] = (Nothing, [])
+    pop (y : ys)
+        | p y = (Just y, ys)
+        | otherwise = (my, y : ys') where ~(my, ys') = pop ys
+
+---------------------------------------------------------------------
 -- $xinerama
 
 -- | Find the tag of the workspace visible on Xinerama screen 'sc'.
