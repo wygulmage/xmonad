@@ -62,7 +62,6 @@ import Data.Traversable (foldMapDefault)
 import Data.Function ((&))
 import Data.Maybe   (listToMaybe,isJust,fromMaybe)
 import qualified Data.List as L
-import Data.List ( (\\) )
 import Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.Map.Strict  as M (Map,insert,delete,empty)
 
@@ -263,6 +262,15 @@ instance Traversable Stack where
             <$> forwards (traverse (Backwards . f) (up s))
             <*> f (focus s)
             <*> traverse f (down s)
+
+_focus :: (Functor m)=> (a -> m a) -> Stack a -> m (Stack a)
+_focus f (Stack foc ups dns) = (\ foc' -> Stack foc' ups dns) <$> f foc
+
+_up :: (Functor m)=> ([a] -> m [a]) -> Stack a -> m (Stack a)
+_up f (Stack foc ups dns) = (\ ups' -> Stack foc ups' dns) <$> f ups
+
+_down :: (Functor m)=> ([a] -> m [a]) -> Stack a -> m (Stack a)
+_down f (Stack foc ups dns) = Stack foc ups <$> f dns
 
 -- | this function indicates to catch that an error is expected
 abort :: String -> a
@@ -521,10 +529,12 @@ mapWorkspace = (_workspaces %~)
 
 -- | Map a function on all the layouts in the 'StackSet'.
 mapLayout :: (l -> l') -> StackSet i l a s sd -> StackSet i l' a s sd
-mapLayout f (StackSet v vs hs m) = StackSet (fScreen v) (map fScreen vs) (map fWorkspace hs) m
- where
-    fScreen (Screen ws s sd) = Screen (fWorkspace ws) s sd
-    fWorkspace (Workspace t l s) = Workspace t (f l) s
+mapLayout = (_layouts %~)
+
+_layouts ::
+    (Applicative m)=>
+    (l -> m l') -> StackSet i l a s sd -> m (StackSet i l' a s sd)
+_layouts = _workspaces . _layout
 
 -- | /O(n)/. Is a window in the 'StackSet'?
 member :: Eq a => a -> StackSet i l a s sd -> Bool
