@@ -566,7 +566,9 @@ floatLocation w =
   where
         fi :: CInt -> Position
         fi = fromIntegral
-        go = withDisplay $ \d -> do
+
+        go = do
+          d <- asks display
           ws <- gets windowset
           wa <- io $ getWindowAttributes d w
           let bw = wa_border_width wa
@@ -589,6 +591,7 @@ floatLocation w =
               rr = if managed || point_sc `sr_eq` Just sc
                   then W.RationalRect x y width height
                   else W.RationalRect (0.5 - width/2) (0.5 - height/2) width height
+
               fromCInt :: CInt -> Integer
               fromCInt = toInteger
               fromInt32 :: Int32 -> Integer
@@ -617,11 +620,11 @@ float :: Window -> X ()
 float w = do
     (sc, rr) <- floatLocation w
     windows $ \ws -> W.float w rr . fromMaybe ws $ do
-        i  <- W.findTag w ws
-        guard $ i `elem` map (W.tag . W.workspace) (W.screens ws)
-        f  <- W.peek ws
-        sw <- W.lookupWorkspace sc ws
-        return (W.focusWindow f . W.shiftWin sw w $ ws)
+        i  <- W.findTag w ws -- Why are we looking up a workspace tag?
+        guard $ i `elem` map (W.tag . W.workspace) (W.screens ws) -- What does this guard do? Make sure that the tag is for a visible workspace?
+        f  <- W.peek ws -- focused element of the current stack. This fails if it's 'Nothing'.
+        sw <- W.lookupWorkspace sc ws -- Find the tag of the workspace visible on the float location of w.
+        return (W.focusWindow f . W.shiftWin sw w $ ws) -- Search for 'w' on all workspaces and make it the focuesd window of sw, then focus on the focused window of the current stack and set its workspace as current.
 
 -- ---------------------------------------------------------------------
 -- Mouse handling
