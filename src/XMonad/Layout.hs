@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses, PatternGuards, TypeSynonymInstances, DeriveDataTypeable #-}
+{-# LANGUAGE FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, PatternGuards, TypeSynonymInstances, DeriveDataTypeable #-}
 
 -- --------------------------------------------------------------------------
 -- |
@@ -28,6 +28,9 @@ import XMonad.Core
 
 import Graphics.X11 (Rectangle(..))
 import qualified XMonad.StackSet as W
+import Control.Monad.IO.Class (MonadIO)
+import Control.Monad.Reader (MonadReader)
+import Control.Monad.State (MonadState)
 import Control.Arrow ((***), second)
 import Control.Monad
 import Data.Maybe (fromMaybe)
@@ -152,14 +155,21 @@ instance Message NextNoWrap
 
 -- | A small wrapper around handleMessage, as it is tedious to write
 -- SomeMessage repeatedly.
-handle :: (LayoutClass l a, Message m) => l a -> m -> X (Maybe (l a))
+-- handle :: (LayoutClass l a, Message m) => l a -> m -> X (Maybe (l a))
+handle ::
+    (LayoutClass l a, Message m, MonadReader XConf x, MonadState XState x, MonadIO x) =>
+    l a -> m -> x (Maybe (l a))
 handle l m = handleMessage l (SomeMessage m)
 
 -- | A smart constructor that takes some potential modifications, returns a
 -- new structure if any fields have changed, and performs any necessary cleanup
 -- on newly non-visible layouts.
-choose :: (LayoutClass l a, LayoutClass r a)
-       => Choose l r a -> CLR -> Maybe (l a) -> Maybe (r a) -> X (Maybe (Choose l r a))
+-- choose :: (LayoutClass l a, LayoutClass r a)
+--        => Choose l r a -> CLR -> Maybe (l a) -> Maybe (r a) -> X (Maybe (Choose l r a))
+choose ::
+    (LayoutClass l a, LayoutClass r a, MonadState XState x, MonadReader XConf x, MonadIO x) =>
+    Choose l r a -> CLR -> Maybe (l a) -> Maybe (r a) -> x (Maybe (Choose l r a))
+
 choose (Choose d _ _) d' Nothing Nothing | d == d' = return Nothing
 choose (Choose d l r) d' ml      mr = f lr
  where

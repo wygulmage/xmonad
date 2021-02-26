@@ -1,6 +1,14 @@
-{-# LANGUAGE ExistentialQuantification, FlexibleInstances, GeneralizedNewtypeDeriving,
-             MultiParamTypeClasses, TypeSynonymInstances, DeriveDataTypeable,
-             LambdaCase, NamedFieldPuns, DeriveTraversable #-}
+{-# LANGUAGE ExistentialQuantification
+           , FlexibleContexts
+           , FlexibleInstances
+           , GeneralizedNewtypeDeriving
+           , MultiParamTypeClasses
+           , TypeSynonymInstances
+           , DeriveDataTypeable
+           , LambdaCase
+           , NamedFieldPuns
+           , DeriveTraversable
+   #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -140,6 +148,12 @@ newtype ScreenDetail = SD { screenRect :: Rectangle }
 
 ------------------------------------------------------------------------
 
+newtype XT m a = XT (ReaderT XConf (StateT XState m) a)
+  deriving
+    ( Functor, Applicative, Monad
+    , MonadFail, MonadIO, MonadState XState, MonadReader XConf
+    , Typeable)
+
 -- | The X monad, 'ReaderT' and 'StateT' transformers over 'IO'
 -- encapsulating the window manager configuration and state,
 -- respectively.
@@ -213,12 +227,16 @@ userCodeDef defValue a = fromMaybe defValue `liftM` userCode a
 -- Convenient wrappers to state
 
 -- | Run a monad action with the current display settings
-withDisplay :: (Display -> X a) -> X a
+-- withDisplay :: (Display -> X a) -> X a
+withDisplay :: (MonadReader XConf m)=> (Display -> m a) -> m a
 withDisplay   f = asks display >>= f
+{-# INLINE withDisplay #-}
 
 -- | Run a monadic action with the current stack set
-withWindowSet :: (WindowSet -> X a) -> X a
+-- withWindowSet :: (WindowSet -> X a) -> X a
+withWindowSet :: (MonadState XState m)=> (WindowSet -> m a) -> m a
 withWindowSet f = gets windowset >>= f
+{-# INLINE withWindowSet #-}
 
 -- | Safely access window attributes.
 withWindowAttributes :: Display -> Window -> (WindowAttributes -> X ()) -> X ()
@@ -227,15 +245,19 @@ withWindowAttributes dpy win f = do
     catchX (whenJust wa f) (return ())
 
 -- | True if the given window is the root window
-isRoot :: Window -> X Bool
-isRoot w = (w==) <$> asks theRoot
+-- isRoot :: Window -> X Bool
+isRoot :: (MonadReader XConf m)=> Window -> m Bool
+isRoot w = asks $ (w ==) . theRoot
+{-# INLINE isRoot #-}
 
 -- | Wrapper for the common case of atom internment
-getAtom :: String -> X Atom
+-- getAtom :: String -> X Atom
+getAtom :: (MonadReader XConf m, MonadIO m)=> String -> m Atom
 getAtom str = withDisplay $ \dpy -> io $ internAtom dpy str False
+{-# INLINE getAtom #-}
 
 -- | Common non-predefined atoms
-atom_WM_PROTOCOLS, atom_WM_DELETE_WINDOW, atom_WM_STATE, atom_WM_TAKE_FOCUS :: X Atom
+atom_WM_PROTOCOLS, atom_WM_DELETE_WINDOW, atom_WM_STATE, atom_WM_TAKE_FOCUS :: (MonadReader XConf m, MonadIO m)=> m Atom
 atom_WM_PROTOCOLS       = getAtom "WM_PROTOCOLS"
 atom_WM_DELETE_WINDOW   = getAtom "WM_DELETE_WINDOW"
 atom_WM_STATE           = getAtom "WM_STATE"
@@ -280,9 +302,14 @@ class (Show (layout a), Typeable layout) => LayoutClass layout a where
     --   'runLayout'; it is only useful for layouts which wish to make
     --   use of more of the 'Workspace' information (for example,
     --   "XMonad.Layout.PerWorkspace").
-    runLayout :: Workspace WorkspaceId (layout a) a
-              -> Rectangle
-              -> X ([(a, Rectangle)], Maybe (layout a))
+    -- runLayout :: Workspace WorkspaceId (layout a) a
+    --           -> Rectangle
+    --           -> X ([(a, Rectangle)], Maybe (layout a))
+    runLayout ::
+        (MonadReader XConf m, MonadState XState m, MonadIO m)=>
+        Workspace WorkspaceId (layout a) a ->
+        Rectangle ->
+        m ([(a, Rectangle)], Maybe (layout a))
     runLayout (Workspace _ l ms) r = maybe (emptyLayout l r) (doLayout l r) ms
 
     -- | Given a 'Rectangle' in which to place the windows, and a 'Stack'
@@ -299,8 +326,12 @@ class (Show (layout a), Typeable layout) => LayoutClass layout a where
     -- Layouts which do not need access to the 'X' monad ('IO', window
     -- manager state, or configuration) and do not keep track of their
     -- own state should implement 'pureLayout' instead of 'doLayout'.
-    doLayout    :: layout a -> Rectangle -> Stack a
-                -> X ([(a, Rectangle)], Maybe (layout a))
+    -- doLayout    :: layout a -> Rectangle -> Stack a
+    --             -> X ([(a, Rectangle)], Maybe (layout a))
+    doLayout ::
+        (MonadReader XConf m, MonadState XState m, MonadIO m)=>
+        layout a -> Rectangle -> Stack a ->
+        m ([(a, Rectangle)], Maybe (layout a))
     doLayout l r s   = return (pureLayout l r s, Nothing)
 
     -- | This is a pure version of 'doLayout', for cases where we
@@ -310,7 +341,10 @@ class (Show (layout a), Typeable layout) => LayoutClass layout a where
     pureLayout _ r s = [(focus s, r)]
 
     -- | 'emptyLayout' is called when there are no windows.
-    emptyLayout :: layout a -> Rectangle -> X ([(a, Rectangle)], Maybe (layout a))
+    -- emptyLayout :: layout a -> Rectangle -> X ([(a, Rectangle)], Maybe (layout a))
+    emptyLayout ::
+        (MonadReader XConf m, MonadState XState m, MonadIO m)=>
+        layout a -> Rectangle -> m ([(a, Rectangle)], Maybe (layout a))
     emptyLayout _ _ = return ([], Nothing)
 
     -- | 'handleMessage' performs message handling.  If
@@ -323,7 +357,10 @@ class (Show (layout a), Typeable layout) => LayoutClass layout a where
     -- to handle messages should implement 'pureMessage' instead of
     -- 'handleMessage' (this restricts the risk of error, and makes
     -- testing much easier).
-    handleMessage :: layout a -> SomeMessage -> X (Maybe (layout a))
+    -- handleMessage :: layout a -> SomeMessage -> X (Maybe (layout a))
+    handleMessage ::
+        (MonadReader XConf m, MonadState XState m, MonadIO m)=>
+        layout a -> SomeMessage -> m (Maybe (layout a))
     handleMessage l  = return . pureMessage l
 
     -- | Respond to a message by (possibly) changing our layout, but
