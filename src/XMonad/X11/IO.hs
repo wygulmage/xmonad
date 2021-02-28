@@ -9,9 +9,12 @@ import qualified Codec.Binary.UTF8.String as UTF8
 
 import qualified Control.Exception as Err
 
-import Data.IORef
+import Data.Foldable (fold)
 import qualified Data.HashMap.Strict as Hash
--- import qualified Data.Map.Strict as Map
+import Data.IORef
+import qualified Data.List as List
+import Data.Maybe (listToMaybe)
+import Data.Traversable (for)
 import Data.Word (Word8, Word32, Word64)
 
 import qualified System.IO.Unsafe as Unsafe
@@ -57,17 +60,6 @@ getWindowStrut d w = do
                pure $ Just $ Strut l r t b 0 maxBound 0 maxBound 0 maxBound 0 maxBound
             _ -> pure Nothing
 
-getWindowName :: X.Display -> X.Window -> IO (Maybe String)
-getWindowName d w = do
-   name_prop <- getWindowProperty d "_NET_WM_NAME" w
-   case name_prop of
-      Just name -> pure $ Just $ UTF8.decode name
-      Nothing -> do
-         name_prop' <- getWindowProperty d "WM_NAME" w
-         case name_prop' of
-            Just name -> pure $ Just $ UTF8.decode name
-            Nothing -> pure Nothing
-
 
 getAtom ::
    X.Display -> String -> IO X.Atom
@@ -110,11 +102,129 @@ setWindowProperty display property_type property value window = do
           (Storable.castPtr ptr)
           (intToCInt len)
 
+
+--- Root Window Properties ---
+
 setActiveWindow :: X.Display -> X.Window -> X.Window -> IO X.Status
 setActiveWindow display rootWindow window =
-   setWindowProperty display X.wINDOW "_NET_ACTIVE_WINDOW" (word64To32 window : []) rootWindow
+   setWindowProperty
+      display
+      X.wINDOW
+      "_NET_ACTIVE_WINDOW"
+      (word64To32 window : [])
+      rootWindow
 
--- NOT EXPORTED
+setClientLists :: X.Display -> X.Window -> [X.Window] -> IO X.Status
+{- ^ WARNING: In principle, _NET_CLIENT_LIST should be ordered by age of window from oldest to youngest, and _NET_CLIENT_LIST_STACKING should be ordered by depth, from deepest to highest. But we don't track that information, so for now the lists are unordered. This may generate erroneous restacking requests if a window looks at the stacking list and thinks it's out of order.
+-}
+setClientLists display rootWindow clients = do
+   setWindowProperty
+      display
+      X.wINDOW
+      "_NET_CLIENT_LIST"
+      (fmap word64To32 clients)
+      rootWindow
+   setWindowProperty
+      display
+      X.wINDOW
+      "_NET_CLIENT_LIST_STACKING"
+      (fmap word64To32 clients)
+      rootWindow
+
+setDesktopNames :: X.Display -> X.Window -> [String] -> IO X.Status
+setDesktopNames display rootWindow names = do
+   uTF8_STRING <- getAtom display "UTF8_STRING"
+   setWindowProperty
+      display
+      uTF8_STRING
+      "_NET_DESKTOP_NAMES"
+      (foldMap ((<> (0 : [])) . UTF8.encode) names)
+      rootWindow
+
+setNumberOfDesktops :: X.Display -> X.Window -> Word32 -> IO X.Status
+setNumberOfDesktops display rootWindow n =
+   setWindowProperty
+      display
+      X.cARDINAL
+      "_NET_NUMBER_OF_DESKTOPS"
+      (n : [])
+      rootWindow
+
+getSupported :: X.Display -> X.Window -> IO (Maybe [X.Atom])
+getSupported display rootWindow =
+   getWindowProperty display "_NET_SUPPORTED" rootWindow
+
+setSupported :: X.Display -> X.Window -> [String] -> IO X.Status
+setSupported display rootWindow supported = do
+   supported_atoms <- supported `for` getAtom display
+   setWindowProperty
+      display
+      X.aTOM
+      "_NET_SUPPORTED"
+      supported_atoms
+      rootWindow
+
+addSupported :: X.Display -> X.Window -> [String] -> IO X.Status
+addSupported display rootWindow supported = do
+   old_supported_atoms <- getSupported display rootWindow
+   new_supported_atoms <- supported `for` getAtom display
+   let supported_atoms =
+          fold old_supported_atoms `List.union` new_supported_atoms
+   setWindowProperty
+      display
+      X.aTOM
+      "_NET_SUPPORTED"
+      supported_atoms
+      rootWindow
+
+
+--- Application Window Properties ---
+
+getWindowDesktop :: X.Display -> X.Window -> IO (Maybe (Word32))
+getWindowDesktop display window =
+   (listToMaybe =<<) <$> getWindowProperty display "_NET_WM_DESKTOP" window
+
+setWindowDesktop :: X.Display -> Word32 -> X.Window -> IO X.Status
+{- ^ Use @setWindowDesktop@ when a window's desktop is removed.
+-}
+setWindowDesktop display desktop =
+   setWindowProperty display X.cARDINAL "_NET_WM_DESKTOP" (desktop : [])
+
+getWindowName :: X.Display -> X.Window -> IO (Maybe String)
+getWindowName d w = do
+   name_prop <- getWindowProperty d "_NET_WM_NAME" w
+   case name_prop of
+      Just name -> pure $ Just $ UTF8.decode name
+      Nothing -> do
+         name_prop' <- getWindowProperty d "WM_NAME" w
+         case name_prop' of
+            Just name -> pure $ Just $ UTF8.decode name
+            Nothing -> pure Nothing
+
+setWindowVisibleName :: X.Display -> String -> X.Window -> IO X.Status
+setWindowVisibleName display name window = do
+   uTF8_STRING <- getAtom display "UTF8_STRING"
+   setWindowProperty
+      display
+      uTF8_STRING
+      "_NET_WINDOW_VISIBLE_NAME"
+      ((<> [0]) $ UTF8.encode name)
+      window
+
+getWindowType :: X.Display -> X.Window -> IO (Maybe [X.Atom])
+getWindowType display =
+   getWindowProperty display "_NET_WM_WINDOW_TYPE"
+
+getWindowState :: X.Display -> X.Window -> IO (Maybe [X.Atom])
+getWindowState display =
+   getWindowProperty display "_NET_WM_WINDOW_STATE"
+
+setWindowState :: X.Display -> [X.Atom] -> X.Window -> IO X.Status
+setWindowState display status =
+   setWindowProperty display X.aTOM "_NET_WM_WINDOW_STATE" (fmap word64To32 status)
+
+--- NOT EXPORTED ---
+
 atomCache :: IORef (Hash.HashMap String X.Atom)
 {- ^ a cache for atoms that have been looked up in the display
 A cache miss means that the atom will be looked up on the display.
