@@ -71,6 +71,8 @@ library
                    XMonad.Operations
                    XMonad.StackSet
   other-modules:   Paths_xmonad
+                   XMonad.X11
+                   XMonad.X11.IO
   hs-source-dirs:  src
   build-depends:   base                  >= 4.9 && < 5
                  , X11                   >= 1.8 && < 1.10
@@ -82,6 +84,7 @@ library
                  , process
                  , setlocale
                  , unix
+                 , unordered-containers
                  , utf8-string           >= 0.3 && < 1.1
   ghc-options:     -funbox-strict-fields -Wall -fno-warn-unused-do-bind -Wno-unused-imports
 
