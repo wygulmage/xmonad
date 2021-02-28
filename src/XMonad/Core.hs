@@ -45,10 +45,11 @@ import XMonad.StackSet hiding (modify)
 import Prelude
 import Control.Exception (fromException, try, bracket, throw, finally, SomeException(..))
 import qualified Control.Exception as E
-import Control.Applicative ((<|>), empty)
+import Control.Applicative (Alternative, (<|>), empty, liftA2)
 import Control.Monad.Fail
 import Control.Monad.State
 import Control.Monad.Reader
+import Data.Functor.Identity (Identity (Identity, runIdentity))
 import Data.Semigroup
 import Data.Traversable (for)
 import Data.Default
@@ -148,11 +149,46 @@ newtype ScreenDetail = SD { screenRect :: Rectangle }
 
 ------------------------------------------------------------------------
 
+-- | A class for deriving X and PureX instances
 newtype XT m a = XT (ReaderT XConf (StateT XState m) a)
   deriving
     ( Functor, Applicative, Monad
-    , MonadFail, MonadIO, MonadState XState, MonadReader XConf
+    , MonadFail, MonadIO
+    , MonadState XState, MonadReader XConf
     , Typeable)
+
+runXT :: XConf -> XState -> XT m a -> m (a, XState)
+runXT c s xa = getXT xa c s
+
+getXT :: XT m a -> XConf -> XState -> m (a, XState)
+getXT (XT xa) = runStateT . runReaderT xa
+
+mapXT :: (m (a, XState) -> n (b, XState)) -> XT m a -> XT n b
+mapXT f xa = XT $ ReaderT $ \ c -> StateT $ f . getXT xa c
+
+instance MonadTrans XT where
+    lift xa = XT (lift $ lift xa)
+    {-# INLINE lift #-}
+
+instance (Monad x, Semigroup a)=> Semigroup (XT x a) where
+   (<>) = liftA2 (<>)
+   {-# INLINE (<>) #-}
+
+instance (Monad x, Monoid a)=> Monoid (XT x a) where
+   mappend = liftA2 mappend
+   {-# INLINE mappend #-}
+   mempty = pure mempty
+   {-# INLINE mempty #-}
+
+instance (Monad m, Default a)=> Default (XT m a) where
+   def = pure def
+
+
+class (MonadReader XConf m, MonadState XState m)=> XLike m where
+    toX :: m a -> X a
+
+instance XLike X where
+    toX = id
 
 -- | The X monad, 'ReaderT' and 'StateT' transformers over 'IO'
 -- encapsulating the window manager configuration and state,
@@ -162,22 +198,26 @@ newtype XT m a = XT (ReaderT XConf (StateT XState m) a)
 -- with 'ask'. With newtype deriving we get readers and state monads
 -- instantiated on 'XConf' and 'XState' automatically.
 --
-newtype X a = X (ReaderT XConf (StateT XState IO) a)
-    deriving (Functor, Monad, MonadFail, MonadIO, MonadState XState, MonadReader XConf, Typeable)
+-- newtype X a = X (ReaderT XConf (StateT XState IO) a)
+newtype X a = X (XT IO a)
+  deriving
+    ( Functor, Applicative, Monad
+    , MonadFail, MonadIO, MonadState XState, MonadReader XConf
+    , Semigroup, Monoid
+    , Default
+    , Typeable)
 
-instance Applicative X where
-  pure = return
-  (<*>) = ap
+newtype PureX a = PureX (XT Identity a)
+  deriving
+    ( Functor, Applicative, Monad
+    , MonadState XState, MonadReader XConf
+    , Semigroup, Monoid
+    , Default
+    , Typeable)
 
-instance Semigroup a => Semigroup (X a) where
-    (<>) = liftM2 (<>)
+instance XLike PureX where
+   toX (PureX xa) = X $ mapXT (pure . runIdentity) xa
 
-instance (Monoid a) => Monoid (X a) where
-    mempty  = return mempty
-    mappend = liftM2 mappend
-
-instance Default a => Default (X a) where
-    def = return def
 
 type ManageHook = Query (Endo WindowSet)
 newtype Query a = Query (ReaderT Window X a)
@@ -199,7 +239,7 @@ instance Default a => Default (Query a) where
 -- | Run the 'X' monad, given a chunk of 'X' monad code, and an initial state
 -- Return the result, and final state
 runX :: XConf -> XState -> X a -> IO (a, XState)
-runX c st (X a) = runStateT (runReaderT a c) st
+runX c st (X (XT a)) = runStateT (runReaderT a c) st
 
 -- | Run in the 'X' monad, and in case of exception, and catch it and log it
 -- to stderr, and run the error case.
@@ -479,7 +519,10 @@ xfork x = io . forkProcess . finally nullStdin $ do
 
 -- | This is basically a map function, running a function in the 'X' monad on
 -- each workspace with the output of that function being the modified workspace.
-runOnWorkspaces :: (WindowSpace -> X WindowSpace) -> X ()
+-- runOnWorkspaces :: (WindowSpace -> X WindowSpace) -> X ()
+runOnWorkspaces ::
+    (MonadState XState m, MonadFail m)=>
+    (WindowSpace -> m WindowSpace) -> m ()
 runOnWorkspaces job = do
     ws <- gets windowset
     h <- mapM job $ hidden ws
@@ -703,8 +746,10 @@ whenJust :: Monad m => Maybe a -> (a -> m ()) -> m ()
 whenJust mg f = maybe (return ()) f mg
 
 -- | Conditionally run an action, using a 'X' event to decide
-whenX :: X Bool -> X () -> X ()
+-- whenX :: X Bool -> X () -> X ()
+whenX :: (Monad x)=> x Bool -> x () -> x ()
 whenX a f = a >>= \b -> when b f
+{-# INLINE whenX #-}
 
 -- | A 'trace' for the 'X' monad. Logs a string to stderr. The result may
 -- be found in your .xsession-errors file
