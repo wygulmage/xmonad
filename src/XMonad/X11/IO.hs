@@ -45,21 +45,6 @@ data Strut = Strut
    }
    deriving (Eq)
 
-getWindowStrut ::
-   X.Display -> X.Window -> IO (Maybe Strut)
-{- ^ Try to get the strut property of a Window. -}
-getWindowStrut d w = do
-   strut_prop <- getWindowProperty d "_NET_WM_STRUT_PARTIAL" w
-   case strut_prop of
-      Just (l : r : t : b : lsy : ley : rsy : rey : tsx : tex : bsx : bex : []) ->
-         pure $ Just $ Strut l r t b lsy ley rsy rey tsx tex bsx bex
-      _ -> do
-         strut_prop' <- getWindowProperty d "_NET_WM_STRUT" w
-         case strut_prop' of
-            Just (l : r : t : b : []) ->
-               pure $ Just $ Strut l r t b 0 maxBound 0 maxBound 0 maxBound 0 maxBound
-            _ -> pure Nothing
-
 
 getAtom ::
    X.Display -> String -> IO X.Atom
@@ -180,7 +165,17 @@ addSupported display rootWindow supported = do
 
 --- Application Window Properties ---
 
-getWindowDesktop :: X.Display -> X.Window -> IO (Maybe (Word32))
+setWindowAllowedActions :: X.Display -> [String] -> X.Window -> IO X.Status
+setWindowAllowedActions display allowed window = do
+   allowed_atoms <- allowed `for` getAtom display
+   setWindowProperty
+      display
+      X.aTOM
+      "_NET_ALLOWED_ACTIONS"
+      allowed_atoms
+      window
+
+getWindowDesktop :: X.Display -> X.Window -> IO (Maybe Word32)
 getWindowDesktop display window =
    (listToMaybe =<<) <$> getWindowProperty display "_NET_WM_DESKTOP" window
 
@@ -219,9 +214,26 @@ getWindowState :: X.Display -> X.Window -> IO (Maybe [X.Atom])
 getWindowState display =
    getWindowProperty display "_NET_WM_WINDOW_STATE"
 
-setWindowState :: X.Display -> [X.Atom] -> X.Window -> IO X.Status
-setWindowState display status =
-   setWindowProperty display X.aTOM "_NET_WM_WINDOW_STATE" (fmap word64To32 status)
+setWindowState :: X.Display -> [String] -> X.Window -> IO X.Status
+setWindowState display status window = do
+   status_atoms <- status `for` getAtom display
+   setWindowProperty display X.aTOM "_NET_WM_WINDOW_STATE" (fmap word64To32 status_atoms) window
+
+getWindowStrut ::
+   X.Display -> X.Window -> IO (Maybe Strut)
+{- ^ Try to get the strut property of a Window. -}
+getWindowStrut d w = do
+   strut_prop <- getWindowProperty d "_NET_WM_STRUT_PARTIAL" w
+   case strut_prop of
+      Just (l : r : t : b : lsy : ley : rsy : rey : tsx : tex : bsx : bex : []) ->
+         pure $ Just $ Strut l r t b lsy ley rsy rey tsx tex bsx bex
+      _ -> do
+         strut_prop' <- getWindowProperty d "_NET_WM_STRUT" w
+         case strut_prop' of
+            Just (l : r : t : b : []) ->
+               pure $ Just $ Strut l r t b 0 maxBound 0 maxBound 0 maxBound 0 maxBound
+            _ -> pure Nothing
+
 
 --- NOT EXPORTED ---
 

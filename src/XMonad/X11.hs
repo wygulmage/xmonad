@@ -37,13 +37,6 @@ class HasDisplay a where
 instance HasDisplay X.Display where
    display = id
 
-getWindowStrut ::
-   (HasDisplay r, MonadReader r m, MonadIO m)=>
-   X.Window -> m (Maybe Strut)
-{- ^ Try to get the strut property of a Window. -}
-getWindowStrut = withAskDisplayIO . flip IO.getWindowStrut
-{-# INLINE getWindowStrut #-}
-
 
 withAskDisplayIO ::
    (HasDisplay r, MonadReader r m, MonadIO m)=>
@@ -82,6 +75,58 @@ getAtom = withAskDisplayIO . flip IO.getAtom
 {-# INLINE getAtom #-}
 
 
+--- Application Window Properties ---
+
+setWindowAllowedActions ::
+   (HasDisplay r, MonadReader r m, MonadIO m)=>
+   [String] -> X.Window -> m X.Status
+setWindowAllowedActions allowed window = withAskDisplayIO $ \ d ->
+   IO.setWindowAllowedActions d allowed window
+
+getWindowDesktop ::
+   (HasDisplay r, MonadReader r m, MonadIO m)=>
+   X.Window -> m (Maybe Word32)
+getWindowDesktop = withAskDisplayIO . flip IO.getWindowDesktop
+
+setWindowDesktop ::
+   (HasDisplay r, MonadReader r m, MonadIO m)=>
+   Word32-> X.Window -> m X.Status
+setWindowDesktop desktop window = withAskDisplayIO $ \ d ->
+   IO.setWindowDesktop d desktop window
+
+getWindowName ::
+   (HasDisplay r, MonadReader r m, MonadIO m)=>
+   X.Window -> m (Maybe String)
+getWindowName = withAskDisplayIO . flip IO.getWindowName
+
+setWindowVisibleName name window = withAskDisplayIO $ \ d ->
+   IO.setWindowVisibleName d name window
+
+getWindowType ::
+   (HasDisplay r, MonadReader r m, MonadIO m)=>
+   X.Window -> m (Maybe [X.Atom])
+getWindowType = withAskDisplayIO . flip IO.getWindowType
+
+getWindowState ::
+   (HasDisplay r, MonadReader r m, MonadIO m)=>
+   X.Window -> m (Maybe [X.Atom])
+getWindowState = withAskDisplayIO . flip IO.getWindowState
+
+setWindowState ::
+   (HasDisplay r, MonadReader r m, MonadIO m)=>
+   [String] -> X.Window -> m X.Status
+setWindowState status window = withAskDisplayIO $ \ d ->
+   IO.setWindowState d status window
+
+getWindowStrut ::
+   (HasDisplay r, MonadReader r m, MonadIO m)=>
+   X.Window -> m (Maybe Strut)
+{- ^ Try to get the strut property of a Window. -}
+getWindowStrut = withAskDisplayIO . flip IO.getWindowStrut
+{-# INLINE getWindowStrut #-}
+
+--- Window Manager Property Atoms ---
+
 _NET_ACTIVE_WINDOW ::
    (MonadIO m, MonadReader a m, HasDisplay a)=> m X.Atom
 _NET_ACTIVE_WINDOW = getAtom "_NET_ACTIVE_WINDOW"
@@ -103,7 +148,19 @@ _NET_NUMBER_OF_DESKTOPS ::
 _NET_NUMBER_OF_DESKTOPS = getAtom "_NET_NUMBER_OF_DESKTOPS"
 
 
+-- Application Window Property Atoms
+
+_NET_WM_STRUT ::
+   (MonadIO m, MonadReader a m, HasDisplay a)=> m X.Atom
+_NET_WM_STRUT = getAtom "_NET_WM_STRUT"
+
+_NET_WM_STRUT_PARTIAL ::
+   (MonadIO m, MonadReader a m, HasDisplay a)=> m X.Atom
+_NET_WM_STRUT_PARTIAL = getAtom "_NET_WM_STRUT_PARTIAL"
+
+
 -- Window State Atoms
+
 _NET_WM_STATE_MODAL ::
    (MonadIO m, MonadReader a m, HasDisplay a)=> m X.Atom
 _NET_WM_STATE_MODAL = getAtom "_NET_WM_STATE_MODAL"
@@ -152,16 +209,6 @@ _NET_WM_ACTION_FULLSCREEN = getAtom "_NET_WM_ACTION_FULLSCREEN"
 _NET_WM_ACTION_CLOSE ::
    (MonadIO m, MonadReader a m, HasDisplay a)=> m X.Atom
 _NET_WM_ACTION_CLOSE = getAtom "_NET_WM_ACTION_CLOSE"
-
---
-_NET_WM_STRUT ::
-   (MonadIO m, MonadReader a m, HasDisplay a)=> m X.Atom
-_NET_WM_STRUT = getAtom "_NET_WM_STRUT"
-
-_NET_WM_STRUT_PARTIAL ::
-   (MonadIO m, MonadReader a m, HasDisplay a)=> m X.Atom
-_NET_WM_STRUT_PARTIAL = getAtom "_NET_WM_STRUT_PARTIAL"
-
 
 
 
