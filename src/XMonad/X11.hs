@@ -1,6 +1,8 @@
-{-# LANGUAGE BangPatterns
-           , ScopedTypeVariables
+{-# LANGUAGE ScopedTypeVariables
    #-}
+
+{- | This module provides a class for environments that contain an 'X.Display', and a number of fuctions for getting and setting X11 window properties and 'X.Atom's.
+-}
 
 module XMonad.X11 (
    HasDisplay (..),
@@ -98,25 +100,30 @@ getWindowName ::
    (HasDisplay r, MonadReader r m, MonadIO m)=>
    X.Window -> m (Maybe String)
 getWindowName = withAskDisplayIO . flip IO.getWindowName
+{-# INLINE getWindowName #-}
 
 setWindowVisibleName name window = withAskDisplayIO $ \ d ->
    IO.setWindowVisibleName d name window
+{-# INLINE setWindowVisibleName #-}
 
 getWindowType ::
    (HasDisplay r, MonadReader r m, MonadIO m)=>
    X.Window -> m (Maybe [X.Atom])
 getWindowType = withAskDisplayIO . flip IO.getWindowType
+{-# INLINE getWindowType #-}
 
 getWindowState ::
    (HasDisplay r, MonadReader r m, MonadIO m)=>
    X.Window -> m (Maybe [X.Atom])
 getWindowState = withAskDisplayIO . flip IO.getWindowState
+{-# INLINE getWindowState #-}
 
 setWindowState ::
    (HasDisplay r, MonadReader r m, MonadIO m)=>
    [String] -> X.Window -> m X.Status
 setWindowState status window = withAskDisplayIO $ \ d ->
    IO.setWindowState d status window
+{-# INLINE setWindowState #-}
 
 getWindowStrut ::
    (HasDisplay r, MonadReader r m, MonadIO m)=>
