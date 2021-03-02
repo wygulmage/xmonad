@@ -2,7 +2,18 @@
            , ScopedTypeVariables
    #-}
 
-module XMonad.X11.IO where
+module XMonad.X11.IO (
+   Strut (..),
+   getAtom, getWindowProperty, setWindowProperty,
+   setActiveWindow, setClientLists, setDesktopNames, setNumberOfDesktops,
+   getSupported, setSupported, addSupported,
+   setWindowAllowedActions,
+   getWindowDesktop, setWindowDesktop,
+   getWindowName, setWindowVisibleName,
+   getWindowType,
+   getWindowState, setWindowState,
+   getWindowStrut,
+   ) where
 
 -- This is a module for X11 functions that have not been lifted to a polymorphic Monad.
 import qualified Codec.Binary.UTF8.String as UTF8
@@ -20,6 +31,7 @@ import Data.Word (Word8, Word32, Word64)
 import qualified System.IO.Unsafe as Unsafe
 
 import Foreign.C.Types (CChar, CInt, CLong)
+import qualified Foreign.Marshal.Alloc as Storable
 import qualified Foreign.Marshal.Array as Storable
 import qualified Foreign.Ptr as Storable
 import Foreign.Storable (Storable)
@@ -49,6 +61,7 @@ data Strut = Strut
 getAtom ::
    X.Display -> String -> IO X.Atom
 {- ^ Retrieve the atom corresponding to the provided string. This first checks whether the atom has been cached, and if so, gets it from the cache. Otherwise it gets it the display and puts it in the cache.
+This has the side effect of creating an atom if it does not already exist.
 -}
 getAtom d str = do
    cache <- readIORef atomCache
@@ -69,7 +82,7 @@ getWindowProperty ::
    X.Display -> String -> X.Window -> IO (Maybe [a])
 getWindowProperty display property window = do
    atom <- getAtom display property
-   X.rawGetWindowProperty (Storable.sizeOf (undefined :: a)) display atom window
+   X.rawGetWindowProperty (8 * Storable.sizeOf (undefined :: a)) display atom window
 
 setWindowProperty ::
    forall a. (Storable a)=>
@@ -82,10 +95,44 @@ setWindowProperty display property_type property value window = do
           window
           property_type
           property_atom
-          (intToCInt $ Storable.sizeOf (undefined :: a))
+          ((8 *) $ intToCInt $ Storable.sizeOf (undefined :: a))
           X.propModeReplace
           (Storable.castPtr ptr)
           (intToCInt len)
+
+rawGetWindowProperty :: forall a. (Storable a)=> X.Display -> X.Window -> X.Atom -> IO (Either X.Status (X.Atom, [a]))
+rawGetWindowProperty display window property =
+   Storable.alloca $ \ actual_type_return ->
+   Storable.alloca $ \ actual_format_return ->
+   Storable.alloca $ \ nitems_return ->
+   Storable.alloca $ \ bytes_after_return ->
+   Storable.alloca $ \ prop_return -> do
+      result <- X.xGetWindowProperty
+         display
+         window
+         property -- atom that identifies the property
+         0 -- long_offset: Sart at the beginning of the data.
+         0xFFFFFFFF -- long_length: Get up to about 17 gigabytes of the data.
+         False -- delete: Do not delete the property from the window.
+         X.anyPropertyType
+         actual_type_return -- Atom identifier of the property type
+         actual_format_return -- int indicating format
+         nitems_return -- number of items in the data
+         bytes_after_return -- long number of bytes that haven't been gotten (should always be zero, unless the data is over about 17 gigabytes)
+         prop_return -- the data
+      if result /= 0
+         then pure $ Left result -- There's been an error. Should this free the returns?
+         else do
+            actual_format <- Storable.peek actual_format_return
+            if fromIntegral actual_format /= (8 * Storable.sizeOf (undefined :: a))
+               then pure $ Left X.badValue -- property not found or wrong type
+               else do
+                  prop_ptr <- Storable.peek prop_return
+                  nitems <- Storable.peek nitems_return
+                  actual_type <- Storable.peek actual_type_return
+                  prop_data <- Storable.peekArray (fromIntegral nitems) (Storable.castPtr prop_ptr)
+                  () <$ X.xFree prop_ptr
+                  pure $ Right (actual_type, prop_data)
 
 
 --- Root Window Properties ---

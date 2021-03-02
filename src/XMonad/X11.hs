@@ -6,10 +6,15 @@
 
 module XMonad.X11 (
    HasDisplay (..),
-   Strut (..), getWindowStrut,
+   Strut (..),
+   getAtom, getWindowProperty, setWindowProperty,
+   setActiveWindow, setClientLists, setDesktopNames, setNumberOfDesktops,
+   getSupported, setSupported, addSupported,
    getWMNormalHints,
-   getAtom,
-   getWindowProperty, setWindowProperty,
+   setWindowAllowedActions,
+   getWindowDesktop, setWindowDesktop,
+   getWindowState, setWindowState,
+   getWindowStrut,
    _NET_ACTIVE_WINDOW, _NET_CLIENT_LIST, _NET_CLIENT_LIST_STACKING, _NET_CURRENT_DESKTOP, _NET_NUMBER_OF_DESKTOPS,
    ) where
 
@@ -34,6 +39,9 @@ import qualified XMonad.X11.IO as IO
 import XMonad.X11.IO (Strut)
 
 class HasDisplay a where
+{- ^ Something with a reference to an 'X.Display'
+Having a display means that you have access to the entire X11 state.
+-}
    display :: a -> X.Display
 
 instance HasDisplay X.Display where
@@ -76,6 +84,35 @@ getAtom ::
 getAtom = withAskDisplayIO . flip IO.getAtom
 {-# INLINE getAtom #-}
 
+
+--- Window Manager (root window) Properties ---
+
+-- FIXME: There should get the root window from their environment.
+setActiveWindow ::
+   (HasDisplay r, MonadReader r m, MonadIO m)=>
+   X.Window -> X.Window -> m X.Status
+setActiveWindow window root_window = withAskDisplayIO $ \ d ->
+   IO.setActiveWindow d window root_window
+
+setClientLists clients root_window = withAskDisplayIO $ \ d ->
+   IO.setClientLists d clients root_window
+
+setDesktopNames names root_window = withAskDisplayIO $ \ d ->
+   IO.setDesktopNames d names root_window
+
+setNumberOfDesktops number root_window = withAskDisplayIO $ \ d ->
+   IO.setNumberOfDesktops d number root_window
+
+getSupported ::
+   (HasDisplay r, MonadReader r m, MonadIO m)=>
+   X.Window -> m (Maybe [X.Atom])
+getSupported = withAskDisplayIO . flip IO.getSupported
+
+setSupported supported root_window = withAskDisplayIO $ \ d ->
+   IO.setSupported d supported root_window
+
+addSupported supported root_window = withAskDisplayIO $ \ d ->
+   IO.addSupported d supported root_window
 
 --- Application Window Properties ---
 
@@ -172,10 +209,6 @@ _NET_WM_STATE_MODAL ::
    (MonadIO m, MonadReader a m, HasDisplay a)=> m X.Atom
 _NET_WM_STATE_MODAL = getAtom "_NET_WM_STATE_MODAL"
 
-_NET_WM_STATE_STICKY ::
-   (MonadIO m, MonadReader a m, HasDisplay a)=> m X.Atom
-_NET_WM_STATE_STICKY = getAtom "_NET_WM_STATE_STICKY"
-
 _NET_WM_STATE_MAXIMIZED_VERT ::
    (MonadIO m, MonadReader a m, HasDisplay a)=> m X.Atom
 _NET_WM_STATE_MAXIMIZED_VERT = getAtom "_NET_WM_STATE_MAXIMIZED_VERT"
@@ -204,7 +237,9 @@ _NET_WM_STATE_DEMANDS_ATTENTION ::
    (MonadIO m, MonadReader a m, HasDisplay a)=> m X.Atom
 _NET_WM_STATE_DEMANDS_ATTENTION = getAtom "_NET_WM_STATE_DEMANDS_ATTENTION"
 
+
 -- Allowed Window Action Atoms
+
 _NET_WM_ACTION_RESIZE ::
    (MonadIO m, MonadReader a m, HasDisplay a)=> m X.Atom
 _NET_WM_ACTION_RESIZE = getAtom "_NET_WM_ACTION_RESIZE"
