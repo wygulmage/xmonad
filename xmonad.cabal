@@ -73,6 +73,7 @@ library
   other-modules:   Paths_xmonad
                    XMonad.X11
                    XMonad.X11.IO
+                   XMonad.X11.Internal
   hs-source-dirs:  src
   build-depends:   base                  >= 4.9 && < 5
                  , X11                   >= 1.8 && < 1.10

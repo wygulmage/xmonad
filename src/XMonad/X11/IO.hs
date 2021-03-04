@@ -20,11 +20,14 @@ import qualified Codec.Binary.UTF8.String as UTF8
 
 import qualified Control.Exception as Err
 
+import Data.Bits ((.|.), bit, clearBit, setBit, shift, testBit)
 import Data.Foldable (fold)
 import qualified Data.HashMap.Strict as Hash
+import Data.Int (Int32)
 import Data.IORef
 import qualified Data.List as List
-import Data.Maybe (listToMaybe)
+import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Ratio (Ratio, (%))
 import Data.Traversable (for)
 import Data.Word (Word8, Word32, Word64)
 
@@ -40,6 +43,127 @@ import qualified Foreign.Storable as Storable
 import qualified Graphics.X11 as X
 import qualified Graphics.X11.Xlib.Extras as X
 
+
+data SizeHints = SizeHints
+   { sh_flags       :: !Word32 -- mask of which fields are valid
+   , sh_min_width   :: !Int32
+   , sh_min_height  :: !Int32
+   , sh_max_width   :: !Int32
+   , sh_max_height  :: !Int32
+   , sh_width_inc   :: !Int32
+   , sh_height_inc  :: !Int32
+   , sh_min_aspect  :: !(Ratio Int32)
+   , sh_max_aspect  :: !(Ratio Int32)
+   , sh_base_width  :: !Int32
+   , sh_base_height :: !Int32
+   , sh_win_gravity     :: !X.WindowGravity
+   }
+
+noSizeHints :: SizeHints
+noSizeHints = SizeHints
+   { sh_flags = 0
+   , sh_min_width = 0 -- 0 should be equivalent to no min.
+   , sh_min_height = 0 -- 0 should be equivalent to no min.
+   , sh_max_width = maxBound -- maxBound should be equivalent to no max.
+   , sh_max_height = maxBound -- maxBound should be equivalent to no max.
+   , sh_width_inc = (-1)
+   , sh_height_inc = (-1)
+   , sh_min_aspect = (1 % maxBound) -- smallest possible aspect ratio should be equivalent to no min.
+   , sh_max_aspect = (maxBound % 1) -- largest possible aspect ratio should be equivalent to no max.
+   , sh_base_width = (-1)
+   , sh_base_height = (-1)
+   , sh_win_gravity = (fromIntegral X.northWestGravity) -- Default to NorthWest per spec. I'd really rather default to Center. N.B. this only matters for floating windows.
+   }
+
+sizeHints ::
+   Maybe (Int32, Int32) ->  -- ^ minimum dimensions
+   Maybe (Int32, Int32) ->  -- ^ maximum dimensions
+   Maybe (Int32, Int32) ->  -- ^ width and height increments
+   Maybe (Ratio Int32, Ratio Int32) -> -- ^ minimum and maximum aspect ratios
+   Maybe (Int32, Int32) ->  -- ^ base dimensions
+   Maybe X.WindowGravity -> -- ^ placement relative to parent
+   SizeHints
+sizeHints minSize maxSize resizeInc aspectRatios baseSize gravity =
+   SizeHints
+      { sh_flags = flags
+      , sh_min_width = min_width
+      , sh_min_height = min_height
+      , sh_max_width = max_width
+      , sh_max_height = max_height
+      , sh_width_inc = width_inc
+      , sh_height_inc = height_inc
+      , sh_min_aspect = min_aspect
+      , sh_max_aspect = max_aspect
+      , sh_base_width = base_width
+      , sh_base_height = base_height
+      , sh_win_gravity = win_gravity
+      }
+   where
+
+   maybeHint mask dflt = maybe (0, dflt) ((,) (bit mask))
+
+   flags = pMinSize .|. pMaxSize .|. pResizeInc .|. pAspect .|. pBaseSize .|. pWinGravity
+
+   (pMinSize, (min_width, min_height)) = maybeHint 4 (0, 0) minSize
+   (pMaxSize, (max_width, max_height)) = maybeHint 5 (maxBound, maxBound) maxSize
+   (pResizeInc, (width_inc, height_inc)) = maybeHint 6 (-1, -1) resizeInc
+   (pAspect, (min_aspect, max_aspect)) = maybeHint 7 (1 % maxBound, maxBound % 1) aspectRatios
+   (pBaseSize, (base_width, base_height)) = maybeHint 8 (-1, -1) baseSize
+   (pWinGravity, win_gravity) = maybeHint 9 (-1) gravity
+
+_sizeHints_MaxSize ::
+   (Functor m)=>
+   (Maybe (Int32, Int32) -> m (Maybe (Int32, Int32))) ->
+   SizeHints -> m SizeHints
+_sizeHints_MaxSize f sh@SizeHints{ sh_flags = flags } = set <$> f get
+   where
+   get | testBit flags 5 = Just (sh_max_width sh, sh_max_height sh)
+       | otherwise       = Nothing
+
+   set mx = sh{ sh_flags = flags', sh_max_width = maxWidth', sh_max_height = maxHeight' }
+      where
+      (flags', (maxWidth', maxHeight')) = case mx of
+         Just maxes -> (setBit flags 5, maxes)
+         Nothing -> (clearBit flags 5, (maxBound, maxBound))
+
+_sizeHints_MaxSize' ::
+   (Functor m)=>
+   ((Int32, Int32) -> m (Int32, Int32)) ->
+   SizeHints -> m SizeHints
+_sizeHints_MaxSize' f sh@SizeHints{ sh_flags = flags } = set <$> f get
+   where
+   get | testBit flags 5 = (sh_max_width sh, sh_max_height sh)
+       | otherwise = (maxBound, maxBound)
+
+   set (maxWidth', maxHeight') =
+      sh{ sh_flags = setBit flags 5, sh_max_width = maxWidth', sh_max_height = maxHeight' }
+
+sizeHints_MaxSize :: SizeHints -> Maybe (Int32, Int32)
+sizeHints_MaxSize sh = case sh_flags sh `testBit` 5 of
+  True -> Just (sh_max_width sh, sh_max_height sh)
+  False -> Nothing
+
+sizeHints_MaxSize' :: SizeHints -> (Int32, Int32)
+sizeHints_MaxSize' sh
+   | sh_flags sh `testBit` 5 = (sh_max_width sh, sh_max_height sh)
+   | otherwise               = (maxBound, maxBound)
+
+sizeHints_MaxSize''' :: SizeHints -> (Bool, (Int32, Int32))
+{- ^ Get the max width and height. If the @Bool@ is @True@, they were explicitly defined. -}
+sizeHints_MaxSize''' sh
+   | hasMaxSize = (hasMaxSize, (sh_max_width sh, sh_max_height sh))
+   | otherwise  = (hasMaxSize, (maxBound, maxBound))
+   where hasMaxSize = sh_flags sh `testBit` 5
+
+sizeHints_ResizeInc :: SizeHints -> Maybe (Int32, Int32)
+sizeHints_ResizeInc sh = case sh_flags sh `testBit` 6 of
+   True -> Just (sh_width_inc sh, sh_height_inc sh)
+   False -> Nothing
+
+sizeHints_Aspect :: SizeHints -> Maybe (Ratio Int32)
+sizeHints_Aspect sh
+   | sh_flags sh `testBit` 7 = Just (sh_max_aspect sh)
+   | otherwise = Nothing
 
 data Strut = Strut
    { strut_left :: !Word32
