@@ -17,7 +17,7 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (asks)
 import qualified Control.Monad.State as State
 
-import Data.Foldable (fold, for_, traverse_)
+import Data.Foldable (fold, foldl', for_, traverse_)
 import qualified Data.Bits as Bits
 import Data.Int (Int32)
 import qualified Data.List as List
@@ -99,11 +99,13 @@ ewmhDesktopsLogHook = do
     setNumberOfDesktops $ intToInt32 $ length desktop_names
     setDesktopNames desktop_names
 
-    let client_list = List.nub . foldMap (W.integrate' . W.stack) $ ws
+    let
+      client_list = foldl' (\ cs c -> List.union cs $ W.integrate' $ W.stack c) [] ws
     setClientList client_list
 
-    let maybeCurrent = W.tag <$> W.workspace . W.current $ s
-        current = (`List.elemIndex` fmap W.tag ws) maybeCurrent
+    let
+      maybeCurrent = W.tag <$> W.workspace . W.current $ s
+      current = maybeCurrent `List.elemIndex` fmap W.tag ws
     for_ current (setCurrentDesktop . intToInt32)
 
     let
@@ -112,7 +114,7 @@ ewmhDesktopsLogHook = do
       window_desktops = Map.unions $ zipWith f [0..] ws
     Map.toList window_desktops `for_` uncurry setWindowDesktop
 
-    let activeWindow' = fromMaybe none (W.peek s)
+    let activeWindow' = fromMaybe none $ W.peek s
     setActiveWindow activeWindow'
 
     es <- ES.get
@@ -136,7 +138,7 @@ activateLogHook hook = do
         windows $ appEndo f
 
 ewmhDesktopsEventHook :: Event -> X All
-ewmhDesktopsEventHook e = handle id e *> pure (All True)
+ewmhDesktopsEventHook e = All True <$ handle id e
 
 handle :: ([WindowSpace] -> [WindowSpace]) -> Event -> X ()
 handle f msg@ClientMessageEvent{} = do
@@ -146,52 +148,60 @@ handle f msg@ClientMessageEvent{} = do
     _NET_WM_DESKTOP <- getAtom "_NET_WM_DESKTOP"
     _NET_ACTIVE_DESKTOP <- getAtom "_NET_ACTIVE_DESKTOP"
     _NET_CLOSE_WINDOW <- getAtom "_NET_CLOSE_WINDOW"
+
     case ev_message_type msg of
         mt
             | mt == _NET_CURRENT_DESKTOP ->
                 case ev_data msg of
-                    n : _ | 0 <= n  &&  fromIntegral n < length ws ->
-                        windows . W.view . W.tag $ ws !! fromIntegral n
+                    n : _ | n' <- cIntToInt n
+                          , 0 <= n'  &&  n' < length ws ->
+                        windows . W.view . W.tag $ ws !! n'
                     _ ->
-                        trace $ "Bad _NET_CURRENT_DESKTOP data"
+                        trace "Bad _NET_CURRENT_DESKTOP data"
             | mt == _NET_WM_DESKTOP ->
                 case ev_data msg of
-                    n : _ | 0 <= n && fromIntegral n < length ws ->
-                        windows $ W.shiftWin (W.tag $ ws !! fromIntegral n) (ev_window msg)
+                    n : _ | n' <- cIntToInt n
+                          , 0 <= n' && n' < length ws ->
+                        windows . W.shiftWin (W.tag $ ws !! n') $ ev_window msg
                     _ ->
-                        trace $ "Bad _NET_CURRENT_DESKTOP data"
+                        trace "Bad _NET_CURRENT_DESKTOP data"
             | mt == _NET_ACTIVE_DESKTOP -> do
                 lh <- asks $ logHook . config
                 es <- ES.get
-                ES.put es{ netActivated = Just (ev_window msg)}
+                ES.put es{ netActivated = Just $! ev_window msg }
                 lh
-            | mt == _NET_CLOSE_WINDOW -> killWindow (ev_window msg)
+            | mt == _NET_CLOSE_WINDOW -> killWindow $ ev_window msg
             | otherwise -> pure ()
 handle _ _ = pure ()
 
 fullscreenEventHook :: Event -> X All
-fullscreenEventHook ClientMessageEvent
-    { ev_event_display = dpy
-    , ev_window = win
-    , ev_event_type = typ
+fullscreenEventHook ev@ClientMessageEvent
+    { ev_window = win
     , ev_data = (act : dats)
     } = do
     _NET_WM_STATE <- getAtom "_NET_WM_STATE"
+    let _NET_WM_STATE_32 = atomToWord32 _NET_WM_STATE
     _NET_WM_STATE_FULLSCREEN <- getAtom "_NET_WM_FULLSCREEN"
+    let _NET_WM_STATE_FULLSCREEN_32 = atomToWord32 _NET_WM_STATE_FULLSCREEN
+    let _NET_WM_STATE_FULLSCREEN_CInt = atomToCInt _NET_WM_STATE_FULLSCREEN
 
-    when (typ == fromIntegral _NET_WM_STATE  &&  fromIntegral _NET_WM_STATE_FULLSCREEN `elem` dats) $ do
+    dpy <- asks display
+    (All True <$) . when (
+        ev_event_display ev == dpy  &&
+        ev_event_type ev == _NET_WM_STATE_32  &&
+        _NET_WM_STATE_FULLSCREEN_CInt `elem` dats) $ do
+
         wstate <- fold <$> getWindowProperty _NET_WM_STATE win
         let
-          isFull = fromIntegral _NET_WM_STATE_FULLSCREEN `elem` wstate
-          changeWindowState f = liftIO $ changeProperty32 dpy win _NET_WM_STATE aTOM propModeReplace (f wstate)
+          isFull = _NET_WM_STATE_FULLSCREEN_32 `elem` wstate
+          changeWindowState f = replaceWindowProperty aTOM _NET_WM_STATE (f wstate) win
 
         when (act == add  || (act == toggle  &&  not isFull)) $ do
-            changeWindowState (fromIntegral _NET_WM_STATE_FULLSCREEN :)
+            changeWindowState (_NET_WM_STATE_FULLSCREEN_32 :)
             windows $ W.float win $ W.RationalRect 0 0 1 1
         when (act == remove  ||  (act == toggle  &&  isFull)) $ do
-            changeWindowState $ List.delete $ fromIntegral _NET_WM_STATE_FULLSCREEN
+            changeWindowState $ List.delete $ _NET_WM_STATE_FULLSCREEN_32
             windows $ W.sink win
-    pure $ All True
   where
     remove = 0
     add = 1
@@ -255,8 +265,8 @@ modifySupported f = do
     root <- asks theRoot
     _NET_SUPPORTED <- getAtom "_NET_SUPPORTED"
     oldSupported <- getWindowProperty _NET_SUPPORTED root
-    let oldAtoms = fmap word32ToAtom $ fold oldSupported
-        newSupported = fmap atomToWord32 $ f oldAtoms
+    let oldAtoms = word32ToAtom <$> fold oldSupported
+        newSupported = atomToWord32 <$> f oldAtoms
     replaceWindowProperty aTOM _NET_SUPPORTED newSupported root
     pure () -- Ignore errors.
 
@@ -280,8 +290,14 @@ atomToWord32 = fromIntegral
 word32ToAtom :: Word32 -> Atom
 word32ToAtom = fromIntegral
 
+atomToCInt :: Atom -> C.CInt
+atomToCInt = fromIntegral
+
 windowToWord32 :: Window -> Word32
 windowToWord32 = fromIntegral
+
+cIntToInt :: C.CInt -> Int
+cIntToInt = fromIntegral
 
 getAtom :: String -> X Atom
 getAtom string = do
@@ -299,9 +315,12 @@ getWindowProperty prop win = do
     disp <- asks display
     liftIO $ getWindowPropertyIO disp prop win
 
+
 getWindowPropertyIO ::
     forall a. (Storable a)=>
     Display -> Atom -> Window -> IO (Either C.CInt [a])
+{- ^ Get a window property. It's important to get the sizes of your types right; Use 32-bit types to get 32-bit properties. (Atom, Window, &c. are currently (2021-03-08) 64 bits on 64-bit systems.)
+-}
 getWindowPropertyIO disp prop win =
     Storable.alloca $ \ actual_type_return ->
     Storable.alloca $ \ actual_format_return ->
@@ -331,7 +350,7 @@ getWindowPropertyIO disp prop win =
                     else do
                         nitems <- cuLongToInt <$> Storable.peek nitems_return
                         val_ptr <- Ptr.castPtr <$> Storable.peek prop_return
-                        value <- Storable.peekArray nitems  val_ptr
+                        value <- Storable.peekArray nitems val_ptr
                         pure $ Right value
   where
     bits :: C.CInt
