@@ -90,6 +90,7 @@ ewmhDesktopStartup = setSupported ( -- This presumes that nothing else is modify
 
 ewmhDesktopsLogHook :: X ()
 ewmhDesktopsLogHook = do
+    es <- ES.get
     s <- State.gets windowset
     let ws = List.sortOn W.tag $ W.workspaces s
 
@@ -97,16 +98,18 @@ ewmhDesktopsLogHook = do
       desktop_names :: [WorkspaceId]
       desktop_names = fmap W.tag ws
     setNumberOfDesktops $ intToInt32 $ length desktop_names
-    setDesktopNames desktop_names
+    when (desktopNames es /= desktop_names) $ setDesktopNames desktop_names
 
     let
       client_list = foldl' (\ cs c -> List.union cs $ W.integrate' $ W.stack c) [] ws
-    setClientList client_list
+    when (clientList es /= client_list) $ setClientList client_list
+
 
     let
-      current =
+      current = fmap intToInt32 $
           (W.tag . W.workspace . W.current) s `List.elemIndex` desktop_names
-    for_ current (setCurrentDesktop . intToInt32)
+    when (Just (currentDesktop es) /= current) $
+        for_ current (setCurrentDesktop)
 
     let
       window_desktops = W.integrate' . W.stack <$> ws
@@ -115,12 +118,12 @@ ewmhDesktopsLogHook = do
         loop i xs = case xs of
             x : xs' -> f i x *> loop (i + 1) xs'
             []      -> pure ()
-    itraverse_ (traverse_ . setWindowDesktop) window_desktops
+    when (windowDesktops es /= window_desktops) $
+        itraverse_ (traverse_ . setWindowDesktop) window_desktops
 
     let activeWindow' = fromMaybe none $ W.peek s
-    setActiveWindow activeWindow'
+    when (activeWindow es /= activeWindow') $ setActiveWindow activeWindow'
 
-    es <- ES.get
     ES.put es
         { windowDesktops = window_desktops
         , desktopNames = desktop_names
