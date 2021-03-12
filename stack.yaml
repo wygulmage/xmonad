@@ -1,4 +1,8 @@
-resolver: lts-16.22
+resolver: lts-17.5
+
+flags:
+  xmonad:
+    generatemanpage: true
 
 packages:
 - ./
