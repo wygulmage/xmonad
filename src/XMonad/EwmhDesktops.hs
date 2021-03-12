@@ -13,7 +13,6 @@ module XMonad.EwmhDesktops (
 
 import qualified Codec.Binary.UTF8.String as UTF8
 
-import Control.Applicative (liftA2)
 import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (asks)
@@ -26,7 +25,7 @@ import qualified Data.List as List
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, isJust)
-import Data.Semigroup (All (All, getAll), appEndo)
+import Data.Semigroup (All (All), appEndo)
 import Data.Word (Word32)
 
 import qualified Foreign.C.Types as C
@@ -43,7 +42,6 @@ import XMonad
     , config, display, theRoot, handleEventHook, logHook, startupHook, windowset
     , killWindow, trace
     , none
-    , changeProperty8, changeProperty32
     , internAtom, aTOM, cARDINAL, wINDOW, propModeReplace
     )
 import qualified XMonad.StackSet as W
