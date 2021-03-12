@@ -1,4 +1,6 @@
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE MultiWayIf
+           , PatternGuards
+           , ScopedTypeVariables #-}
 
 module XMonad.EwmhDesktops (
     ewmh,
@@ -55,7 +57,7 @@ data EwmhCache = EwmhCache
     { desktopNames :: ![String]
     , clientList :: ![Window]
     , currentDesktop :: !Int32
-    , windowDesktops :: !(Map Window Int32)
+    , windowDesktops :: ![[Window]]
     , activeWindow :: !Window
     , netActivated :: !(Maybe Window)
     , atomCache :: !(Map String Atom)
@@ -63,7 +65,7 @@ data EwmhCache = EwmhCache
 
 instance ExtensionClass EwmhCache where
     initialValue =
-        EwmhCache [] [] 0 Map.empty (Bits.complement none) Nothing Map.empty
+        EwmhCache [] [] 0 [] (Bits.complement none) Nothing Map.empty
 
 
 ewmh :: XConfig a -> XConfig a
@@ -91,11 +93,11 @@ ewmhDesktopStartup = setSupported ( -- This presumes that nothing else is modify
 ewmhDesktopsLogHook :: X ()
 ewmhDesktopsLogHook = do
     s <- State.gets windowset
-    let ws = W.workspaces s
+    let ws = List.sortOn W.tag $ W.workspaces s
 
     let
       desktop_names :: [WorkspaceId]
-      desktop_names = map W.tag ws
+      desktop_names = fmap W.tag ws
     setNumberOfDesktops $ intToInt32 $ length desktop_names
     setDesktopNames desktop_names
 
@@ -104,15 +106,18 @@ ewmhDesktopsLogHook = do
     setClientList client_list
 
     let
-      maybeCurrent = W.tag <$> W.workspace . W.current $ s
-      current = maybeCurrent `List.elemIndex` fmap W.tag ws
+      current =
+          (W.tag . W.workspace . W.current) s `List.elemIndex` desktop_names
     for_ current (setCurrentDesktop . intToInt32)
 
     let
-      f wsId workspace =
-          Map.fromList [ (winId, wsId) | winId <- W.integrate' $ W.stack workspace ]
-      window_desktops = Map.unions $ zipWith f [0..] ws
-    Map.toList window_desktops `for_` uncurry setWindowDesktop
+      window_desktops = W.integrate' . W.stack <$> ws
+      itraverse_ f = loop 0
+        where
+        loop i xs = case xs of
+            x : xs' -> f i x *> loop (i + 1) xs'
+            []      -> pure ()
+    itraverse_ (traverse_ . setWindowDesktop) window_desktops
 
     let activeWindow' = fromMaybe none $ W.peek s
     setActiveWindow activeWindow'
@@ -195,13 +200,14 @@ fullscreenEventHook ev@ClientMessageEvent
         let
           isFull = _NET_WM_STATE_FULLSCREEN_32 `elem` wstate
           changeWindowState f = replaceWindowProperty aTOM _NET_WM_STATE (f wstate) win
-
-        when (act == add  || (act == toggle  &&  not isFull)) $ do
-            changeWindowState (_NET_WM_STATE_FULLSCREEN_32 :)
-            windows $ W.float win $ W.RationalRect 0 0 1 1
-        when (act == remove  ||  (act == toggle  &&  isFull)) $ do
-            changeWindowState $ List.delete $ _NET_WM_STATE_FULLSCREEN_32
-            windows $ W.sink win
+        if
+            | act == add || (act == toggle  &&  not isFull) -> do
+                changeWindowState (_NET_WM_STATE_FULLSCREEN_32 :)
+                windows $ W.float win $ W.RationalRect 0 0 1 1
+            | act == remove || (act == toggle && not isFull) -> do
+                changeWindowState $ List.delete $ _NET_WM_STATE_FULLSCREEN_32
+                windows $ W.sink win
+            | otherwise -> pure ()
   where
     remove = 0
     add = 1
@@ -249,8 +255,8 @@ setClientList clients = do
     pure () -- Ignore errors.
 
 
-setWindowDesktop :: Window -> Int32 -> X ()
-setWindowDesktop win i = do
+setWindowDesktop :: Int32 -> Window -> X ()
+setWindowDesktop i win = do
     _NET_WM_DESKTOP <- getAtom "_NET_WM_DESKTOP"
     replaceWindowProperty cARDINAL _NET_WM_DESKTOP [i] win
     pure () -- ignore errors
@@ -322,6 +328,7 @@ getWindowPropertyIO ::
 {- ^ Get a window property. It's important to get the sizes of your types right; Use 32-bit types to get 32-bit properties. (Atom, Window, &c. are currently (2021-03-08) 64 bits on 64-bit systems.)
 -}
 getWindowPropertyIO disp prop win =
+    -- Note: XFree is for freeing objects that were allocated by Xlib; here the objects are allocated by GHC.
     Storable.alloca $ \ actual_type_return ->
     Storable.alloca $ \ actual_format_return ->
     Storable.alloca $ \ nitems_return ->
