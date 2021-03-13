@@ -7,7 +7,6 @@ module XMonad.EwmhDesktops (
     ewmhDesktopStartup,
     ewmhDesktopsLogHook,
     ewmhDesktopsEventHook,
-    activated, activateLogHook,
     fullscreenEventHook,
     ) where
 
@@ -57,13 +56,18 @@ data EwmhCache = EwmhCache
     , currentDesktop :: !Int32
     , windowDesktops :: ![[Window]]
     , activeWindow :: !Window
-    , netActivated :: !(Maybe Window)
     , atomCache :: !(Map String Atom)
     }
 
 instance ExtensionClass EwmhCache where
-    initialValue =
-        EwmhCache [] [] 0 [] (Bits.complement none) Nothing Map.empty
+    initialValue = EwmhCache
+        { desktopNames = []
+        , clientList = []
+        , currentDesktop = 0
+        , windowDesktops = []
+        , activeWindow = none
+        , atomCache = Map.empty
+        }
 
 
 ewmh :: XConfig a -> XConfig a
@@ -89,6 +93,8 @@ ewmhDesktopStartup = setSupported ( -- This presumes that nothing else is modify
     [])
 
 ewmhDesktopsLogHook :: X ()
+{- ^ Update EWMH state.
+-}
 ewmhDesktopsLogHook = do
     es <- ES.get
     s <- State.gets windowset
@@ -132,16 +138,6 @@ ewmhDesktopsLogHook = do
         , activeWindow = activeWindow'
         }
 
-activated :: Query Bool
-activated = liftX $ ES.gets $ isJust . netActivated
-
-activateLogHook :: ManageHook -> X ()
-activateLogHook hook = do
-    es <- ES.get
-    netActivated es `for_` \ w -> do
-        f <- runQuery hook w
-        ES.put $ es{ netActivated = Nothing }
-        windows $ appEndo f
 
 ewmhDesktopsEventHook :: Event -> X All
 ewmhDesktopsEventHook e = All True <$ handle id e
@@ -152,7 +148,7 @@ handle f msg@ClientMessageEvent{} = do
 
     _NET_CURRENT_DESKTOP <- getAtom "_NET_CURRENT_DESKTOP"
     _NET_WM_DESKTOP <- getAtom "_NET_WM_DESKTOP"
-    _NET_ACTIVE_DESKTOP <- getAtom "_NET_ACTIVE_DESKTOP"
+    _NET_ACTIVE_WINDOW <- getAtom "_NET_ACTIVE_WINDOW"
     _NET_CLOSE_WINDOW <- getAtom "_NET_CLOSE_WINDOW"
 
     case ev_message_type msg of
@@ -171,11 +167,9 @@ handle f msg@ClientMessageEvent{} = do
                         windows . W.shiftWin (W.tag $ ws !! n') $ ev_window msg
                     _ ->
                         trace "Bad _NET_CURRENT_DESKTOP data"
-            | mt == _NET_ACTIVE_DESKTOP -> do
-                lh <- asks $ logHook . config
-                es <- ES.get
-                ES.put es{ netActivated = Just $! ev_window msg }
-                lh
+            | mt == _NET_ACTIVE_WINDOW -> do -- FIXME: User config should decide how to honor client window activation requests.
+                  windows . W.focusWindow $ ev_window msg
+                  setActiveWindow $ ev_window msg
             | mt == _NET_CLOSE_WINDOW -> killWindow $ ev_window msg
             | otherwise -> pure ()
 handle _ _ = pure ()
