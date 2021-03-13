@@ -21,8 +21,10 @@ import Data.Foldable (fold, foldl', for_, traverse_)
 import qualified Data.Bits as Bits
 import Data.Int (Int32)
 import qualified Data.List as List
-import           Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
+-- import           Data.Map.Strict (Map)
+-- import qualified Data.Map.Strict as Map
+import           Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as Hash
 import Data.Maybe (fromMaybe, isJust)
 import Data.Semigroup (All (All), appEndo)
 import Data.Word (Word32)
@@ -51,12 +53,12 @@ import qualified Graphics.X11.Xlib.Extras as X11
 
 
 data EwmhCache = EwmhCache
-    { desktopNames :: ![String]
-    , clientList :: ![Window]
-    , currentDesktop :: !Int32
-    , windowDesktops :: ![[Window]]
-    , activeWindow :: !Window
-    , atomCache :: !(Map String Atom)
+    { desktopNames   :: ![String]     -- ^ Workspace IDs, lexicographically sorted
+    , clientList     :: ![Window]     -- ^ Windows managed by xmonad
+    , currentDesktop :: !Int32        -- ^ index of the focused desktop in desktopNames
+    , windowDesktops :: ![[Window]]   -- ^ tiled Windows grouped by Workspace
+    , activeWindow   :: !Window       -- ^ focused Window
+    , atomCache :: !(HashMap String Atom) -- ^ Atoms that have already been looked up, to avoid asking X11 every time.
     }
 
 instance ExtensionClass EwmhCache where
@@ -66,7 +68,7 @@ instance ExtensionClass EwmhCache where
         , currentDesktop = 0
         , windowDesktops = []
         , activeWindow = none
-        , atomCache = Map.empty
+        , atomCache = Hash.empty
         }
 
 
@@ -304,11 +306,11 @@ getAtom :: String -> X Atom
 getAtom string = do
     disp <- asks display
     es <- ES.get
-    case Map.lookup string (atomCache es) of
+    case Hash.lookup string (atomCache es) of
         Just atom -> pure atom
         Nothing -> do
             atom <- liftIO $ internAtom disp string False
-            ES.put $ es{ atomCache = Map.insert string atom (atomCache es) }
+            ES.put $ es{ atomCache = Hash.insert string atom (atomCache es) }
             pure atom
 
 getWindowProperty :: (Storable a)=> Atom -> Window -> X (Either C.CInt [a])
