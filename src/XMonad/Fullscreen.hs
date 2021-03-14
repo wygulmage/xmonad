@@ -15,6 +15,7 @@ import qualified Data.List as List
 import Data.Int (Int32, Int64)
 import Data.Maybe
 import Data.Word (Word32)
+import qualified Data.Set as Set
 import Data.Semigroup (All (All))
 import Data.Typeable (Typeable)
 
@@ -37,7 +38,8 @@ data FullscreenMessage
 
 instance Message FullscreenMessage
 
-data FullscreenFull l a = FullscreenFull !W.RationalRect [a] (l a)
+-- data FullscreenFull l a = FullscreenFull !W.RationalRect [a] (l a)
+data FullscreenFull l a = FullscreenFull !W.RationalRect (Set.Set a) (l a)
   deriving (Read, Show)
 
 instance (LayoutClass l Window)=> LayoutClass (FullscreenFull l) Window where
@@ -48,7 +50,8 @@ instance (LayoutClass l Window)=> LayoutClass (FullscreenFull l) Window where
         rect' :: Rectangle
         rect' = scaleRationalRect scRect fullRect
         scale :: [(Window, Rectangle)] -> [(Window, Rectangle)]
-        scale wins = case List.partition ((`List.elem` fullWins) . fst) wins of
+        -- scale wins = case List.partition ((`List.elem` fullWins) . fst) wins of
+        scale wins = case List.partition ((`Set.member` fullWins) . fst) wins of
             (fulls, regs) -> fmap (rect' <$) fulls <> List.filter (not . supersetOf rect' . snd) regs
 
     handleMessage ff@(FullscreenFull fullRect fullWins l) msg =
@@ -68,16 +71,16 @@ fullscreenMessage ::
 fullscreenMessage ff@(FullscreenFull fullRect fullWins l) msg =
         case fromMessage msg of
              Just (AddFullscreen win) ->
-                 Just $ FullscreenFull fullRect (List.nub $ win:fullWins) l
+                 Just $ FullscreenFull fullRect (Set.insert win fullWins) l
              Just (RemoveFullscreen win) ->
-                 Just $ FullscreenFull fullRect (List.delete win $ fullWins) l
+                 Just $ FullscreenFull fullRect (Set.delete win fullWins) l
              Just FullscreenChanged ->
                  Just ff
              _ ->
                  Nothing
 
 fullscreenFull :: l a -> FullscreenFull l a
-fullscreenFull = W.RationalRect 0 0 1 1 `FullscreenFull` []
+fullscreenFull = W.RationalRect 0 0 1 1 `FullscreenFull` Set.empty
 
 -- | The event hook required for the layout modifiers to work
 -- TODO: Move this to Ewmh; have Ewmh broadcast all relevant messages.
