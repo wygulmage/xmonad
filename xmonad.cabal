@@ -73,7 +73,9 @@ library
                    XMonad.Operations
                    XMonad.StackSet
                    XMonad.ExtensibleState
+                   XMonad.X11
                    XMonad.EwmhDesktops
+                   XMonad.Fullscreen
   other-modules:   Paths_xmonad
   hs-source-dirs:  src
   build-depends:   base                  >= 4.9 && < 5
