@@ -3,6 +3,7 @@
            , ScopedTypeVariables #-}
 
 module XMonad.EwmhDesktops (
+    FullscreenMessage (..),
     ewmh,
     ewmhDesktopStartup,
     ewmhDesktopsLogHook,
@@ -14,41 +15,38 @@ module XMonad.EwmhDesktops (
 import qualified Codec.Binary.UTF8.String as UTF8
 
 import Control.Monad (when)
-import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (asks)
 import qualified Control.Monad.State as State
 
 import Data.Foldable (fold, foldl', for_, traverse_)
-import qualified Data.Bits as Bits
 import Data.Int (Int32)
 import qualified Data.List as List
-import Data.Maybe (fromMaybe, isJust)
-import Data.Semigroup (All (All), appEndo)
-import Data.Word (Word32)
-
-import qualified Foreign.C.Types as C
-import qualified Foreign.Marshal.Alloc as Storable
-import qualified Foreign.Marshal.Array as Storable
-import qualified Foreign.Ptr as Ptr
-import           Foreign.Storable (Storable)
-import qualified Foreign.Storable as Storable
+import Data.Maybe (fromMaybe)
+import Data.Semigroup (All (All))
+import Data.Typeable (Typeable)
 
 import XMonad
     ( ExtensionClass (initialValue)
-    , Atom, Display, Event (..), ManageHook, Query, WorkspaceId, Window, WindowSpace, X, XConfig
-    , liftX, runQuery, windows
-    , config, display, theRoot, handleEventHook, logHook, startupHook, windowset
+    , Message, broadcastMessage, sendMessage, sendMessageWithNoRefresh
+    , Atom, Event (..), WorkspaceId, Window, WindowSpace, X, XConfig
+    , windows
+    , display, theRoot, handleEventHook, logHook, startupHook, windowset
     , killWindow, trace
     , none
-    , internAtom, aTOM, cARDINAL, wINDOW, propModeReplace
+    , aTOM, cARDINAL, wINDOW
     )
 import qualified XMonad.StackSet as W
 import qualified XMonad.ExtensibleState as ES
 import XMonad.X11
 
-import qualified Graphics.X11 as X11
-import qualified Graphics.X11.Xlib.Extras as X11
 
+data FullscreenMessage
+    = AddFullscreen Window
+    | RemoveFullscreen Window
+    | FullscreenChanged
+  deriving (Typeable)
+
+instance Message FullscreenMessage
 
 data EwmhCache = EwmhCache
     { desktopNames   :: ![String]     -- ^ Workspace IDs, lexicographically sorted
@@ -192,22 +190,33 @@ fullscreenEventHook ev@ClientMessageEvent
         ev_event_type ev == _NET_WM_STATE_32  &&
         _NET_WM_STATE_FULLSCREEN_CInt `elem` dats) $ do
 
-        wstate <- fold <$> getWindowProperty _NET_WM_STATE win
+        wstate <- fold <$> getWindowProperty32 _NET_WM_STATE win
         let
           isFull = _NET_WM_STATE_FULLSCREEN_32 `elem` wstate
           changeWindowState f = replaceWindowProperty aTOM _NET_WM_STATE (f wstate) win
         if
             | act == add || (act == toggle  &&  not isFull) -> do
                 changeWindowState (_NET_WM_STATE_FULLSCREEN_32 :)
-                windows $ W.float win $ W.RationalRect 0 0 1 1
+                -- windows $ W.float win $ W.RationalRect 0 0 1 1
+                broadcastMessage $ AddFullscreen win
+                sendMessage FullscreenChanged
             | act == remove || (act == toggle && not isFull) -> do
                 changeWindowState $ List.delete _NET_WM_STATE_FULLSCREEN_32
-                windows $ W.sink win
+                -- windows $ W.sink win
+                broadcastMessage $ RemoveFullscreen win
+                sendMessage FullscreenChanged
             | otherwise -> pure ()
   where
     remove = 0
     add = 1
     toggle = 2
+fullscreenEventHook DestroyWindowEvent{ ev_window = w } = do
+    -- When a window is destroyed, the layouts should remove that window
+    -- from their states. Nothing to do with EWMH, but belongs with the other fullscreen events.
+    broadcastMessage $ RemoveFullscreen w
+    cw <- State.gets $ W.workspace . W.current . windowset
+    sendMessageWithNoRefresh FullscreenChanged cw
+    pure $ All True
 fullscreenEventHook _ = pure $ All True
 
 setActiveWindow :: Window -> X ()

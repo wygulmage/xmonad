@@ -2,21 +2,12 @@
 
 module XMonad.X11 where
 
-import qualified Codec.Binary.UTF8.String as UTF8
-
-import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (asks)
-import qualified Control.Monad.State as State
 
-import Data.Foldable (fold, foldl', for_, traverse_)
-import qualified Data.Bits as Bits
 import Data.Int (Int32)
-import qualified Data.List as List
 import           Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as Hash
-import Data.Maybe (fromMaybe, isJust)
-import Data.Semigroup (All (All), appEndo)
 import Data.Word (Word32)
 
 import qualified Foreign.C.Types as C
@@ -28,10 +19,9 @@ import qualified Foreign.Storable as Storable
 
 import XMonad
     ( ExtensionClass (initialValue)
-    , Atom, Display, Window, X, XConfig
-    , config, display, theRoot, handleEventHook, logHook, startupHook, windowset
-    , none
-    , internAtom, wINDOW, propModeReplace
+    , Atom, Display, Window, X
+    , display
+    , internAtom, propModeReplace
     )
 import qualified XMonad.ExtensibleState as ES
 
