@@ -45,7 +45,7 @@ data FullscreenFull l a = FullscreenFull !W.RationalRect (Set.Set a) (l a)
 instance (LayoutClass l Window)=> LayoutClass (FullscreenFull l) Window where
     runLayout (W.Workspace i (FullscreenFull fullRect fullWins l) ms) scRect = do
         (ws', ml') <- runLayout (W.Workspace i l ms) scRect
-        pure $! (scale ws', FullscreenFull fullRect fullWins <$> ml')
+        pure (scale ws', FullscreenFull fullRect fullWins <$> ml')
       where
         rect' :: Rectangle
         rect' = scaleRationalRect scRect fullRect
@@ -107,11 +107,11 @@ fullscreenEventHook (ClientMessageEvent _ _ _ _ win typ (action:dats)) = do
       sendMessage FullscreenChanged
   return $ All True
 
-fullscreenEventHook (DestroyWindowEvent {ev_window = w}) = do
+fullscreenEventHook DestroyWindowEvent{ ev_window = w } = do
   -- When a window is destroyed, the layouts should remove that window
   -- from their states.
   broadcastMessage $ RemoveFullscreen w
-  cw <- (W.workspace . W.current) <$> gets windowset
+  cw <- gets $ W.workspace . W.current . windowset
   sendMessageWithNoRefresh FullscreenChanged cw
   return $ All True
 
@@ -121,7 +121,7 @@ fullscreenManageHook = do
     w <- ask
     liftX $ do
         broadcastMessage $ AddFullscreen w
-        cw <- W.workspace . W.current <$> gets windowset
+        cw <- gets $ W.workspace . W.current . windowset
         sendMessageWithNoRefresh FullscreenChanged cw
     idHook
 

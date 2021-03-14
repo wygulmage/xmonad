@@ -1,6 +1,4 @@
-{-# LANGUAGE MultiWayIf
-           , PatternGuards
-           , ScopedTypeVariables #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module XMonad.X11 where
 
@@ -30,14 +28,11 @@ import qualified Foreign.Storable as Storable
 
 import XMonad
     ( ExtensionClass (initialValue)
-    , Atom, Display, Event (..), ManageHook, Query, WorkspaceId, Window, WindowSpace, X, XConfig
-    , liftX, runQuery, windows
+    , Atom, Display, Window, X, XConfig
     , config, display, theRoot, handleEventHook, logHook, startupHook, windowset
-    , killWindow, trace
     , none
-    , internAtom, aTOM, cARDINAL, wINDOW, propModeReplace
+    , internAtom, wINDOW, propModeReplace
     )
-import qualified XMonad.StackSet as W
 import qualified XMonad.ExtensibleState as ES
 
 import qualified Graphics.X11 as X11
@@ -46,7 +41,7 @@ import qualified Graphics.X11.Xlib.Extras as X11
 newtype AtomCache = AtomCache (HashMap String Atom)
 
 instance ExtensionClass AtomCache where
-    initialValue = AtomCache (Hash.empty)
+    initialValue = AtomCache Hash.empty
 
 intToInt32 :: Int -> Int32
 intToInt32 = fromIntegral
@@ -141,8 +136,8 @@ getWindowPropertyIO disp prop win =
 replaceWindowProperty32 ::
     forall a. (Storable a, Integral a)=>
     Atom -> Atom -> [a] -> Window -> X C.CInt
-replaceWindowProperty32 typ prop val win =
-    replaceWindowProperty typ prop (toWord32 <$> val) win
+replaceWindowProperty32 typ prop val =
+    replaceWindowProperty typ prop (toWord32 <$> val)
   where
     toWord32 :: a -> Word32
     toWord32 = fromIntegral

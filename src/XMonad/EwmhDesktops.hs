@@ -116,7 +116,7 @@ ewmhDesktopsLogHook = do
       current = fmap intToInt32 $
           (W.tag . W.workspace . W.current) s `List.elemIndex` desktop_names
     when (Just (currentDesktop es) /= current) $
-        for_ current (setCurrentDesktop)
+        for_ current setCurrentDesktop
 
     let
       window_desktops = W.integrate' . W.stack <$> ws
@@ -201,7 +201,7 @@ fullscreenEventHook ev@ClientMessageEvent
                 changeWindowState (_NET_WM_STATE_FULLSCREEN_32 :)
                 windows $ W.float win $ W.RationalRect 0 0 1 1
             | act == remove || (act == toggle && not isFull) -> do
-                changeWindowState $ List.delete $ _NET_WM_STATE_FULLSCREEN_32
+                changeWindowState $ List.delete _NET_WM_STATE_FULLSCREEN_32
                 windows $ W.sink win
             | otherwise -> pure ()
   where
