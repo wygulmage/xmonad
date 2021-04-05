@@ -2,17 +2,8 @@
            , PatternGuards
            , ScopedTypeVariables #-}
 
-module XMonad.EwmhDesktops (
-    FullscreenMessage (..),
-    ewmh,
-    ewmhDesktopStartup,
-    ewmhDesktopsLogHook,
-    ewmhDesktopsEventHook,
-    fullscreenEventHook,
-    fullscreenStartup,
-    isFullscreen,
-    ) where
 
+module XMonad.ExtensibleState.Ewmh where
 import qualified Codec.Binary.UTF8.String as UTF8
 
 import Control.Monad (when)
@@ -25,6 +16,7 @@ import qualified Data.List as List
 import Data.Maybe (fromMaybe)
 import Data.Semigroup (All (All))
 import Data.Typeable (Typeable)
+import qualified Data.Set as Set
 
 import XMonad
     ( ExtensionClass (initialValue)
@@ -41,32 +33,24 @@ import qualified XMonad.StackSet as W
 import qualified XMonad.ExtensibleState as ES
 import XMonad.X11
 
-
-data FullscreenMessage
-    = AddFullscreen Window
-    | RemoveFullscreen Window
-    | FullscreenChanged
-  deriving (Typeable)
-
-instance Message FullscreenMessage
-
 data EwmhCache = EwmhCache
     { desktopNames   :: ![String]     -- ^ Workspace IDs, lexicographically sorted
-    , clientList     :: ![Window]     -- ^ Windows managed by xmonad
     , currentDesktop :: !Int32        -- ^ index of the focused desktop in desktopNames
-    , windowDesktops :: ![[Window]]   -- ^ tiled Windows grouped by Workspace
+    , clientList     :: ![Window]     -- ^ Windows managed by xmonad, ordered by ???
+    , windowDesktops :: ![[Window]]   -- ^ tiled Windows grouped by Workspace, ordered by ???
     , activeWindow   :: !Window       -- ^ focused Window
+    , fullscreenCache :: Set.Set Window -- ^ fullscreen windows
     }
 
 instance ExtensionClass EwmhCache where
     initialValue = EwmhCache
         { desktopNames = []
-        , clientList = []
         , currentDesktop = 0
+        , clientList = []
         , windowDesktops = []
         , activeWindow = none
+        , fullscreenCache = Set.empty
         }
-
 
 ewmh :: XConfig a -> XConfig a
 ewmh cfg = cfg
@@ -89,9 +73,6 @@ ewmhDesktopStartup = addSupported $
     "_NET_WM_STATE" :
     "_NET_WM_STATE_FULLSCREEN" :
     []
-
-fullscreenStartup :: X ()
-fullscreenStartup = addSupported ["_NET_WM_STATE", "_NET_WM_STATE_FULLSCREEN"]
 
 ewmhDesktopsLogHook :: X ()
 {- ^ Update EWMH state.

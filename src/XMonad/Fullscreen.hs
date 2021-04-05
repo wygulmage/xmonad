@@ -8,6 +8,7 @@ module XMonad.Fullscreen where
 import Control.Monad.Reader (ask)
 import Control.Monad.State (gets)
 
+import Data.Bifoldable (bifoldMap)
 import qualified Data.List as List
 import Data.Int (Int32, Int64)
 import Data.Word (Word32)
@@ -34,33 +35,29 @@ instance (LayoutClass l Window)=> LayoutClass (FullscreenFull l) Window where
         rect' :: Rectangle
         rect' = scaleRationalRect scRect fullRect
         scale :: [(Window, Rectangle)] -> [(Window, Rectangle)]
-        scale wins = case List.partition ((`Set.member` fullWins) . fst) wins of
-            (fulls, regs) -> fmap (rect' <$) fulls <> List.filter (not . supersetOf rect' . snd) regs
+        scale wins = bifoldMap
+            (fmap (rect' <$))
+            (List.filter (not . contains rect' . snd)) $
+            List.partition ((`Set.member` fullWins) . fst) wins
 
     handleMessage ff@(FullscreenFull fullRect fullWins l) msg =
-        case fullscreenMessage ff msg of
+        case fullscreenMessage of
             Nothing -> fmap (FullscreenFull fullRect fullWins) <$> handleMessage l msg
             jff -> pure jff
+      where
+        fullscreenMessage =
+            case fromMessage msg of
+                Just (AddFullscreen win) ->
+                    Just $ FullscreenFull fullRect (Set.insert win fullWins) l
+                Just (RemoveFullscreen win) ->
+                    Just $ FullscreenFull fullRect (Set.delete win fullWins) l
+                Just FullscreenChanged ->
+                    Just ff
+                _ ->
+                    Nothing
 
-    pureMessage ff@(FullscreenFull fullRect fullWins l) msg =
-        case fullscreenMessage ff msg of
-            Nothing -> FullscreenFull fullRect fullWins <$> pureMessage l msg
-            jff -> jff
 
     description (FullscreenFull _ _ l) = "FullscreenFull " <> description l
-
-fullscreenMessage ::
-    FullscreenFull l Window -> SomeMessage -> Maybe (FullscreenFull l Window)
-fullscreenMessage ff@(FullscreenFull fullRect fullWins l) msg =
-        case fromMessage msg of
-             Just (AddFullscreen win) ->
-                 Just $ FullscreenFull fullRect (Set.insert win fullWins) l
-             Just (RemoveFullscreen win) ->
-                 Just $ FullscreenFull fullRect (Set.delete win fullWins) l
-             Just FullscreenChanged ->
-                 Just ff
-             _ ->
-                 Nothing
 
 fullscreenFull :: l a -> FullscreenFull l a
 fullscreenFull = W.RationalRect 0 0 1 1 `FullscreenFull` Set.empty
@@ -83,21 +80,22 @@ fullscreenSupport cfg = cfg
     , startupHook     = startupHook cfg <> fullscreenStartup
     }
 
-supersetOf :: Rectangle -> Rectangle -> Bool
-supersetOf (Rectangle r1_x r1_y r1_w r1_h) (Rectangle r2_x r2_y r2_w r2_h) =
-               r1_x1' <= r2_x1'
-            && r1_y1' <= r2_y1'
-            && r1_x2' >= r2_x2'
-            && r1_y2' >= r2_y2'
+
+
+--- helpers ---
+
+contains :: Rectangle -> Rectangle -> Bool
+-- ^ Does the first rectangle contain the second?
+Rectangle r1_x r1_y r1_w r1_h `contains` Rectangle r2_x r2_y r2_w r2_h =
+       r1_x <= r2_x
+    && r1_y <= r2_y
+    && r1_x2 >= r2_x2
+    && r1_y2 >= r2_y2
   where
-    r1_x1' = int32ToInt64 r1_x
-    r1_y1' = int32ToInt64 r1_y
-    r1_x2' = r1_x1' + word32ToInt64 r1_w
-    r1_y2' = r1_y1' + word32ToInt64 r1_h
-    r2_x1' = int32ToInt64 r2_x
-    r2_y1' = int32ToInt64 r2_y
-    r2_x2' = r2_x1' + word32ToInt64 r2_w
-    r2_y2' = r2_y1' + word32ToInt64 r2_h
+    r1_x2 = int32ToInt64 r1_x + word32ToInt64 r1_w
+    r1_y2 = int32ToInt64 r1_y + word32ToInt64 r1_h
+    r2_x2 = int32ToInt64 r2_x + word32ToInt64 r2_w
+    r2_y2 = int32ToInt64 r2_y + word32ToInt64 r2_h
 
 
 int32ToInt64 :: Int32 -> Int64

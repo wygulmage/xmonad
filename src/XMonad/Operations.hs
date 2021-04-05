@@ -504,13 +504,7 @@ readStateFile xmc = do
       let winset = W.ensureTags layout (workspaces xmc) $ W.mapLayout (fromMaybe layout . maybeRead lreads) (sfWins sf)
           extState = M.fromList . map (second Left) $ sfExt sf
 
-      return XState { windowset       = winset
-                    , numberlockMask  = 0
-                    , mapped          = S.empty
-                    , waitingUnmap    = M.empty
-                    , dragging        = Nothing
-                    , extensibleState = extState
-                    }
+      return (newXState winset){ extensibleState = extState }
   where
     layout = Layout (layoutHook xmc)
     lreads = readsLayout layout

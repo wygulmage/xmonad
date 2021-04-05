@@ -1,6 +1,6 @@
 {-# LANGUAGE ExistentialQuantification, FlexibleInstances, GeneralizedNewtypeDeriving,
              MultiParamTypeClasses, TypeSynonymInstances, DeriveDataTypeable,
-             LambdaCase, NamedFieldPuns, DeriveTraversable #-}
+             LambdaCase, NamedFieldPuns, DeriveTraversable, ScopedTypeVariables #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -29,7 +29,8 @@ module XMonad.Core (
     getAtom, spawn, spawnPID, xfork, recompile, trace, whenJust, whenX,
     getXMonadDir, getXMonadCacheDir, getXMonadDataDir, stateFileName,
     atom_WM_STATE, atom_WM_PROTOCOLS, atom_WM_DELETE_WINDOW, atom_WM_TAKE_FOCUS, withWindowAttributes,
-    ManageHook, Query(..), runQuery, Directories(..), Dirs, getDirs
+    ManageHook, Query(..), runQuery, Directories(..), Dirs, getDirs,
+    newXState,
   ) where
 
 import XMonad.StackSet hiding (modify)
@@ -63,6 +64,8 @@ import Data.Maybe (isJust,fromMaybe)
 
 import qualified Data.Map as M
 import qualified Data.Set as S
+import           Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as Hash
 
 -- | XState, the (mutable) window manager state.
 data XState = XState
@@ -76,7 +79,19 @@ data XState = XState
     --
     -- The module "XMonad.Util.ExtensibleState" in xmonad-contrib
     -- provides additional information and a simple interface for using this.
+    , stateExtensions :: !StateExtensions
     }
+
+newXState wins = XState
+    { windowset = wins
+    , mapped = S.empty
+    , waitingUnmap = M.empty
+    , dragging = Nothing
+    , numberlockMask = 0
+    , extensibleState = M.empty
+    , stateExtensions = StateExtensions Hash.empty
+    }
+
 
 -- | XConf, the (read-only) window manager configuration.
 data XConf = XConf
@@ -696,3 +711,12 @@ uninstallSignalHandlers = io $ do
     installHandler openEndedPipe Default Nothing
     installHandler sigCHLD Default Nothing
     return ()
+
+newtype StateExtensions = StateExtensions (HashMap String StateExtension)
+
+-- putExtension :: forall s. (ExtensionClass s)=> s -> X ()
+-- putExtension e = do
+--     let k = show (undefined :: s)
+--     xs <- get
+--     let (StateExtensions es) = stateExtensions xs
+--     put xs{ stateExtensions = StateExtensions (Hash.insert k (StateExtension e) es) }

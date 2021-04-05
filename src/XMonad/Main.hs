@@ -219,14 +219,7 @@ launch initxmc drs = do
             , dirs          = drs
             }
 
-        st = XState
-            { windowset       = initialWinset
-            , numberlockMask  = 0
-            , mapped          = S.empty
-            , waitingUnmap    = M.empty
-            , dragging        = Nothing
-            , extensibleState = M.empty
-            }
+        st = newXState initialWinset
 
     allocaXEvent $ \e ->
         runX cf st $ do
