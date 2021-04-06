@@ -37,7 +37,7 @@ import Data.Typeable (Proxy (Proxy), cast, typeOf, typeRep)
 import Text.Read (readMaybe)
 
 import XMonad
-    (ExtensionClass, StateExtension (StateExtension, PersistentExtension), XState, extensibleState, extensionType, initialValue, stateExtensions)
+    (ExtensionClass, StateExtension (StateExtension, PersistentExtension), XState, extensibleState, extensionType, initialValue)
 
 -- | Modify the Map of state extensions.
 modifyStateExts ::
