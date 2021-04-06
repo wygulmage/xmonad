@@ -29,9 +29,10 @@ module XMonad.ExtensibleState (
 import           Control.Monad.State (MonadState, State)
 import qualified Control.Monad.State as State
 
+import Data.Functor (($>))
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Typeable (cast, typeOf)
+import Data.Typeable (Proxy (Proxy), cast, typeOf, typeRep)
 
 import Text.Read (readMaybe)
 
@@ -60,7 +61,8 @@ put x =
 
 -- | Revert a extension's state to its initial value.
 remove :: forall m a. (ExtensionClass a, MonadState XState m)=> a -> m ()
-remove _ = modifyStateExts $ Map.delete (show $ typeOf (initialValue :: a))
+-- remove _ = modifyStateExts $ Map.delete (show $ typeOf (initialValue :: a))
+remove _ = modifyStateExts $ Map.delete (show $ typeRep (Proxy :: Proxy a))
 {-# INLINE remove #-}
 
 -- | Return the current state of an extension.
@@ -80,7 +82,7 @@ modified f = do
     case f x of
         x'
             | x == x'   -> pure False
-            | otherwise -> put x' *> pure True
+            | otherwise -> put x' $> True
 {-# INLINE modified #-}
 
 get' :: forall a. (ExtensionClass a)=> State XState a
@@ -92,7 +94,7 @@ get' = do
        Just (Left cs)
          | PersistentExtension px <- extensionType default_
          , Just x' <- cast =<< readMaybe cs `asTypeOf` Just px ->
-             put x' *> pure x'
+             put x' $> x'
        _ -> pure default_
   where
     default_ :: a

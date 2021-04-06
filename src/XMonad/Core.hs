@@ -82,6 +82,7 @@ data XState = XState
     , stateExtensions :: !StateExtensions
     }
 
+newXState :: WindowSet -> XState
 newXState wins = XState
     { windowset = wins
     , mapped = S.empty

@@ -28,6 +28,7 @@ import Data.Typeable (Typeable)
 
 import XMonad
     ( ExtensionClass (initialValue)
+    , Query
     , Message, broadcastMessage, sendMessage, sendMessageWithNoRefresh
     , Atom, Event (..), WorkspaceId, Window, WindowSpace, X, XConfig
     , windows
@@ -312,6 +313,7 @@ modifyWindowState f win = do
 
 
 
+isFullscreen :: Query Bool
 isFullscreen = ask >>= \ win -> liftX $ do
     _NET_WM_STATE_FULLSCREEN <- getAtom "_NET_WM_STATE_FULLSCREEN"
     props <- getWindowState win
