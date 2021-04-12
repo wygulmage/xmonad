@@ -73,6 +73,7 @@ library
                    XMonad.Operations
                    XMonad.StackSet
                    XMonad.ExtensibleState
+                   XMonad.ExtensibleState.Ewmh
                    XMonad.X11
                    XMonad.EwmhDesktops
                    XMonad.Fullscreen

@@ -3,7 +3,17 @@
            , ScopedTypeVariables #-}
 
 
-module XMonad.ExtensibleState.Ewmh where
+module XMonad.ExtensibleState.Ewmh  (
+    FullscreenBroadcast (..),
+    FullscreenChanged (..),
+    ewmh,
+    ewmhDesktopStartup,
+    ewmhDesktopsLogHook,
+    ewmhDesktopsEventHook,
+    fullscreenEventHook,
+    isFullscreen,
+    ) where
+
 import qualified Codec.Binary.UTF8.String as UTF8
 
 import Control.Monad (when)
@@ -20,7 +30,9 @@ import qualified Data.Set as Set
 
 import XMonad
     ( ExtensionClass (initialValue)
+    , Query
     , Message, broadcastMessage, sendMessage, sendMessageWithNoRefresh
+    , Layout
     , Atom, Event (..), WorkspaceId, Window, WindowSpace, X, XConfig
     , windows
     , display, theRoot, handleEventHook, logHook, startupHook, windowset
@@ -32,6 +44,19 @@ import XMonad
 import qualified XMonad.StackSet as W
 import qualified XMonad.ExtensibleState as ES
 import XMonad.X11
+
+data FullscreenBroadcast
+    = AddFullscreen !Window
+    | RemoveFullscreen !Window
+  deriving (Eq, Show, Typeable)
+-- ^ This message is sent to all layouts when a window becomes or ceases to be fullscreen.
+
+instance Message FullscreenBroadcast
+
+data FullscreenChanged = FullscreenChanged -- ^ This message is sent to the current layout when a window becomes or ceases to be fullscreen.
+  deriving (Eq, Show, Typeable)
+
+instance Message FullscreenChanged
 
 data EwmhCache = EwmhCache
     { desktopNames   :: ![String]     -- ^ Workspace IDs, lexicographically sorted
@@ -80,26 +105,37 @@ ewmhDesktopsLogHook :: X ()
 ewmhDesktopsLogHook = do
     es <- ES.get
     s <- State.gets windowset
-    let ws = List.sortOn W.tag $ W.workspaces s
+    let
+      ws :: [W.Workspace WorkspaceId (Layout Window) Window]
+      ws = List.sortOn W.tag $ W.workspaces s
 
     let
       desktop_names :: [WorkspaceId]
       desktop_names = fmap W.tag ws
-    setNumberOfDesktops $ intToInt32 $ length desktop_names
-    when (desktopNames es /= desktop_names) $ setDesktopNames desktop_names
+    when (desktopNames es /= desktop_names) $ do
+       setDesktopNames desktop_names
+       let
+         number_of_desktops :: Int32
+         number_of_desktops = intToInt32 $ length $ desktopNames es
+         number_of_desktops' :: Int32
+         number_of_desktops' = intToInt32 $ length desktop_names
+       when (number_of_desktops /= number_of_desktops') $
+           setNumberOfDesktops number_of_desktops'
 
     let
+      client_list :: [Window]
       client_list = foldl' (\ cs c -> List.union cs $ W.integrate' $ W.stack c) [] ws
     when (clientList es /= client_list) $ setClientList client_list
 
-
     let
-      current = fmap intToInt32 $
+      currentDesktop' :: Int32
+      currentDesktop' = maybe (currentDesktop es) intToInt32 $
           (W.tag . W.workspace . W.current) s `List.elemIndex` desktop_names
-    when (Just (currentDesktop es) /= current) $
-        for_ current setCurrentDesktop
+    when (currentDesktop es /= currentDesktop') $
+        setCurrentDesktop currentDesktop'
 
     let
+      window_desktops :: [[Window]]
       window_desktops = W.integrate' . W.stack <$> ws
       itraverse_ f = loop 0
         where
@@ -109,14 +145,16 @@ ewmhDesktopsLogHook = do
     when (windowDesktops es /= window_desktops) $
         itraverse_ (traverse_ . setWindowDesktop) window_desktops
 
-    let activeWindow' = fromMaybe none $ W.peek s
+    let
+      activeWindow' :: Window
+      activeWindow' = fromMaybe none $ W.peek s
     when (activeWindow es /= activeWindow') $ setActiveWindow activeWindow'
 
     ES.put es
         { windowDesktops = window_desktops
         , desktopNames = desktop_names
         , clientList = client_list
-        , currentDesktop = maybe (currentDesktop es) fromIntegral current
+        , currentDesktop = currentDesktop'
         , activeWindow = activeWindow'
         }
 
@@ -135,25 +173,28 @@ handle f msg@ClientMessageEvent{} = do
 
     case ev_message_type msg of
         mt
-            | mt == _NET_CURRENT_DESKTOP ->
-                case ev_data msg of
+            | mt == _NET_CURRENT_DESKTOP
+            -> case ev_data msg of
                     n : _ | n' <- cIntToInt n
                           , 0 <= n'  &&  n' < length ws ->
                         windows . W.view . W.tag $ ws !! n'
                     _ ->
                         trace "Bad _NET_CURRENT_DESKTOP data"
-            | mt == _NET_WM_DESKTOP ->
-                case ev_data msg of
+            | mt == _NET_WM_DESKTOP
+            -> case ev_data msg of
                     n : _ | n' <- cIntToInt n
                           , 0 <= n' && n' < length ws ->
                         windows . W.shiftWin (W.tag $ ws !! n') $ ev_window msg
                     _ ->
                         trace "Bad _NET_CURRENT_DESKTOP data"
-            | mt == _NET_ACTIVE_WINDOW -> do -- FIXME: User config should decide how to honor client window activation requests.
+            | mt == _NET_ACTIVE_WINDOW
+            -> do -- FIXME: User config should decide how to honor client window activation requests.
                   windows . W.focusWindow $ ev_window msg
                   setActiveWindow $ ev_window msg
-            | mt == _NET_CLOSE_WINDOW -> killWindow $ ev_window msg
-            | otherwise -> pure ()
+            | mt == _NET_CLOSE_WINDOW
+            -> killWindow $ ev_window msg
+            | otherwise
+            -> pure ()
 handle _ _ = pure ()
 
 fullscreenEventHook :: Event -> X All
@@ -178,17 +219,20 @@ fullscreenEventHook ev@ClientMessageEvent
           isFull = _NET_WM_STATE_FULLSCREEN_32 `elem` wstate
           changeWindowState f = replaceWindowProperty aTOM _NET_WM_STATE (f wstate) win
         if
-            | act == add || (act == toggle  &&  not isFull) -> do
+            | act == add || (act == toggle  &&  not isFull)
+            -> do
                 changeWindowState (_NET_WM_STATE_FULLSCREEN_32 :)
                 -- windows $ W.float win $ W.RationalRect 0 0 1 1
                 broadcastMessage $ AddFullscreen win
                 sendMessage FullscreenChanged
-            | act == remove || (act == toggle && not isFull) -> do
+            | act == remove || (act == toggle && not isFull)
+            -> do
                 changeWindowState $ List.delete _NET_WM_STATE_FULLSCREEN_32
                 -- windows $ W.sink win
                 broadcastMessage $ RemoveFullscreen win
                 sendMessage FullscreenChanged
-            | otherwise -> pure ()
+            | otherwise
+            -> pure ()
   where
     remove = 0
     add = 1
@@ -293,6 +337,7 @@ modifyWindowState f win = do
 
 
 
+isFullscreen :: Query Bool
 isFullscreen = ask >>= \ win -> liftX $ do
     _NET_WM_STATE_FULLSCREEN <- getAtom "_NET_WM_STATE_FULLSCREEN"
     props <- getWindowState win
