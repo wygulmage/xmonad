@@ -58,7 +58,10 @@ import Data.Foldable (foldr, toList)
 import Data.Maybe   (listToMaybe,isJust,fromMaybe)
 import qualified Data.List as L (deleteBy,find,splitAt,filter,nub)
 import Data.List ( (\\) )
+import Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.Map  as M (Map,insert,delete,empty)
+
+import XMonad.Internal.Optics ((.~), (%~), (%%~), (&))
 
 -- $intro
 --
@@ -141,17 +144,151 @@ data StackSet i l a sid sd =
              , floating :: M.Map a RationalRect      -- ^ floating windows
              } deriving (Show, Read, Eq)
 
+-- StackSet Optics
+-- StackSet Lenses
+_screens ::
+    (Functor m)=>
+    (NonEmpty (Screen i l a sid sd) -> m (NonEmpty (Screen i l a sid' sd'))) ->
+    StackSet i l a sid sd -> m (StackSet i l a sid' sd')
+{- ^
+@_screens@ is a @Lens@ from a 'StackSet' to a 'NonEmpty' list of 'Screen's. The head of the list is the 'current' 'Screen' and the tail is the 'visible' 'Screen's.
+
+Use @stackSet '&' _screens '.~' screens'@ to set the 'Screens' in @stackSet@ to @screens'@.
+
+Use @stackSet '&' _screens . 'traverse' '%~' f@ to map a function @f@ over all the 'Screens' in @stackSet@.
+
+Use @stackSet & _screens . traverse '%%~' f@ to traverse an 'Applicative' function over the 'Screen's in @stackSet@.
+
+@
+(_screens '.~') :: 'NonEmpty' (Screen i l a sid' sd') -> StackSet i l a sid sd -> StackSet i l a sid' sd'
+(_screens . traverse '%~') :: (Screen i l a sid sd -> Screen i l a sid' sd') -> StackSet i l a sid sd -> StackSet i l a sid' sd'
+(_screens . traverse '%%~') :: (Applicative m)=> (Screen i l a sid sd -> m (Screen i l a sid' sd')) -> StackSet i l a sid sd -> StackSet i l a sid' sd'
+@
+-}
+_screens f stackSet =
+    fmap
+    (\ ~(cur :| vis) -> stackSet{ current = cur, visible = vis })
+    (f (current stackSet :| visible stackSet))
+
+_current ::
+    (Functor m)=>
+    (Screen i l a sid sd -> m (Screen i l a sid sd)) ->
+    StackSet i l a sid sd -> m (StackSet i l a sid sd)
+{- ^
+@_current@ is a 'Lens' from a 'StackSet' to its 'current' 'Screen'.
+-}
+_current f stackSet =
+    fmap (\ cur -> stackSet{ current = cur }) (f (current stackSet))
+
+_visible ::
+    (Functor m)=>
+    ([Screen i l a sid sd] -> m [Screen i l a sid sd]) ->
+    StackSet i l a sid sd -> m (StackSet i l a sid sd)
+{- ^
+@_visible@ is a @Lens@ from a 'StackSet' to its 'visible' 'Screen's (not including the current screen).
+-}
+_visible f stackSet =
+    fmap (\ vis -> stackSet{ visible = vis }) (f (visible stackSet))
+
+_hidden ::
+    (Functor m)=>
+    ([Workspace i l a] -> m [Workspace i l a]) ->
+    StackSet i l a sid sd -> m (StackSet i l a sid sd)
+{- ^
+@_hidden@ is a @Lens@ from a 'StackSet' to the list of its 'hidden' 'Workspace's.
+-}
+_hidden f stackSet =
+    fmap (\ hid -> stackSet{ hidden = hid }) (f (hidden stackSet))
+
+_floating ::
+    (Functor m)=>
+    (M.Map a RationalRect -> m (M.Map a RationalRect)) ->
+    StackSet i l a sid sd -> m (StackSet i l a sid sd)
+{- ^
+@_floating@ is a Lens to the 'M.Map' of 'floating' windows.
+-}
+_floating f stackSet =
+    fmap (\ flo -> stackSet{ floating = flo }) (f (floating stackSet))
+
+-- StackSet Traversals
+_workspaces ::
+    (Applicative m)=>
+    (Workspace i l a -> m (Workspace i' l' a)) ->
+    StackSet i l a sid sd -> m (StackSet i' l' a sid sd)
+{- ^
+@_workspaces@ is a @Traversal' from a 'StackSet' to all of the 'Workspace's in that 'StackSet'.
+-}
+_workspaces f stackSet =
+    (\ cur vis hid -> stackSet{ current = cur, visible = vis, hidden = hid})
+    <$> _workspace f (current stackSet)
+    <*> traverse (_workspace f) (visible stackSet)
+    <*> traverse f (hidden stackSet)
+
 -- | Visible workspaces, and their Xinerama screens.
 data Screen i l a sid sd = Screen { workspace :: !(Workspace i l a)
                                   , screen :: !sid
                                   , screenDetail :: !sd }
     deriving (Show, Read, Eq)
 
+-- Screen Optics
+-- Screen Lenses
+_workspace ::
+    (Functor m)=>
+    (Workspace i l a -> m (Workspace i' l' a')) ->
+    Screen i l a sid sd -> m (Screen i' l' a' sid sd)
+{- ^
+@_workspace@ is a 'Lens' from a 'Screen' to its 'Workspace'.
+-}
+_workspace f scr =
+    fmap
+    (\ workspace' -> scr{ workspace = workspace' })
+    (f (workspace scr))
+
+_screen ::
+    (Functor m)=>
+    (sid -> m sid') -> Screen i l a sid sd -> m (Screen i l a sid' sd)
+{- ^
+@_screen@ is a @Lens@ from a 'Screen' to its screen id. It is /not/ a @Lens@ to a 'Screen'.
+-}
+_screen f scr =
+    fmap (\ sid' -> scr{ screen = sid' }) (f (screen scr))
+
+_screenDetail ::
+    (Functor m)=>
+    (sd -> m sd') -> Screen i l a sid sd -> m (Screen i l a sid sd')
+_screenDetail f scr =
+    fmap (\ sd' -> scr{ screenDetail = sd' }) (f (screenDetail scr))
+
 -- |
 -- A workspace is just a tag, a layout, and a stack.
 --
 data Workspace i l a = Workspace  { tag :: !i, layout :: l, stack :: Maybe (Stack a) }
     deriving (Show, Read, Eq)
+
+-- Workspace Optics
+-- Workspace Lenses
+_tag :: (Functor m)=> (i -> m i') -> Workspace i l a -> m (Workspace i' l a)
+_tag f wrk = fmap (\ tag' -> wrk{ tag = tag' }) (f (tag wrk))
+
+_layout :: (Functor m)=> (l -> m l') -> Workspace i l a -> m (Workspace i l' a)
+{- ^
+@_layout@ is a @Lens@ from a @Workspace@ to its 'layout'. Because, when used, 'l' is an existential type, it is tough to get this to work at all.
+If @_layout@ does not work, use @layout@, @\\ wrk -> wrk{ layout = lay' }@, or @\\ wrk -> wrk{ layout = f (layout wrk) }@ as needed.
+-}
+-- _layout f wrk = fmap (\ lay' -> wrk{ layout = lay' }) (f (layout wrk))
+_layout f (Workspace i lay sta) =
+    fmap (\ lay' -> Workspace i lay' sta) (f lay)
+
+_stack ::
+    (Functor m)=>
+    (Maybe (Stack a) -> m (Maybe (Stack b))) ->
+    Workspace i l a -> m (Workspace i l b)
+{- ^
+@_stack@ is a @Lens@ from a 'Workspace' to 'Maybe' a 'Stack'.
+
+To map a function over the windows in a 'Workspace'\'s 'Stack', use @(_stack . traverse %~)@.
+-}
+_stack f wrk = fmap (\ sta' -> wrk{ stack = sta' }) (f (stack wrk))
 
 -- | A structure for window geometries
 data RationalRect = RationalRect !Rational !Rational !Rational !Rational
@@ -191,6 +328,29 @@ instance Traversable Stack where
             <$> forwards (traverse (Backwards . f) (up s))
             <*> f (focus s)
             <*> traverse f (down s)
+
+-- Stack Optics
+-- Stack Lenses
+_focus :: (Functor m)=> (a -> m a) -> Stack a -> m (Stack a)
+{- ^
+@_focus@ is a @Lens@ from a 'Stack' to its 'focus'.
+-}
+_focus f sta = fmap (\ foc' -> sta{ focus = foc' }) (f (focus sta))
+
+_up :: (Functor m)=> ([a] -> m [a]) -> Stack a -> m (Stack a)
+{- ^ @_up@ is a @Lens@ from a 'Stack' to the list of its 'up' elements.
+
+Use @(_up . traverse %~)@ to map a function over the 'up' elements of a 'Stack'.
+-}
+_up f sta = fmap (\ up' -> sta{ up = up' }) (f (up sta))
+
+_down :: (Functor m)=> ([a] -> m [a]) -> Stack a -> m (Stack a)
+{- ^ @_down@ is a @Lens@ from a 'Stack' to the list of its 'down' elements.
+
+Use @(_down . traverse %~)@ to map a function over the 'down' elements of a 'Stack'.
+-}
+_down f sta = fmap (\ dn' -> sta{ down = dn' }) (f (down sta))
+
 
 -- | this function indicates to catch that an error is expected
 abort :: String -> a
