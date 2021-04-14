@@ -8,15 +8,26 @@ It provides the most basic functions for working with optics (here, 'Lens'es and
 -}
 
 module XMonad.Internal.Optics (
+-- Modify
     (%~), (.~),
     (%%~),
     sets,
+-- Summarize
     (^.), (^?), (^..),
     to,
+-- Read
+    view,
+-- Modify State
+    (.=), (<~),
+-- Get State
+    use,
+-- Helpers
     (&), (<&>), -- re-exported
     ) where
 
 -- Classes
+import qualified Control.Monad.Reader as Reader
+import qualified Control.Monad.State as State
 import Data.Coerce (Coercible, coerce)
 import Data.Functor.Contravariant (Contravariant (contramap))
 -- Newtypes
@@ -76,7 +87,7 @@ sets f g = Identity #. f (runIdentity #. g)
 -- ** Getting
 
 -- NOTE: Getting is not exported.
-type Getting r c a = (a -> Const  r a) -> c -> Const  r c
+type Getting r c a = (a -> Const r a) -> c -> Const r c
 {- ^
 @Getting@ is a concrete type used to instantiate optics when they are used to get single values or 'Data.Monoid.Monoid' folds.
 -}
@@ -117,6 +128,34 @@ to :: (c -> a) -> Getter c a
 -}
 to f g = contramap f . g . f
 {-# INLINE to #-}
+
+-- ** Reading
+
+view :: (Reader.MonadReader r m)=> Getting a r a -> m a
+view l = Reader.asks (^. l)
+{-# INLINE view #-}
+
+-- ** Modifying State
+
+(%=) :: (State.MonadState s m)=> ASetter s s a b -> (a -> b) -> m ()
+l %= f = State.modify $ l %~ f
+{-# INLINE (%=) #-}
+
+(.=) :: (State.MonadState s m)=> ASetter s s a b -> b -> m ()
+l .= x = State.modify $ l .~ x
+{-# INLINE (.=) #-}
+
+(<~) :: (State.MonadState s m)=> ASetter s s a b -> m b -> m ()
+{- ^ Think of @<~@ as @.=<<@.
+-}
+l <~ mx = (l .=) =<< mx
+{-# INLINE (<~) #-}
+
+
+-- ** Getting State
+
+use :: (State.MonadState s m)=> Getting a s a -> m a
+use l = State.gets (^. l)
 
 
 --- Module-Internal Definitions (not exported) ---
