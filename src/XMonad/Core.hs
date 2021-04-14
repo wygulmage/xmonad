@@ -40,9 +40,9 @@ import Prelude hiding (fail)
 import Control.Exception (fromException, try, throw, finally, SomeException(..))
 import qualified Control.Exception as E
 import Control.Applicative (Alternative, (<|>), empty, liftA2)
-import Control.Monad (filterM, guard, when, liftM2)
+import Control.Monad (filterM, guard, when)
+import Control.Monad.Fail (MonadFail)
 import Control.Monad.IO.Class (MonadIO (liftIO))
-import Control.Monad.Fail (MonadFail (fail))
 import Control.Monad.State (MonadState (..), StateT (..), gets)
 import Control.Monad.Reader (MonadReader (..), ReaderT (..), asks)
 import Data.Semigroup
