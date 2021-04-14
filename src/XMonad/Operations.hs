@@ -1,5 +1,5 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-{-# LANGUAGE FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, PatternGuards, TypeSynonymInstances, NamedFieldPuns #-}
+{-# LANGUAGE FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, PatternGuards, TypeSynonymInstances, NamedFieldPuns, RankNTypes #-}
 -- --------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Operations
@@ -19,7 +19,8 @@ module XMonad.Operations where
 import XMonad.Core
 import XMonad.Layout (Full(..))
 import qualified XMonad.StackSet as W
-import XMonad.Internal.Optics ((.~), (%~), (^.), (^..), to, (&))
+import XMonad.Internal.Optics
+    ((.~), (%~), (%%~), (^.), (^..), to, (&), (.=), (<~), use)
 
 import Data.Maybe
 import Data.Monoid          (Endo(..),Any(..))
@@ -412,8 +413,33 @@ sendMessage a = windowBracket_ $ do
 
 -- | Send a message to all layouts, without refreshing.
 broadcastMessage :: Message a => a -> X ()
-broadcastMessage a = withWindowSet $ \ws ->
-    mapM_ (sendMessageWithNoRefresh a) (ws ^.. W._workspaces)
+-- broadcastMessage a = withWindowSet $ \ws ->
+--     mapM_ (sendMessageWithNoRefresh a) (ws ^.. W._workspaces)
+broadcastMessage a = updateLayoutsBy $
+    userCodeDef Nothing . (`handleMessage` SomeMessage a) . W.layout
+
+updateLayoutsBy ::
+    (MonadState XState m)=>
+    (W.Workspace WorkspaceId (Layout Window) Window -> m (Maybe (Layout Window))) ->
+    m ()
+updateLayoutsBy f = _windowset %=<< (W._workspaces $ \ wrk ->
+    maybe wrk (\ l' -> wrk & W._layout .~ l') <$> f wrk)
+
+-- updateWorkspacesBy f = _windowset %=<< (W._workspaces $ \ wrk ->
+--     maybe wrk id <$> f wrk)
+
+-- | Use a monadic function to modify the windowset.
+-- Modifications to the windowset that aren't returned by the function are lost.
+windowsetM ::
+    (MonadState XState m)=> (WindowSet -> m WindowSet) -> m ()
+windowsetM = (_windowset %=<<)
+
+-- | Use a lens and a monadic function to modify part of state.
+-- Any modifications to that part of state that aren't in the return value of the function are discarded, but other changes to state are retained.
+(%=<<) ::
+   (MonadState s m)=>
+   (forall n. Functor n => ((a -> n a) -> s -> n s)) -> (a -> m a) -> m ()
+l %=<< f = l <~ (f =<< use l)
 
 -- | Send a message to a layout, without refreshing.
 sendMessageWithNoRefresh :: Message a => a -> W.Workspace WorkspaceId (Layout Window) Window -> X ()
