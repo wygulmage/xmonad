@@ -35,7 +35,7 @@ module XMonad.Core (
   ) where
 
 import XMonad.StackSet hiding (modify)
-import XMonad.Internal.Optics ((.~), (%~), (%%~), (^.), to, (&))
+import XMonad.Internal.Optics ((%%~))
 
 import Prelude
 import Control.Exception (fromException, try, bracket, throw, finally, SomeException(..))
@@ -63,7 +63,6 @@ import Graphics.X11.Xlib.Extras (getWindowAttributes, WindowAttributes, Event)
 import Data.Typeable
 import Data.List ((\\))
 import Data.Maybe (isJust,fromMaybe)
-import Data.List.NonEmpty (NonEmpty ((:|)))
 
 import qualified Data.Map as M
 import qualified Data.Set as S

@@ -18,7 +18,7 @@ module XMonad.Internal.Optics (
 -- Read
     view,
 -- Modify State
-    (.=), (<~),
+    (%=), (.=), (<~),
 -- Get State
     use,
 -- Helpers

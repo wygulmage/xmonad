@@ -20,7 +20,7 @@ import XMonad.Core
 import XMonad.Layout (Full(..))
 import qualified XMonad.StackSet as W
 import XMonad.Internal.Optics
-    ((.~), (%~), (%%~), (^.), (^..), to, (&), (.=), (<~), use)
+    ((.~), (%~), (^.), (^..), to, (&), (<~), use)
 
 import Data.Maybe
 import Data.Monoid          (Endo(..),Any(..))
@@ -424,9 +424,6 @@ updateLayoutsBy ::
     m ()
 updateLayoutsBy f = _windowset %=<< (W._workspaces $ \ wrk ->
     maybe wrk (\ l' -> wrk & W._layout .~ l') <$> f wrk)
-
--- updateWorkspacesBy f = _windowset %=<< (W._workspaces $ \ wrk ->
---     maybe wrk id <$> f wrk)
 
 -- | Use a monadic function to modify the windowset.
 -- Modifications to the windowset that aren't returned by the function are lost.

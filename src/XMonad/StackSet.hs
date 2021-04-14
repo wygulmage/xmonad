@@ -70,7 +70,7 @@ import Data.List ( (\\) )
 import Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.Map  as M (Map,insert,delete,empty)
 
-import XMonad.Internal.Optics ((.~), (%~), (%%~), (^.), (^..), to, (&))
+import XMonad.Internal.Optics ((.~), (%~), (^..), (&))
 
 -- $intro
 --
