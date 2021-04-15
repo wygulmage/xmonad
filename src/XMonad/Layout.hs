@@ -51,26 +51,29 @@ instance LayoutClass Full a
 
 -- | The builtin tiling mode of xmonad. Supports 'Shrink', 'Expand' and
 -- 'IncMasterN'.
-data Tall a = Tall { tallNMaster :: !Int               -- ^ The default number of windows in the master pane (default: 1)
-                   , tallRatioIncrement :: !Rational   -- ^ Percent of screen to increment by when resizing panes (default: 3/100)
-                   , tallRatio :: !Rational            -- ^ Default proportion of screen occupied by master pane (default: 1/2)
-                   }
-                deriving (Show, Read)
-                        -- TODO should be capped [0..1] ..
+data Tall a = Tall
+    { tallNMaster :: !Int               -- ^ The default number of windows in the master pane (default: 1)
+    , tallRatioIncrement :: !Rational   -- ^ Percent of screen to increment by when resizing panes (default: 3/100)
+    , tallRatio :: !Rational            -- ^ Default proportion of screen occupied by master pane (default: 1/2)
+    } -- TODO should be capped [0..1] ..
+  deriving (Show, Read)
+
 
 -- a nice pure layout, lots of properties for the layout, and its messages, in Properties.hs
 instance LayoutClass Tall a where
     pureLayout (Tall nmaster _ frac) r s = zip ws rs
-      where ws = W.integrate s
-            rs = tile frac r nmaster (length ws)
+      where
+      ws = W.integrate s
+      rs = tile frac r nmaster (length ws)
 
     pureMessage (Tall nmaster delta frac) m =
             msum [fmap resize     (fromMessage m)
                  ,fmap incmastern (fromMessage m)]
 
-      where resize Shrink             = Tall nmaster delta (max 0 $ frac-delta)
-            resize Expand             = Tall nmaster delta (min 1 $ frac+delta)
-            incmastern (IncMasterN d) = Tall (max 0 (nmaster+d)) delta frac
+      where
+        resize Shrink             = Tall nmaster delta (max 0 $ frac-delta)
+        resize Expand             = Tall nmaster delta (min 1 $ frac+delta)
+        incmastern (IncMasterN d) = Tall (max 0 (nmaster+d)) delta frac
 
     description _ = "Tall"
 
@@ -166,9 +169,9 @@ choose (Choose d l r) d' ml      mr = f lr
  where
     (l', r') = (fromMaybe l ml, fromMaybe r mr)
     lr       = case (d, d') of
-                    (CL, CR) -> (hide l'  , return r')
-                    (CR, CL) -> (return l', hide r'  )
-                    (_ , _ ) -> (return l', return r')
+                   (CL, CR) -> (hide l'  , return r')
+                   (CR, CL) -> (return l', hide r'  )
+                   (_ , _ ) -> (return l', return r')
     f (x,y)  = Just <$> liftA2 (Choose d') x y
     hide x   = fromMaybe x <$> handle x Hide
 
