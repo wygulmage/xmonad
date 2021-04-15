@@ -38,7 +38,7 @@ import Data.Maybe (fromMaybe)
 data Resize     = Shrink | Expand   deriving Typeable
 
 -- | Increase the number of clients in the master pane.
-data IncMasterN = IncMasterN !Int    deriving Typeable
+newtype IncMasterN = IncMasterN Int deriving Typeable
 
 instance Message Resize
 instance Message IncMasterN
@@ -142,7 +142,7 @@ instance Message ChangeLayout
 infixr 5 |||
 
 -- | A layout that allows users to switch between various layout options.
-data Choose l r a = Choose CLR (l a) (r a) deriving (Read, Show)
+data Choose l r a = Choose !CLR (l a) (r a) deriving (Read, Show) -- TODO Should the (l a) and (r a) parameters be strict too?
 
 -- | Choose the current sub-layout (left or right) in 'Choose'.
 data CLR = CL | CR deriving (Read, Show, Eq)
