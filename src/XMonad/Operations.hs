@@ -52,7 +52,8 @@ import Data.Maybe
 import Data.Monoid          (Endo(..),Any(..))
 import Data.List            (nub, (\\), find)
 import Data.Bits            ((.|.), (.&.), complement, testBit)
-import Data.Foldable        (traverse_)
+import Data.Foldable        (for_, traverse_)
+import Data.Traversable     (for)
 import Data.Function        (on)
 import Data.Ratio
 import qualified Data.Map as M
@@ -162,7 +163,7 @@ windows f = do
     -- for each workspace, layout the currently visible workspaces
     let allscreens     = W.screens ws
         summed_visible = scanl (++) [] $ map (W.integrate' . W.stack . W.workspace) allscreens
-    rects <- fmap concat $ forM (zip allscreens summed_visible) $ \ (w, vis) -> do
+    rects <- fmap concat $ for (zip allscreens summed_visible) $ \ (w, vis) -> do
         let wsp   = W.workspace w
             this  = W.view n ws
             n     = W.tag wsp
@@ -359,7 +360,7 @@ setButtonGrab grab w = do
                                     then grabModeAsync
                                     else grabModeSync
     withDisplay $ \d -> io $ if grab
-        then forM_ [button1, button2, button3] $ \b ->
+        then for_ [button1, button2, button3] $ \b ->
             grabButton d b anyModifier w False buttonPressMask
                        pointerMode grabModeSync none none
         else ungrabButton d anyButton anyModifier w
@@ -395,8 +396,8 @@ setFocusX w = withWindowSet $ \ws -> do
     dpy <- asks display
 
     -- clear mouse button grab and border on other windows
-    forM_ (W.current ws : W.visible ws) $ \wk ->
-        forM_ (W.index (W.view (W.tag (W.workspace wk)) ws)) $ \otherw ->
+    for_ (W.current ws : W.visible ws) $ \wk ->
+        for_ (W.index (W.view (W.tag (W.workspace wk)) ws)) $ \otherw ->
             setButtonGrab True otherw
 
     -- If we ungrab buttons on the root window, we lose our mouse bindings.
