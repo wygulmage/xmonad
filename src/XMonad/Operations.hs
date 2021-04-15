@@ -92,16 +92,18 @@ manage w = whenX (not <$> isClient w) $ withDisplay $ \d -> do
 
     rr <- snd <$> floatLocation w
     -- ensure that float windows don't go over the edge of the screen
-    let adjust (W.RationalRect x y wid h)
-          | x + wid > 1 || y + h > 1 || x < 0 || y < 0
-          = W.RationalRect (0.5 - wid/2) (0.5 - h/2) wid h
-        adjust r = r
+    let
+      adjust (W.RationalRect x y wid h)
+        | x + wid > 1 || y + h > 1 || x < 0 || y < 0
+        = W.RationalRect (0.5 - wid/2) (0.5 - h/2) wid h
+      adjust r = r
 
-        f ws | isFixedSize || isTransient
-             = W.float w (adjust rr) . W.insertUp w . W.view i $ ws
-             | otherwise
-             = W.insertUp w ws
-            where i = W.tag $ W.workspace $ W.current ws
+      f ws
+        | isFixedSize || isTransient
+        = W.float w (adjust rr) . W.insertUp w . W.view i $ ws
+        | otherwise
+        = W.insertUp w ws
+        where i = W.tag $ W.workspace $ W.current ws
 
     mh <- asks (manageHook . config)
     g <- appEndo <$> userCodeDef (Endo id) (runQuery mh w)
@@ -123,8 +125,9 @@ killWindow :: Window -> X ()
 killWindow w = withDisplay $ \d -> do
     wmdelt <- atom_WM_DELETE_WINDOW  ;  wmprot <- atom_WM_PROTOCOLS
 
-    protocols <- io $ getWMProtocols d w
-    io $ if wmdelt `elem` protocols
+    io $ do
+      protocols <- getWMProtocols d w
+      if wmdelt `elem` protocols
         then allocaXEvent $ \ev -> do
                 setEventType ev clientMessage
                 setClientMessageEvent ev w wmprot 32 wmdelt 0
@@ -142,9 +145,10 @@ kill = withFocused killWindow
 windows :: (WindowSet -> WindowSet) -> X ()
 windows f = do
     old <- gets windowset
-    let oldvisible = concatMap (W.integrate' . W.stack . W.workspace) $ W.current old : W.visible old
-        newwindows = W.allWindows ws \\ W.allWindows old
-        ws = f old
+    let
+      oldvisible = foldMap (W.integrate' . W.stack . W.workspace) $ W.current old : W.visible old
+      newwindows = W.allWindows ws \\ W.allWindows old
+      ws = f old
     XConf { display = d , normalBorder = nbc, focusedBorder = fbc } <- ask
 
     traverse_ setInitialProperties newwindows
@@ -156,20 +160,22 @@ windows f = do
     modify (\s -> s{ windowset = ws })
 
     -- notify non visibility
-    let tags_oldvisible = map (W.tag . W.workspace) $ W.current old : W.visible old
-        gottenhidden    = filter (flip elem tags_oldvisible . W.tag) $ W.hidden ws
+    let
+      tags_oldvisible = map (W.tag . W.workspace) $ W.current old : W.visible old
+      gottenhidden    = filter (flip elem tags_oldvisible . W.tag) $ W.hidden ws
     traverse_ (sendMessageWithNoRefresh Hide) gottenhidden
 
     -- for each workspace, layout the currently visible workspaces
     let allscreens     = W.screens ws
         summed_visible = scanl (++) [] $ map (W.integrate' . W.stack . W.workspace) allscreens
     rects <- fmap concat $ for (zip allscreens summed_visible) $ \ (w, vis) -> do
-        let wsp   = W.workspace w
-            this  = W.view n ws
-            n     = W.tag wsp
-            tiled = (W.stack . W.workspace . W.current $ this)
+        let
+          wsp   = W.workspace w
+          this  = W.view n ws
+          n     = W.tag wsp
+          tiled = (W.stack . W.workspace . W.current $ this)
                     >>= W.filter (\ win -> win `M.notMember` W.floating ws && win `notElem` vis)
-            viewrect = screenRect $ W.screenDetail w
+          viewrect = screenRect $ W.screenDetail w
 
         -- just the tiled windows:
         -- now tile the windows on this workspace, modified by the gap
@@ -233,9 +239,9 @@ windowBracket_ = void . windowBracket getAny
 
 -- | Produce the actual rectangle from a screen and a ratio on that screen.
 scaleRationalRect :: Rectangle -> W.RationalRect -> Rectangle
-scaleRationalRect (Rectangle sx sy sw sh) (W.RationalRect rx ry rw rh)
- = Rectangle (sx + scale sw rx) (sy + scale sh ry) (scale sw rw) (scale sh rh)
- where scale s r = floor (toRational s * r)
+scaleRationalRect (Rectangle sx sy sw sh) (W.RationalRect rx ry rw rh) =
+    Rectangle (sx + scale sw rx) (sy + scale sh ry) (scale sw rw) (scale sh rh)
+  where scale s r = floor (toRational s * r)
 
 -- | Set a window's WM_STATE property.
 setWMState :: Window -> Int -> X ()
@@ -253,21 +259,24 @@ setWindowBorderWithFallback dpy w color basic = io $
       setWindowBorder dpy w pixel
   where
     fallback :: C.SomeException -> IO ()
-    fallback e = do hPrint stderr e >> hFlush stderr
+    fallback e = do hPrint stderr e *> hFlush stderr
                     setWindowBorder dpy w basic
 
 -- | Hide a window by unmapping it and setting Iconified.
 hide :: Window -> X ()
 hide w = whenX (gets (S.member w . mapped)) $ withDisplay $ \d -> do
     cMask <- asks $ clientMask . config
-    io $ do selectInput d w (cMask .&. complement structureNotifyMask)
-            unmapWindow d w
-            selectInput d w cMask
+    io $ do
+      selectInput d w (cMask .&. complement structureNotifyMask)
+      unmapWindow d w
+      selectInput d w cMask
     setWMState w iconicState
     -- this part is key: we increment the waitingUnmap counter to distinguish
     -- between client and xmonad initiated unmaps.
-    modify (\s -> s { waitingUnmap = M.insertWith (+) w 1 (waitingUnmap s)
-                    , mapped       = S.delete w (mapped s) })
+    modify (\s -> s
+             { waitingUnmap = M.insertWith (+) w 1 (waitingUnmap s)
+             , mapped       = S.delete w (mapped s)
+             })
 
 -- | Show a window by mapping it and setting Normal.
 -- This is harmless if the window was already visible.
@@ -311,8 +320,9 @@ tileWindow :: Window -> Rectangle -> X ()
 tileWindow w r = withDisplay $ \d -> withWindowAttributes d w $ \wa -> do
     -- give all windows at least 1x1 pixels
     let bw = fromIntegral $ wa_border_width wa
-        least x | x <= bw*2  = 1
-                | otherwise  = x - bw*2
+        least x
+          | x <= bw*2 = 1
+          | otherwise = x - bw*2
     io $ moveResizeWindow d w (rect_x r) (rect_y r)
                               (least $ rect_width r) (least $ rect_height r)
 
