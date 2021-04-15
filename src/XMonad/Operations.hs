@@ -26,6 +26,7 @@ import Data.Maybe
 import Data.Monoid          (Endo(..),Any(..))
 import Data.List            (nub, (\\), find)
 import Data.Bits            ((.|.), (.&.), complement, testBit)
+import Data.Foldable        (traverse_)
 import Data.Function        (on)
 import Data.Ratio
 import qualified Data.Map as M
@@ -60,14 +61,17 @@ manage w = whenX (not <$> isClient w) $ withDisplay $ \d -> do
     let isFixedSize = isJust (sh_min_size sh) && sh_min_size sh == sh_max_size sh
     isTransient <- isJust <$> io (getTransientForHint d w)
 
-    rr <- snd `fmap` floatLocation w
+    rr <- snd <$> floatLocation w
     -- ensure that float windows don't go over the edge of the screen
-    let adjust (W.RationalRect x y wid h) | x + wid > 1 || y + h > 1 || x < 0 || y < 0
-                                              = W.RationalRect (0.5 - wid/2) (0.5 - h/2) wid h
+    let adjust (W.RationalRect x y wid h)
+          | x + wid > 1 || y + h > 1 || x < 0 || y < 0
+          = W.RationalRect (0.5 - wid/2) (0.5 - h/2) wid h
         adjust r = r
 
-        f ws | isFixedSize || isTransient = W.float w (adjust rr) . W.insertUp w . W.view i $ ws
-             | otherwise                  = W.insertUp w ws
+        f ws | isFixedSize || isTransient
+             = W.float w (adjust rr) . W.insertUp w . W.view i $ ws
+             | otherwise
+             = W.insertUp w ws
             where i = W.tag $ W.workspace $ W.current ws
 
     mh <- asks (manageHook . config)
@@ -108,24 +112,24 @@ kill = withFocused killWindow
 -- | windows. Modify the current window list with a pure function, and refresh
 windows :: (WindowSet -> WindowSet) -> X ()
 windows f = do
-    XState { windowset = old } <- get
+    old <- gets windowset
     let oldvisible = concatMap (W.integrate' . W.stack . W.workspace) $ W.current old : W.visible old
         newwindows = W.allWindows ws \\ W.allWindows old
         ws = f old
     XConf { display = d , normalBorder = nbc, focusedBorder = fbc } <- ask
 
-    mapM_ setInitialProperties newwindows
+    traverse_ setInitialProperties newwindows
 
     whenJust (W.peek old) $ \otherw -> do
       nbs <- asks (normalBorderColor . config)
       setWindowBorderWithFallback d otherw nbs nbc
 
-    modify (\s -> s { windowset = ws })
+    modify (\s -> s{ windowset = ws })
 
     -- notify non visibility
     let tags_oldvisible = map (W.tag . W.workspace) $ W.current old : W.visible old
         gottenhidden    = filter (flip elem tags_oldvisible . W.tag) $ W.hidden ws
-    mapM_ (sendMessageWithNoRefresh Hide) gottenhidden
+    traverse_ (sendMessageWithNoRefresh Hide) gottenhidden
 
     -- for each workspace, layout the currently visible workspaces
     let allscreens     = W.screens ws
@@ -135,14 +139,13 @@ windows f = do
             this  = W.view n ws
             n     = W.tag wsp
             tiled = (W.stack . W.workspace . W.current $ this)
-                    >>= W.filter (`M.notMember` W.floating ws)
-                    >>= W.filter (`notElem` vis)
+                    >>= W.filter (\ win -> win `M.notMember` W.floating ws && win `notElem` vis)
             viewrect = screenRect $ W.screenDetail w
 
         -- just the tiled windows:
         -- now tile the windows on this workspace, modified by the gap
-        (rs, ml') <- runLayout wsp { W.stack = tiled } viewrect `catchX`
-                     runLayout wsp { W.stack = tiled, W.layout = Layout Full } viewrect
+        (rs, ml') <- runLayout wsp{ W.stack = tiled } viewrect `catchX`
+                     runLayout wsp{ W.stack = tiled, W.layout = Layout Full } viewrect
         updateLayout n ml'
 
         let m   = W.floating ws
@@ -157,23 +160,23 @@ windows f = do
 
     let visible = map fst rects
 
-    mapM_ (uncurry tileWindow) rects
+    traverse_ (uncurry tileWindow) rects
 
     whenJust (W.peek ws) $ \w -> do
       fbs <- asks (focusedBorderColor . config)
       setWindowBorderWithFallback d w fbs fbc
 
-    mapM_ reveal visible
+    traverse_ reveal visible
     setTopFocus
 
     -- hide every window that was potentially visible before, but is not
     -- given a position by a layout now.
-    mapM_ hide (nub (oldvisible ++ newwindows) \\ visible)
+    traverse_ hide (nub (oldvisible ++ newwindows) \\ visible)
 
     -- all windows that are no longer in the windowset are marked as
     -- withdrawn, it is important to do this after the above, otherwise 'hide'
     -- will overwrite withdrawnState with iconicState
-    mapM_ (`setWMState` withdrawnState) (W.allWindows old \\ W.allWindows ws)
+    traverse_ (`setWMState` withdrawnState) (W.allWindows old \\ W.allWindows ws)
 
     isMouseFocused <- asks mouseFocused
     unless isMouseFocused $ clearEvents enterWindowMask
@@ -350,10 +353,12 @@ focus w = local (\c -> c { mouseFocused = True }) $ withWindowSet $ \s -> do
             =<< asks mousePosition
     root <- asks theRoot
     case () of
-        _ | W.member w s && W.peek s /= Just w -> windows (W.focusWindow w)
+        _ | W.member w s && W.peek s /= Just w
+          -> windows (W.focusWindow w)
           | Just new <- mnew, w == root && curr /= new
-                                               -> windows (W.view new)
-          | otherwise                          -> return ()
+          -> windows (W.view new)
+          | otherwise
+          -> return ()
 
 -- | Call X to set the keyboard focus details.
 setFocusX :: Window -> X ()
@@ -397,11 +402,12 @@ setFocusX w = withWindowSet $ \ws -> do
 sendMessage :: Message a => a -> X ()
 sendMessage a = windowBracket_ $ do
     w <- gets $ W.workspace . W.current . windowset
-    ml' <- handleMessage (W.layout w) (SomeMessage a) `catchX` return Nothing
+    ml' <- userCodeDef Nothing $ handleMessage (W.layout w) (SomeMessage a)
     whenJust ml' $ \l' ->
-        modifyWindowSet $ \ws -> ws { W.current = (W.current ws)
-                                { W.workspace = (W.workspace $ W.current ws)
-                                  { W.layout = l' }}}
+        modifyWindowSet $ \ws ->
+          ws{ W.current =
+              (W.current ws){ W.workspace =
+                  (W.workspace $ W.current ws){ W.layout = l' }}}
     return (Any $ isJust ml')
 
 -- | Send a message to all layouts, without refreshing.
@@ -410,7 +416,7 @@ broadcastMessage a = withWindowSet $ \ws -> do
    let c = W.workspace . W.current $ ws
        v = map W.workspace . W.visible $ ws
        h = W.hidden ws
-   mapM_ (sendMessageWithNoRefresh a) (c : v ++ h)
+   traverse_ (sendMessageWithNoRefresh a) (c : v ++ h)
 
 -- | Send a message to a layout, without refreshing.
 sendMessageWithNoRefresh :: Message a => a -> W.Workspace WorkspaceId (Layout Window) Window -> X ()
