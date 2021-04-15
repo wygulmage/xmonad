@@ -1,6 +1,13 @@
-{-# LANGUAGE ExistentialQuantification, FlexibleInstances, GeneralizedNewtypeDeriving,
-             MultiParamTypeClasses, DeriveDataTypeable,
-             NamedFieldPuns, DeriveTraversable, ScopedTypeVariables #-}
+{-# LANGUAGE ExistentialQuantification
+           , FlexibleContexts
+           , FlexibleInstances
+           , GeneralizedNewtypeDeriving
+           , MultiParamTypeClasses
+           , DeriveDataTypeable
+           , NamedFieldPuns
+           , DeriveTraversable
+           , ScopedTypeVariables
+  #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -59,6 +66,7 @@ import Graphics.X11.Xlib
 import Graphics.X11.Xlib.Extras (getWindowAttributes, WindowAttributes, Event)
 import Data.Typeable
 import Data.List ((\\))
+import Data.List.NonEmpty (NonEmpty ((:|)))
 import Data.Maybe (isJust,fromMaybe)
 
 import qualified Data.Map as M
@@ -155,11 +163,11 @@ instance Semigroup a => Semigroup (X a) where
     (<>) = liftA2 (<>)
 
 instance (Monoid a) => Monoid (X a) where
-    mempty  = return mempty
+    mempty  = pure mempty
     mappend = liftA2 mappend
 
 instance Default a => Default (X a) where
-    def = return def
+    def = pure def
 
 type ManageHook = Query (Endo WindowSet)
 newtype Query a = Query (ReaderT Window X a)
@@ -172,11 +180,11 @@ instance Semigroup a => Semigroup (Query a) where
     (<>) = liftA2 (<>)
 
 instance Monoid a => Monoid (Query a) where
-    mempty  = return mempty
+    mempty  = pure mempty
     mappend = liftA2 mappend
 
 instance Default a => Default (Query a) where
-    def = return def
+    def = pure def
 
 -- | Run the 'X' monad, given a chunk of 'X' monad code, and an initial state
 -- Return the result, and final state
@@ -191,19 +199,19 @@ catchX job errcase = do
     c <- ask
     (a, s') <- io $ runX c st job `E.catch` \e -> case fromException e of
                         Just (_ :: ExitCode) -> throw e
-                        _ -> do hPrint stderr e; runX c st errcase
+                        Nothing -> do hPrint stderr e; runX c st errcase
     put s'
-    return a
+    pure a
 
 -- | Execute the argument, catching all exceptions.  Either this function or
 -- 'catchX' should be used at all callsites of user customized code.
 userCode :: X a -> X (Maybe a)
-userCode a = catchX (Just `fmap` a) (return Nothing)
+userCode a = userCodeDef Nothing (Just <$> a)
 
 -- | Same as userCode but with a default argument to return instead of using
 -- Maybe, provided for convenience.
 userCodeDef :: a -> X a -> X a
-userCodeDef defValue a = fromMaybe defValue `fmap` userCode a
+userCodeDef defValue a = catchX a (pure defValue)
 
 -- ---------------------------------------------------------------------
 -- Convenient wrappers to state
@@ -220,7 +228,7 @@ withWindowSet f = gets windowset >>= f
 withWindowAttributes :: Display -> Window -> (WindowAttributes -> X ()) -> X ()
 withWindowAttributes dpy win f = do
     wa <- userCode (io $ getWindowAttributes dpy win)
-    catchX (whenJust wa f) (return ())
+    catchX (whenJust wa f) (pure ())
 
 -- | True if the given window is the root window
 isRoot :: Window -> X Bool
@@ -301,7 +309,7 @@ class (Show (layout a), Typeable layout) => LayoutClass layout a where
     -- own state should implement 'pureLayout' instead of 'doLayout'.
     doLayout    :: layout a -> Rectangle -> Stack a
                 -> X ([(a, Rectangle)], Maybe (layout a))
-    doLayout l r s   = return (pureLayout l r s, Nothing)
+    doLayout l r s   = pure (pureLayout l r s, Nothing)
 
     -- | This is a pure version of 'doLayout', for cases where we
     -- don't need access to the 'X' monad to determine how to lay out
@@ -311,7 +319,7 @@ class (Show (layout a), Typeable layout) => LayoutClass layout a where
 
     -- | 'emptyLayout' is called when there are no windows.
     emptyLayout :: layout a -> Rectangle -> X ([(a, Rectangle)], Maybe (layout a))
-    emptyLayout _ _ = return ([], Nothing)
+    emptyLayout _ _ = pure ([], Nothing)
 
     -- | 'handleMessage' performs message handling.  If
     -- 'handleMessage' returns @Nothing@, then the layout did not
@@ -324,7 +332,7 @@ class (Show (layout a), Typeable layout) => LayoutClass layout a where
     -- 'handleMessage' (this restricts the risk of error, and makes
     -- testing much easier).
     handleMessage :: layout a -> SomeMessage -> X (Maybe (layout a))
-    handleMessage l  = return . pureMessage l
+    handleMessage l  = pure . pureMessage l
 
     -- | Respond to a message by (possibly) changing our layout, but
     -- taking no other action.  If the layout changes, the screen will
@@ -416,7 +424,7 @@ io = liftIO
 -- | Lift an 'IO' action into the 'X' monad.  If the action results in an 'IO'
 -- exception, log the exception to stderr and continue normal execution.
 catchIO :: MonadIO m => IO () -> m ()
-catchIO f = io (f `E.catch` \(SomeException e) -> hPrint stderr e >> hFlush stderr)
+catchIO f = io (f `E.catch` \(SomeException e) -> hPrint stderr e *> hFlush stderr)
 
 -- | spawn. Launch an external application. Specifically, it double-forks and
 -- runs the 'String' you pass as a command to \/bin\/sh.
@@ -443,13 +451,15 @@ xfork x = io . forkProcess . finally nullStdin $ do
 
 -- | This is basically a map function, running a function in the 'X' monad on
 -- each workspace with the output of that function being the modified workspace.
-runOnWorkspaces :: (WindowSpace -> X WindowSpace) -> X ()
+runOnWorkspaces ::
+    MonadState XState m => (WindowSpace -> m WindowSpace) -> m ()
 runOnWorkspaces job = do
     ws <- gets windowset
-    h <- mapM job $ hidden ws
-    c:v <- mapM (\s -> (\w -> s { workspace = w}) <$> job (workspace s))
-             $ current ws : visible ws
-    modify $ \s -> s { windowset = ws { current = c, visible = v, hidden = h } }
+    h <- traverse job $ hidden ws
+    c:|v <- for (current ws :| visible ws) $ \s ->
+        (\w -> s{ workspace = w}) <$> job (workspace s)
+    modify $ \s -> s{ windowset = ws{ current = c, visible = v, hidden = h }}
+{-# SPECIALIZE runOnWorkspaces :: (WindowSpace -> X WindowSpace) -> X () #-}
 
 -- | All the directories that xmonad will use.  They will be used for
 -- the following purposes:
@@ -572,7 +582,7 @@ recompile Dirs{ cfgDir, dataDir } force = io $ do
         lib  = cfgDir  </> "lib"
         buildscript = cfgDir </> "build"
 
-    libTs <- mapM getModTime . Prelude.filter isSource =<< allFiles lib
+    libTs <- traverse getModTime . Prelude.filter isSource =<< allFiles lib
     srcT <- getModTime src
     binT <- getModTime bin
 
@@ -584,28 +594,28 @@ recompile Dirs{ cfgDir, dataDir } force = io $ do
           if isExe
             then do
               trace $ "XMonad will use build script at " ++ show buildscript ++ " to recompile."
-              return True
+              pure True
             else do
               trace $ unlines
                 [ "XMonad will not use build script, because " ++ show buildscript ++ " is not executable."
                 , "Suggested resolution to use it: chmod u+x " ++ show buildscript
                 ]
-              return False
+              pure False
         else do
           trace $
             "XMonad will use ghc to recompile, because " ++ show buildscript ++ " does not exist."
-          return False
+          pure False
 
     shouldRecompile <-
       if useBuildscript || force
-        then return True
+        then pure True
         else if any (binT <) (srcT : libTs)
           then do
             trace "XMonad doing recompile because some files have changed."
-            return True
+            pure True
           else do
             trace "XMonad skipping recompile because it is not forced (e.g. via --recompile), and neither xmonad.hs nor any *.hs / *.lhs / *.hsc files in lib/ have been changed."
-            return False
+            pure False
 
     if shouldRecompile
       then do
@@ -632,17 +642,17 @@ recompile Dirs{ cfgDir, dataDir } force = io $ do
                 -- lazy evaluation
                 hPutStrLn stderr msg
                 forkProcess $ executeFile "xmessage" True ["-default", "okay", replaceUnicode msg] Nothing
-                return ()
-        return (status == ExitSuccess)
-      else return True
- where getModTime f = E.catch (Just <$> getModificationTime f) (\(SomeException _) -> return Nothing)
+                pure ()
+        pure (status == ExitSuccess)
+      else pure True
+ where getModTime f = E.catch (Just <$> getModificationTime f) (\(SomeException _) -> pure Nothing)
        isSource = flip elem [".hs",".lhs",".hsc"] . takeExtension
-       isExecutable f = E.catch (executable <$> getPermissions f) (\(SomeException _) -> return False)
+       isExecutable f = E.catch (executable <$> getPermissions f) (\(SomeException _) -> pure False)
        allFiles t = do
             let prep = map (t</>) . Prelude.filter (`notElem` [".",".."])
-            cs <- prep <$> E.catch (getDirectoryContents t) (\(SomeException _) -> return [])
+            cs <- prep <$> E.catch (getDirectoryContents t) (\(SomeException _) -> pure [])
             ds <- filterM doesDirectoryExist cs
-            concat . ((cs \\ ds):) <$> mapM allFiles ds
+            concat . ((cs \\ ds):) <$> traverse allFiles ds
        -- Replace some of the unicode symbols GHC uses in its output
        replaceUnicode = map $ \c -> case c of
            '\8226' -> '*'  -- •
@@ -664,11 +674,12 @@ recompile Dirs{ cfgDir, dataDir } force = io $ do
 
 -- | Conditionally run an action, using a @Maybe a@ to decide.
 whenJust :: Monad m => Maybe a -> (a -> m ()) -> m ()
-whenJust mg f = maybe (return ()) f mg
+whenJust mg f = maybe (pure ()) f mg
 
--- | Conditionally run an action, using a 'X' event to decide
-whenX :: X Bool -> X () -> X ()
+-- | Conditionally run an action, using a monadic event to decide
+whenX :: Monad m => m Bool -> m () -> m ()
 whenX a f = a >>= \b -> when b f
+{-# INLINE whenX #-}
 
 -- | A 'trace' for the 'X' monad. Logs a string to stderr. The result may
 -- be found in your .xsession-errors file
@@ -685,10 +696,10 @@ installSignalHandlers = io $ do
       $ fix $ \more -> do
         x <- getAnyProcessStatus False False
         when (isJust x) more
-    return ()
+    pure ()
 
 uninstallSignalHandlers :: MonadIO m => m ()
 uninstallSignalHandlers = io $ do
     installHandler openEndedPipe Default Nothing
     installHandler sigCHLD Default Nothing
-    return ()
+    pure ()
