@@ -62,6 +62,7 @@ module XMonad.StackSet (
     ) where
 
 import Prelude hiding (filter)
+import Control.Applicative (liftA3)
 import Control.Applicative.Backwards (Backwards (Backwards, forwards))
 import Data.Foldable (foldr, toList)
 import Data.Maybe   (listToMaybe,isJust,fromMaybe)
@@ -227,11 +228,11 @@ _workspaces ::
 {- ^
 @_workspaces@ is a @Traversal' from a 'StackSet' to all of the 'Workspace's in that 'StackSet'.
 -}
-_workspaces f stackSet =
+_workspaces f stackSet = liftA3
     (\ cur vis hid -> stackSet{ current = cur, visible = vis, hidden = hid})
-    <$> _workspace f (current stackSet)
-    <*> traverse (_workspace f) (visible stackSet)
-    <*> traverse f (hidden stackSet)
+    (_workspace f (current stackSet))
+    (traverse (_workspace f) (visible stackSet))
+    (traverse f (hidden stackSet))
 
 -- | Visible workspaces, and their Xinerama screens.
 data Screen i l a sid sd = Screen { workspace :: !(Workspace i l a)
@@ -394,7 +395,8 @@ new _ _ _ = abort "non-positive argument to StackSet.new"
 
 view :: (Eq s, Eq i) => i -> StackSet i l a s sd -> StackSet i l a s sd
 view i s
-    | i == currentTag s = s  -- current
+    | i == currentTag s
+    = s  -- current
 
     | Just x <- L.find ((i==).tag.workspace) (visible s)
     -- If it is visible, it is just raised:
@@ -407,7 +409,8 @@ view i s
       & _current . _workspace .~ x
       & (_hidden %~ \ hid -> workspace (current s) : L.deleteBy (equating tag) x hid)
 
-    | otherwise = s -- not a member of the stackset
+    | otherwise
+    = s -- not a member of the stackset
 
   where equating f = \x y -> f x == f y
 
@@ -426,7 +429,8 @@ view i s
 
 greedyView :: (Eq s, Eq i) => i -> StackSet i l a s sd -> StackSet i l a s sd
 greedyView w ws
-     | any wTag (hidden ws) = view w ws
+     | any wTag (hidden ws)
+     = view w ws
 
      | (Just s) <- L.find (wTag . workspace) (visible ws)
      = ws
@@ -435,7 +439,8 @@ greedyView w ws
              (s & _workspace .~ workspace (current ws))
              : L.filter (not . wTag . workspace) vis)
 
-     | otherwise = ws
+     | otherwise
+     = ws
    where wTag = (w == ) . tag
 
 -- ---------------------------------------------------------------------
@@ -603,8 +608,6 @@ mapWorkspace f = _workspaces %~ f
 -- | Map a function on all the layouts in the 'StackSet'.
 mapLayout :: (l -> l') -> StackSet i l a s sd -> StackSet i l' a s sd
 mapLayout f = _workspaces . _layout %~ f
--- If that doesn't work, use:
--- mapLayout f = _workspaces %~ \ wrk -> wrk{ layout = f (layout wrk) }
 
 -- | /O(n)/. Is a window in the 'StackSet'?
 member :: Eq a => a -> StackSet i l a s sd -> Bool
