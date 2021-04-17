@@ -7,6 +7,7 @@
            , NamedFieldPuns
            , DeriveTraversable
            , ScopedTypeVariables
+           , RankNTypes
   #-}
 
 -----------------------------------------------------------------------------
@@ -192,17 +193,22 @@ instance Default a => Default (Query a) where
 runX :: XConf -> XState -> X a -> IO (a, XState)
 runX c st (X a) = runStateT (runReaderT a c) st
 
+-- | Thread state to run a function of IO actions on an X action.
+withXInIO :: ((forall a. X a -> IO (a, XState)) -> IO (b, XState)) -> X b
+withXInIO inner = do
+    conf <- ask
+    stat <- get
+    (x, stat') <- io $ inner $ runX conf stat
+    put stat'
+    pure x
+
 -- | Run in the 'X' monad, and in case of exception, and catch it and log it
 -- to stderr, and run the error case.
 catchX :: X a -> X a -> X a
-catchX job errcase = do
-    st <- get
-    c <- ask
-    (a, s') <- io $ runX c st job `E.catch` \e -> case fromException e of
-                        Just (_ :: ExitCode) -> throw e
-                        Nothing -> do hPrint stderr e; runX c st errcase
-    put s'
-    pure a
+catchX job errcase = withXInIO $ \ run -> run job `E.catch` \ e ->
+    case fromException e of
+    Just (_ :: ExitCode) -> throw e
+    Nothing -> do hPrint stderr e; run errcase
 
 -- | Execute the argument, catching all exceptions.  Either this function or
 -- 'catchX' should be used at all callsites of user customized code.
