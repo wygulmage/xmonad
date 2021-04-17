@@ -88,21 +88,21 @@ manage w = whenX (not <$> isClient w) $ withDisplay $ \d -> do
     sh <- io $ getWMNormalHints d w
 
     let isFixedSize = isJust (sh_min_size sh) && sh_min_size sh == sh_max_size sh
-    isTransient <- isJust <$> io (getTransientForHint d w)
+    isTransient <- io $ isJust <$> getTransientForHint d w
 
     rr <- snd <$> floatLocation w
     -- ensure that float windows don't go over the edge of the screen
     let
       adjust (W.RationalRect x y wid h)
-        | x + wid > 1 || y + h > 1 || x < 0 || y < 0
-        = W.RationalRect (0.5 - wid/2) (0.5 - h/2) wid h
+          | x + wid > 1 || y + h > 1 || x < 0 || y < 0
+          = W.RationalRect (0.5 - wid/2) (0.5 - h/2) wid h
       adjust r = r
 
       f ws
-        | isFixedSize || isTransient
-        = W.float w (adjust rr) . W.insertUp w . W.view i $ ws
-        | otherwise
-        = W.insertUp w ws
+          | isFixedSize || isTransient
+          = W.float w (adjust rr) . W.insertUp w . W.view i $ ws
+          | otherwise
+          = W.insertUp w ws
         where i = W.tag $ W.workspace $ W.current ws
 
     mh <- asks (manageHook . config)
@@ -331,12 +331,21 @@ tileWindow w r = withDisplay $ \d -> withWindowAttributes d w $ \wa -> do
 -- | Returns 'True' if the first rectangle is contained within, but not equal
 -- to the second.
 containedIn :: Rectangle -> Rectangle -> Bool
-containedIn r1@(Rectangle x1 y1 w1 h1) r2@(Rectangle x2 y2 w2 h2)
- = and [ r1 /= r2
-       , x1 >= x2
-       , y1 >= y2
-       , fromIntegral x1 + w1 <= fromIntegral x2 + w2
-       , fromIntegral y1 + h1 <= fromIntegral y2 + h2 ]
+r1 `containedIn` r2 = not (r1 `notContainedIn` r2)
+-- containedIn r1@(Rectangle x1 y1 w1 h1) r2@(Rectangle x2 y2 w2 h2)
+--  = and [ r1 /= r2
+--        , x1 >= x2
+--        , y1 >= y2
+--        , fromIntegral x1 + w1 <= fromIntegral x2 + w2
+--        , fromIntegral y1 + h1 <= fromIntegral y2 + h2 ]
+
+notContainedIn :: Rectangle -> Rectangle -> Bool
+Rectangle x1 y1 w1 h1 `notContainedIn` Rectangle x2 y2 w2 h2 =
+    x1 < x2 || -- The first rectangle extends left of the second.
+    y1 < y2 || -- The first rectangle extends above the second.
+    toInteger x1 + toInteger w1 > toInteger x2 + toInteger w2 || -- The first rectangle extends right of the second.
+    toInteger y1 + toInteger h1 > toInteger y2 + toInteger h2 -- The first rectangle extends below the second.
+    -- What happens when x or y coordinates are negative because the rectangle position is relative? Should probably use 'toInteger' just to be safe. Could to Int64.
 
 -- | Given a list of screens, remove all duplicated screens and screens that
 -- are entirely contained within another.
@@ -365,15 +374,20 @@ rescreen = do
 
 -- | Tell whether or not to intercept clicks on a given window
 setButtonGrab :: Bool -> Window -> X ()
-setButtonGrab grab w = do
-    pointerMode <- asks $ \c -> if clickJustFocuses (config c)
-                                    then grabModeAsync
-                                    else grabModeSync
-    withDisplay $ \d -> io $ if grab
-        then for_ [button1, button2, button3] $ \b ->
-            grabButton d b anyModifier w False buttonPressMask
-                       pointerMode grabModeSync none none
-        else ungrabButton d anyButton anyModifier w
+setButtonGrab True  = setButtonGrabOn
+setButtonGrab False = setButtonGrabOff
+
+setButtonGrabOn :: Window -> X ()
+setButtonGrabOn w = do
+    XConf{ display = d, config = XConfig{ clickJustFocuses = cjf }} <- ask
+    let pointerMode = if cjf then grabModeAsync else grabModeSync
+    io $ for_ [button1, button2, button3] $ \ b ->
+        grabButton d b anyModifier w False buttonPressMask pointerMode grabModeSync none none
+
+setButtonGrabOff :: Window -> X ()
+setButtonGrabOff w = do
+    d <- asks display
+    io $ ungrabButton d anyButton anyModifier w
 
 -- ---------------------------------------------------------------------
 -- Setting keyboard focus
