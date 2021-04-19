@@ -361,7 +361,7 @@ instance Default a => Default (Query a) where
     def = pure def
 
 
--- | Run in the 'X' monad, and in case of exception, and catch it and log it
+-- | Run an action in the 'X' monad; in case of exception, catch it, log it
 -- to stderr, and run the error case.
 catchX :: X a -> X a -> X a
 catchX job errcase = do
@@ -372,6 +372,56 @@ catchX job errcase = do
                         Nothing -> do hPrint stderr e; runX c st errcase
     put s'
     pure a
+
+-- -- | Run an action in 'X'; if it produces an error, return the error wrapped in 'Left' and leave the 'XState' unchanged; otherwise wrap the result in 'Right' and use the new 'XState'.
+-- tryX :: (E.Exception e)=> X a -> X (Either e a)
+-- tryX act = do
+--     conf <- ask
+--     stat <- get
+--     result <- io $ E.try $ runX conf stat act
+--     case result of
+--       Left e -> pure $ Left e
+--       Right (x, stat') -> Right x <$ put stat'
+
+-- -- | Run an action in 'X'; if it produces an error, run a cleanup action, then throw the error; otherwise return the result of the action.
+-- onExceptionX :: X a -> X () -> X a
+-- act `onExceptionX` cleanup = do
+--     result <- tryX act
+--     case result of
+--         Left (e :: SomeException) -> do
+--             (_ :: Either SomeException ()) <- tryX cleanup
+--             io $ E.throwIO e
+--         Right x -> pure x
+
+-- -- | Run an action in 'X', then always run a cleanup action and return the result of the first action.
+-- finallyX :: X a -> X () -> X a
+-- act `finallyX` cleanup = do
+--     x <- onExceptionX act cleanup
+--     cleanup
+--     pure x
+
+-- bracketX :: X a -> (a -> X ()) -> (a -> X b) -> X b
+-- bracketX setup cleanup act = do
+--     conf <- ask
+--     resource <- setup
+--     stat <- get
+--     (result', stat''') <- io $ E.mask $ \ unmask -> do
+--         result <- unmask $ E.try $ runX conf stat (act resource)
+--         case result of
+--             Left e -> do
+--                 done <- E.try $ runX conf stat $ cleanup resource
+--                 unmask $ case done of
+--                     Left (_ :: E.SomeException) -> pure (Left e, stat)
+--                     Right ((), stat') -> pure (Left e, stat')
+--             Right (x, stat') -> do
+--                 done <- E.try $ runX conf stat' $ cleanup resource
+--                 unmask $ case done of
+--                     Left (e :: E.SomeException) -> pure (Left e, stat')
+--                     Right ((), stat'') -> pure (Right x, stat'')
+--     put stat'''
+--     case result' of
+--         Left e -> io $ E.throwIO e
+--         Right x -> pure x
 
 -- | Execute the argument, catching all exceptions.  Either this function or
 -- 'catchX' should be used at all callsites of user customized code.
@@ -834,32 +884,34 @@ recompile Directories{ cfgDir, dataDir } force = io $ do
                 pure ()
         pure (status == ExitSuccess)
       else pure True
- where getModTime f = E.catch (Just <$> getModificationTime f) (\(SomeException _) -> pure Nothing)
-       isSource = flip elem [".hs",".lhs",".hsc"] . takeExtension
-       isExecutable f = E.catch (executable <$> getPermissions f) (\(SomeException _) -> pure False)
-       allFiles t = do
-            let prep = fmap (t </>) . Prelude.filter (`notElem` [".",".."])
-            cs <- prep <$> E.catch (getDirectoryContents t) (\(SomeException _) -> pure [])
-            ds <- filterM doesDirectoryExist cs
-            concat . ((cs \\ ds):) <$> traverse allFiles ds
-       -- Replace some of the unicode symbols GHC uses in its output
-       replaceUnicode = fmap $ \c -> case c of
-           '\8226' -> '*'  -- •
-           '\8216' -> '`'  -- ‘
-           '\8217' -> '`'  -- ’
-           _ -> c
-       compileGHC bin dir errHandle =
-         runProcess "ghc" ["--make"
-                          , "xmonad.hs"
-                          , "-i"
-                          , "-ilib"
-                          , "-fforce-recomp"
-                          , "-main-is", "main"
-                          , "-v0"
-                          , "-o", bin
-                          ] (Just dir) Nothing Nothing Nothing (Just errHandle)
-       compileScript bin dir script errHandle =
-         runProcess script [bin] (Just dir) Nothing Nothing Nothing (Just errHandle)
+  where
+    getModTime f = E.catch (Just <$> getModificationTime f) (\(SomeException _) -> pure Nothing)
+    isSource = flip elem [".hs",".lhs",".hsc"] . takeExtension
+    isExecutable f = E.catch (executable <$> getPermissions f) (\(SomeException _) -> pure False)
+    allFiles t = do
+        let prep = fmap (t </>) . Prelude.filter (`notElem` [".",".."])
+        cs <- prep <$> E.catch (getDirectoryContents t) (\(SomeException _) -> pure [])
+        ds <- filterM doesDirectoryExist cs
+        concat . ((cs \\ ds):) <$> traverse allFiles ds
+    -- Replace some of the unicode symbols GHC uses in its output
+    replaceUnicode = fmap $ \c -> case c of
+        '\8226' -> '*'  -- •
+        '\8216' -> '`'  -- ‘
+        '\8217' -> '`'  -- ’
+        _ -> c
+    compileGHC bin dir errHandle = runProcess "ghc"
+        ["--make"
+        , "xmonad.hs"
+        , "-i"
+        , "-ilib"
+        , "-fforce-recomp"
+        , "-main-is", "main"
+        , "-v0"
+        , "-o", bin
+        ] (Just dir) Nothing Nothing Nothing (Just errHandle)
+    compileScript bin dir script errHandle =
+        runProcess script [bin] (Just dir) Nothing Nothing Nothing (Just errHandle)
+
 
 -- | Conditionally run an action, using a @Maybe a@ to decide.
 whenJust :: Monad m => Maybe a -> (a -> m ()) -> m ()
