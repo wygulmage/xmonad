@@ -32,6 +32,7 @@ import qualified Data.Set as S
 import Control.Arrow (second)
 import Control.Monad.Reader
 import Control.Monad.State
+import Control.Monad.Writer (censor, listen)
 import qualified Control.Exception as C
 
 import System.IO
@@ -104,7 +105,7 @@ kill = withFocused killWindow
 
 -- | windows. Modify the current window list with a pure function, and refresh
 windows :: (WindowSet -> WindowSet) -> X ()
-windows f = do
+windows f = censor (pure mempty) $ do
     XState { windowset = old } <- get
     let oldvisible = concatMap (W.integrate' . W.stack . W.workspace) $ W.current old : W.visible old
         newwindows = W.allWindows ws \\ W.allWindows old
@@ -260,6 +261,67 @@ setInitialProperties w = asks normalBorder >>= \nb -> withDisplay $ \d -> do
 --
 refresh :: X ()
 refresh = windows id
+
+withRefresh :: X () -> X ()
+withRefresh act = censor (pure mempty) $ getAny . snd <$> listen act >>= \ doRefresh -> when doRefresh $ do
+    XState { windowset = old } <- get
+    let
+       oldvisible = concatMap (W.integrate' . W.stack . W.workspace) $ W.current old : W.visible old
+    XConf{ display = d, focusedBorder = fbc } <- ask
+
+    -- notify non visibility
+    let
+       tags_oldvisible = map (W.tag . W.workspace) $ W.current old : W.visible old
+       gottenhidden = filter (flip elem tags_oldvisible . W.tag) $ W.hidden old
+    mapM_ (sendMessageWithNoRefresh Hide) gottenhidden
+
+    -- for each workspace, lay out the currently visible workspaces
+    let allscreens     = W.screens old
+        summed_visible = scanl (++) [] $ map (W.integrate' . W.stack . W.workspace) allscreens
+    rects <- fmap concat $ forM (zip allscreens summed_visible) $ \ (w, vis) -> do
+        let wsp   = W.workspace w
+            this  = W.view n old
+            n     = W.tag wsp
+            tiled = (W.stack . W.workspace . W.current $ this)
+                    >>= W.filter (`M.notMember` W.floating old)
+                    >>= W.filter (`notElem` vis)
+            viewrect = screenRect $ W.screenDetail w
+
+        -- just the tiled windows:
+        -- now tile the windows on this workspace, modified by the gap
+        (rs, ml') <- runLayout wsp { W.stack = tiled } viewrect `catchX`
+                     runLayout wsp { W.stack = tiled, W.layout = Layout Full } viewrect
+        updateLayout n ml'
+
+        let m   = W.floating old
+            flt = [(fw, scaleRationalRect viewrect r)
+                    | fw <- filter (flip M.member m) (W.index this)
+                    , Just r <- [M.lookup fw m]]
+            vs = flt ++ rs
+
+        io $ restackWindows d (map fst vs)
+        -- return the visible windows for this workspace:
+        return vs
+
+    let visible = map fst rects
+
+    mapM_ (uncurry tileWindow) rects
+
+    whenJust (W.peek old) $ \w -> do
+      fbs <- asks (focusedBorderColor . config)
+      setWindowBorderWithFallback d w fbs fbc
+
+    mapM_ reveal visible
+    setTopFocus
+
+    -- hide every window that was potentially visible before, but is not
+    -- given a position by a layout now.
+    mapM_ hide (nub oldvisible \\ visible)
+
+    isMouseFocused <- asks mouseFocused
+    unless isMouseFocused $ clearEvents enterWindowMask
+    asks (logHook . config) >>= userCodeDef ()
+
 
 -- | clearEvents.  Remove all events of a given type from the event queue.
 clearEvents :: EventMask -> X ()

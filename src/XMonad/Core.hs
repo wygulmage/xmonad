@@ -154,8 +154,6 @@ newtype ScreenDetail = SD { screenRect :: Rectangle }
 -- with 'ask'. With newtype deriving we get readers and state monads
 -- instantiated on 'XConf' and 'XState' automatically.
 --
--- newtype X a = X (ReaderT XConf (StateT XState IO) a)
---     deriving (Functor, Monad, MonadFail, MonadIO, MonadState XState, MonadReader XConf, Typeable)
 -- @X'@ is like 'X', except it includes the need to refresh.
 -- To say that you need a refresh, use @tell (Any True)@.
 -- To determine whether you need a refresh, use @getAny . snd <$> listen@.
@@ -200,11 +198,11 @@ instance Applicative X where
         pure (XResult s'' w'' (f a b))
     {-# INLINE liftA2 #-}
 
-instance Alternative X where
-    empty = X $ \ _ _ _ -> empty
-    {-# INLINE empty #-}
-    X act1 <|> X act2 = X $ \ r s w -> act1 r s w <|> act2 r s w
-    {-# INLINE (<|>) #-}
+-- instance Alternative X where
+--     empty = X $ \ _ s w ->
+--     {-# INLINE empty #-}
+--     X act1 <|> X act2 = X $ \ r s w -> act1 r s w <|> act2 r s w
+--     {-# INLINE (<|>) #-}
 
 instance MonadFail X where
     fail message = X $ \ _ _ _ -> fail message
