@@ -145,8 +145,11 @@ windows f = do
 
         -- just the tiled windows:
         -- now tile the windows on this workspace, modified by the gap
-        (rs, ml') <- runLayout wsp { W.stack = tiled } viewrect `catchX`
-                     runLayout wsp { W.stack = tiled, W.layout = Layout Full } viewrect
+        (rs, ml') <-
+           runLayout (wsp & W._stack .~ tiled) viewrect
+           `catchX`
+           runLayout (wsp & W._stack .~ tiled & W._layout .~ Layout Full) viewrect
+
         updateLayout n ml'
 
         let m   = W.floating ws
@@ -413,41 +416,31 @@ sendMessage a = windowBracket_ $ do
 
 -- | Send a message to all layouts, without refreshing.
 broadcastMessage :: Message a => a -> X ()
--- broadcastMessage a = withWindowSet $ \ws ->
---     mapM_ (sendMessageWithNoRefresh a) (ws ^.. W._workspaces)
-broadcastMessage a = updateLayoutsBy $
-    userCodeDef Nothing . (`handleMessage` SomeMessage a) . W.layout
+broadcastMessage = filterMessageWithNoRefresh (const True)
 
 updateLayoutsBy ::
     (MonadState XState m)=>
     (W.Workspace WorkspaceId (Layout Window) Window -> m (Maybe (Layout Window))) ->
     m ()
-updateLayoutsBy f = _windowset %=<< (W._workspaces $ \ wrk ->
-    maybe wrk (\ l' -> wrk & W._layout .~ l') <$> f wrk)
-
--- | Use a monadic function to modify the windowset.
--- Modifications to the windowset that aren't returned by the function are lost.
-windowsetM ::
-    (MonadState XState m)=> (WindowSet -> m WindowSet) -> m ()
-windowsetM = (_windowset %=<<)
-
--- | Use a lens and a monadic function to modify part of state.
--- Any modifications to that part of state that aren't in the return value of the function are discarded, but other changes to state are retained.
-(%=<<) ::
-   (MonadState s m)=>
-   (forall n. Functor n => ((a -> n a) -> s -> n s)) -> (a -> m a) -> m ()
-l %=<< f = l <~ (f =<< use l)
+updateLayoutsBy f = runOnWorkspaces $ \ wrk ->
+    maybe wrk (\ l' -> wrk & W._layout .~ l') <$> f wrk
 
 -- | Send a message to a layout, without refreshing.
 sendMessageWithNoRefresh :: Message a => a -> W.Workspace WorkspaceId (Layout Window) Window -> X ()
 sendMessageWithNoRefresh a w =
-    handleMessage (W.layout w) (SomeMessage a) `catchX` return Nothing >>=
-    updateLayout  (W.tag w)
+    filterMessageWithNoRefresh (on (==) W.tag w) a
+
+-- | Send a message to the layouts of some workspaces, without refreshing.
+filterMessageWithNoRefresh :: Message a => (WindowSpace -> Bool) -> a -> X ()
+filterMessageWithNoRefresh p a = updateLayoutsBy $ \ wrk ->
+    if p wrk
+      then userCodeDef Nothing $ W.layout wrk `handleMessage` SomeMessage a
+      else pure Nothing
 
 -- | Update the layout field of a workspace
 updateLayout :: WorkspaceId -> Maybe (Layout Window) -> X ()
 updateLayout i ml = whenJust ml $ \l ->
-    runOnWorkspaces $ \ww -> return $ if W.tag ww == i then ww { W.layout = l} else ww
+    runOnWorkspaces $ \ww -> return $ if W.tag ww == i then ww & W._layout .~ l else ww
 
 -- | Set the layout of the currently viewed workspace
 setLayout :: Layout Window -> X ()

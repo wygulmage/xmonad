@@ -1,6 +1,7 @@
 {-# LANGUAGE ExistentialQuantification, FlexibleInstances, GeneralizedNewtypeDeriving,
              MultiParamTypeClasses, TypeSynonymInstances, DeriveDataTypeable,
-             LambdaCase, NamedFieldPuns, DeriveTraversable #-}
+             LambdaCase, NamedFieldPuns, DeriveTraversable,
+             FlexibleContexts #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -35,7 +36,7 @@ module XMonad.Core (
   ) where
 
 import XMonad.StackSet hiding (modify)
-import XMonad.Internal.Optics ((%%~))
+import XMonad.Internal.Optics ((%%~), (.=), use)
 
 import Prelude
 import Control.Exception (fromException, try, bracket, throw, finally, SomeException(..))
@@ -490,8 +491,12 @@ xfork x = io . forkProcess . finally nullStdin $ do
 
 -- | This is basically a map function, running a function in the 'X' monad on
 -- each workspace with the output of that function being the modified workspace.
-runOnWorkspaces :: (WindowSpace -> X WindowSpace) -> X ()
-runOnWorkspaces job = get >>= (_windowset . _workspaces %%~ job) >>= put
+runOnWorkspaces ::
+   (MonadState XState m)=> (WindowSpace -> m WindowSpace) -> m ()
+runOnWorkspaces job = do
+   ws' <- _workspaces %%~ job =<< use _windowset
+   _windowset .= ws'
+   -- WARNING: This has changed the order of runOnWorkspaces. Carefully check whether anything depended on acting on hidden workspaces first!
 
 -- | All the directories that xmonad will use.  They will be used for
 -- the following purposes:

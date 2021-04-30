@@ -137,14 +137,17 @@ view l = Reader.asks (^. l)
 
 -- ** Modifying State
 
+infixr 4 %=
 (%=) :: (State.MonadState s m)=> ASetter s s a b -> (a -> b) -> m ()
 l %= f = State.modify $ l %~ f
 {-# INLINE (%=) #-}
 
+infixr 4 .=
 (.=) :: (State.MonadState s m)=> ASetter s s a b -> b -> m ()
 l .= x = State.modify $ l .~ x
 {-# INLINE (.=) #-}
 
+infixr 2 <~
 (<~) :: (State.MonadState s m)=> ASetter s s a b -> m b -> m ()
 {- ^ Think of @<~@ as @.=<<@.
 -}
