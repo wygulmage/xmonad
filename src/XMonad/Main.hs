@@ -296,14 +296,16 @@ handle :: Event -> X ()
 
 -- run window manager command
 handle (KeyEvent {ev_event_type = t, ev_state = m, ev_keycode = code})
-    | t == keyPress = withDisplay $ \dpy -> do
+    | t == keyPress = do
+        dpy <- asks display
         s  <- io $ keycodeToKeysym dpy code 0
         mClean <- cleanMask m
         ks <- asks keyActions
         userCodeDef () $ whenJust (M.lookup (mClean, s) ks) id
 
 -- manage a new window
-handle (MapRequestEvent    {ev_window = w}) = withDisplay $ \dpy -> do
+handle (MapRequestEvent    {ev_window = w}) = do
+    dpy <- asks display
     withWindowAttributes dpy w $ \wa -> do -- ignore override windows
       -- need to ignore mapping requests by managed windows not on the current workspace
       managed <- isClient w
@@ -385,7 +387,8 @@ handle e@(CrossingEvent {ev_event_type = t})
          when (ev_window e == rootw && not (ev_same_screen e)) $ setFocusX rootw
 
 -- configure a window
-handle e@(ConfigureRequestEvent {ev_window = w}) = withDisplay $ \dpy -> do
+handle e@(ConfigureRequestEvent {ev_window = w}) = do
+    dpy <- asks display
     ws <- gets windowset
     bw <- asks (borderWidth . config)
 

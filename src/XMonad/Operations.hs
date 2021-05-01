@@ -20,6 +20,7 @@ import XMonad.Core
 import XMonad.Layout (Full(..))
 import qualified XMonad.StackSet as W
 
+import Data.Foldable (traverse_)
 import Data.Maybe
 import Data.Monoid          (Endo(..),Any(..))
 import Data.List            (nub, (\\), find)
@@ -183,9 +184,11 @@ modifyWindowSet f = modify $ \xst -> xst { windowset = f (windowset xst) }
 -- | Perform an @X@ action and check its return value against a predicate p.
 -- If p holds, unwind changes to the @WindowSet@ and replay them using @windows@.
 windowBracket :: (a -> Bool) -> X a -> X a
-windowBracket p action = withWindowSet $ \old -> do
+windowBracket p action = do
+  old <- gets windowset
   a <- action
-  when (p a) . withWindowSet $ \new -> do
+  when (p a) $ do
+    new <- gets windowset
     modifyWindowSet $ \_ -> old
     windows         $ \_ -> new
   return a
@@ -203,7 +206,8 @@ scaleRationalRect (Rectangle sx sy sw sh) (W.RationalRect rx ry rw rh)
 
 -- | setWMState.  set the WM_STATE property
 setWMState :: Window -> Int -> X ()
-setWMState w v = withDisplay $ \dpy -> do
+setWMState w v = do
+    dpy <- asks display
     a <- atom_WM_STATE
     io $ changeProperty32 dpy w a a propModeReplace [fromIntegral v, fromIntegral none]
 
@@ -334,13 +338,15 @@ setButtonGrab grab w = do
 
 -- | Set the focus to the window on top of the stack, or root
 setTopFocus :: X ()
-setTopFocus = withWindowSet $ maybe (setFocusX =<< asks theRoot) setFocusX . W.peek
+setTopFocus =
+    maybe (setFocusX =<< asks theRoot) setFocusX =<< gets (W.peek . windowset)
 
 -- | Set focus explicitly to window 'w' if it is managed by us, or root.
 -- This happens if X notices we've moved the mouse (and perhaps moved
 -- the mouse to a new screen).
 focus :: Window -> X ()
-focus w = local (\c -> c { mouseFocused = True }) $ withWindowSet $ \s -> do
+focus w = local (\c -> c { mouseFocused = True }) $ do
+    s <- gets windowset
     let stag = W.tag . W.workspace
         curr = stag $ W.current s
     mnew <- maybe (return Nothing) (fmap (fmap stag) . uncurry pointScreen)
@@ -354,7 +360,8 @@ focus w = local (\c -> c { mouseFocused = True }) $ withWindowSet $ \s -> do
 
 -- | Call X to set the keyboard focus details.
 setFocusX :: Window -> X ()
-setFocusX w = withWindowSet $ \ws -> do
+setFocusX w = do
+    ws <- gets windowset
     dpy <- asks display
 
     -- clear mouse button grab and border on other windows
@@ -403,7 +410,8 @@ sendMessage a = windowBracket_ $ do
 
 -- | Send a message to all layouts, without refreshing.
 broadcastMessage :: Message a => a -> X ()
-broadcastMessage a = withWindowSet $ \ws -> do
+broadcastMessage a = do
+   ws <- gets windowset
    let c = W.workspace . W.current $ ws
        v = map W.workspace . W.visible $ ws
        h = W.hidden ws
@@ -432,15 +440,15 @@ setLayout l = do
 
 -- | Return workspace visible on screen 'sc', or 'Nothing'.
 screenWorkspace :: ScreenId -> X (Maybe WorkspaceId)
-screenWorkspace sc = withWindowSet $ return . W.lookupWorkspace sc
+screenWorkspace sc = gets $ W.lookupWorkspace sc . windowset
 
 -- | Apply an 'X' operation to the currently focused window, if there is one.
 withFocused :: (Window -> X ()) -> X ()
-withFocused f = withWindowSet $ \w -> whenJust (W.peek w) f
+withFocused f = traverse_ f =<< gets (W.peek . windowset)
 
 -- | 'True' if window is under management by us
 isClient :: Window -> X Bool
-isClient w = withWindowSet $ return . W.member w
+isClient w = gets $ W.member w . windowset
 
 -- | Combinations of extra modifier masks we need to grab keys\/buttons for.
 -- (numlock and capslock)
@@ -574,7 +582,7 @@ floatLocation w =
 -- | Given a point, determine the screen (if any) that contains it.
 pointScreen :: Position -> Position
             -> X (Maybe (W.Screen WorkspaceId (Layout Window) Window ScreenId ScreenDetail))
-pointScreen x y = withWindowSet $ return . find p . W.screens
+pointScreen x y = gets $ find p . W.screens . windowset
   where p = pointWithin x y . screenRect . W.screenDetail
 
 -- | @pointWithin x y r@ returns 'True' if the @(x, y)@ co-ordinate is within
