@@ -26,6 +26,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Data.Maybe (fromMaybe)
 import Data.Monoid (getAll)
+import Data.Foldable (foldl')
 
 import Graphics.X11.Xlib hiding (refreshKeyboardMapping)
 import Graphics.X11.Xlib.Extras
@@ -35,6 +36,7 @@ import qualified XMonad.Config as Default
 import XMonad.StackSet (new, floating, member)
 import qualified XMonad.StackSet as W
 import XMonad.Operations
+import XMonad.Internal.Optics
 
 import System.IO
 import System.Directory
@@ -62,9 +64,9 @@ xmonad conf = do
     dirs <- getDirs
     let launch' args = do
               catchIO (buildLaunch dirs)
-              conf'@XConfig { layoutHook = Layout l }
-                  <- handleExtraArgs conf args conf{ layoutHook = Layout (layoutHook conf) }
-              withArgs [] $ launch (conf' { layoutHook = l }) dirs
+              conf'@XConfig{ layoutHook = Layout l }
+                  <- handleExtraArgs conf args (conf & _layoutHook %~ Layout)
+              withArgs [] $ launch (conf' & _layoutHook .~ l) dirs
 
     args <- getArgs
     case args of
@@ -172,7 +174,8 @@ launch initxmc drs = do
     -- ignore SIGPIPE and SIGCHLD
     installSignalHandlers
     -- First, wrap the layout in an existential, to keep things pretty:
-    let xmc = initxmc { layoutHook = Layout $ layoutHook initxmc }
+    -- let xmc = initxmc { layoutHook = Layout $ layoutHook initxmc }
+    let xmc = initxmc & _layoutHook %~ Layout
     dpy   <- openDisplay ""
     let dflt = defaultScreen dpy
 
@@ -238,7 +241,7 @@ launch initxmc drs = do
 
             -- restore extensibleState if we read it from a file.
             let extst = maybe M.empty extensibleState serializedSt
-            modify (\s -> s {extensibleState = extst})
+            _extensibleState .= extst
 
             setNumlockMask
             grabKeys
@@ -270,7 +273,7 @@ launch initxmc drs = do
         prehandle e = let mouse = do guard (ev_event_type e `elem` evs)
                                      return (fromIntegral (ev_x_root e)
                                             ,fromIntegral (ev_y_root e))
-                      in local (\c -> c { mousePosition = mouse, currentEvent = Just e }) (handleWithHook e)
+                      in local ((_mousePosition .~ mouse) . (_currentEvent .~ Just e)) (handleWithHook e)
         evs = [ keyPress, keyRelease, enterNotify, leaveNotify
               , buttonPress, buttonRelease]
 
@@ -339,7 +342,7 @@ handle e@(ButtonEvent {ev_event_type = t})
     drag <- gets dragging
     case drag of
         -- we're done dragging and have released the mouse:
-        Just (_,f) -> modify (\s -> s { dragging = Nothing }) >> f
+        Just (_,f) -> (_dragging .= Nothing) *> f
         Nothing    -> broadcastMessage e
 
 -- handle motionNotify event, which may mean we are dragging.
@@ -459,7 +462,7 @@ setNumlockMask = do
                             then return (setBit 0 (fromIntegral m))
                             else return (0 :: KeyMask)
                         | (m, kcs) <- ms, kc <- kcs, kc /= 0]
-    modify (\s -> s { numberlockMask = foldr (.|.) 0 xs })
+    _numberlockMask .= foldl' (.|.) 0 xs
 
 -- | Grab the keys back
 grabKeys :: X ()

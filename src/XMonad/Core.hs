@@ -1,6 +1,7 @@
 {-# LANGUAGE ExistentialQuantification, FlexibleInstances, GeneralizedNewtypeDeriving,
              MultiParamTypeClasses, TypeSynonymInstances, DeriveDataTypeable,
              LambdaCase, NamedFieldPuns, DeriveTraversable,
+             RankNTypes,
              FlexibleContexts #-}
 
 -----------------------------------------------------------------------------
@@ -31,6 +32,10 @@ module XMonad.Core (
     getXMonadDir, getXMonadCacheDir, getXMonadDataDir, stateFileName,
     atom_WM_STATE, atom_WM_PROTOCOLS, atom_WM_DELETE_WINDOW, atom_WM_TAKE_FOCUS, withWindowAttributes,
     ManageHook, Query(..), runQuery, Directories(..), Dirs, getDirs,
+    -- XConf Optics
+    _currentEvent, _mousePosition,
+    -- XConfig Optics
+    _layoutHook,
     -- XState Optics
     _dragging, _extensibleState, _mapped, _waitingUnmap, _numberlockMask, _windowset,
   ) where
@@ -140,6 +145,21 @@ data XConf = XConf
     , dirs         :: !Dirs           -- ^ directories to use
     }
 
+_currentEvent ::
+    (Functor m)=>
+    (Maybe Event -> m (Maybe Event)) ->
+    XConf -> m XConf
+_currentEvent f s = fmap
+    (\ currentEvent' -> s{ currentEvent = currentEvent' })
+    (f (currentEvent s))
+
+_mousePosition ::
+    (Functor m)=>
+    (Maybe (Position, Position) -> m (Maybe (Position, Position))) ->
+    XConf -> m XConf
+_mousePosition f s = fmap
+    (\ mousePosition' -> s{ mousePosition = mousePosition' })
+    (f (mousePosition s))
 
 -- todo, better name
 data XConfig l = XConfig
@@ -167,6 +187,14 @@ data XConfig l = XConfig
     , handleExtraArgs    :: !([String] -> XConfig Layout -> IO (XConfig Layout))
                                                  -- ^ Modify the configuration, complain about extra arguments etc. with arguments that are not handled by default
     }
+
+_layoutHook ::
+    (Functor m)=>
+    (l Window -> m (l' Window)) ->
+    XConfig l -> m (XConfig l')
+_layoutHook f s@XConfig{ layoutHook = l } = fmap
+    (\ layoutHook' -> s{ layoutHook = layoutHook' })
+    (f l)
 
 
 type WindowSet   = StackSet  WorkspaceId (Layout Window) Window ScreenId ScreenDetail
