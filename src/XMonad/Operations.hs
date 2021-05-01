@@ -20,7 +20,7 @@ import XMonad.Core
 import XMonad.Layout (Full(..))
 import qualified XMonad.StackSet as W
 import XMonad.Internal.Optics
-    ((.~), (%~), (^.), (^..), to, (&), (<~), use)
+    ((.~), (%~), (^.), (^..), to, (&), (<~), (.=), use)
 
 import Data.Maybe
 import Data.Monoid          (Endo(..),Any(..))
@@ -30,7 +30,7 @@ import Data.Function        (on)
 import Data.Ratio
 import qualified Data.Map as M
 import qualified Data.Set as S
-import Data.Foldable (for_)
+import Data.Foldable (for_, traverse_)
 
 import Control.Arrow (second)
 import Control.Monad.Reader
@@ -408,10 +408,9 @@ setFocusX w = withWindowSet $ \ws -> do
 -- layout the windows, in which case changes are handled through a refresh.
 sendMessage :: Message a => a -> X ()
 sendMessage a = windowBracket_ $ do
-    w <- gets $ W.workspace . W.current . windowset
-    ml' <- handleMessage (W.layout w) (SomeMessage a) `catchX` return Nothing
-    whenJust ml' $ \l' ->
-        modify $ _windowset . W._current . W._workspace . W._layout .~ l'
+    l <- gets $ W.layout . W.workspace . W.current . windowset
+    ml' <- userCodeDef Nothing $ handleMessage l (SomeMessage a)
+    traverse_ (_windowset . W._current . W._workspace . W._layout .=) ml'
     return (Any $ isJust ml')
 
 -- | Send a message to all layouts, without refreshing.
@@ -439,8 +438,10 @@ filterMessageWithNoRefresh p a = updateLayoutsBy $ \ wrk ->
 
 -- | Update the layout field of a workspace
 updateLayout :: WorkspaceId -> Maybe (Layout Window) -> X ()
-updateLayout i ml = whenJust ml $ \l ->
-    runOnWorkspaces $ \ww -> return $ if W.tag ww == i then ww & W._layout .~ l else ww
+updateLayout i ml =
+    for_ ml $ \l ->
+    runOnWorkspaces $ \ww ->
+    return $ if W.tag ww == i then ww & W._layout .~ l else ww
 
 -- | Set the layout of the currently viewed workspace
 setLayout :: Layout Window -> X ()
