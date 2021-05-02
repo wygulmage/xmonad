@@ -240,8 +240,7 @@ launch initxmc drs = do
                 if exists then readStateFile initxmc else return Nothing
 
             -- restore extensibleState if we read it from a file.
-            let extst = maybe M.empty extensibleState serializedSt
-            _extensibleState .= extst
+            _extensibleState .= foldMap extensibleState serializedSt
 
             setNumlockMask
             grabKeys
@@ -316,8 +315,8 @@ handle (MapRequestEvent    {ev_window = w}) = withDisplay $ \dpy -> do
 -- window gone,      unmanage it
 handle (DestroyWindowEvent {ev_window = w}) = whenX (isClient w) $ do
     unmanage w
-    modify (\s -> s { mapped       = S.delete w (mapped s)
-                    , waitingUnmap = M.delete w (waitingUnmap s)})
+    _mapped %= S.delete w
+    _waitingUnmap %= M.delete w
 
 -- We track expected unmap events in waitingUnmap.  We ignore this event unless
 -- it is synthetic or we are not expecting an unmap notification from a window.
@@ -325,7 +324,7 @@ handle (UnmapEvent {ev_window = w, ev_send_event = synthetic}) = whenX (isClient
     e <- gets (fromMaybe 0 . M.lookup w . waitingUnmap)
     if (synthetic || e == 0)
         then unmanage w
-        else modify (\s -> s { waitingUnmap = M.update mpred w (waitingUnmap s) })
+        else _waitingUnmap %= M.update mpred w
  where mpred 1 = Nothing
        mpred n = Just $ pred n
 
@@ -342,7 +341,7 @@ handle e@(ButtonEvent {ev_event_type = t})
     drag <- gets dragging
     case drag of
         -- we're done dragging and have released the mouse:
-        Just (_,f) -> (_dragging .= Nothing) *> f
+        Just (_, act) -> (_dragging .= Nothing) *> act
         Nothing    -> broadcastMessage e
 
 -- handle motionNotify event, which may mean we are dragging.
