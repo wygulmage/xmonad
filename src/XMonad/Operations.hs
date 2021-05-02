@@ -20,7 +20,6 @@ import XMonad.Core
 import XMonad.Layout (Full(..))
 import qualified XMonad.StackSet as W
 import XMonad.Internal.Optics
-    ((.~), (%~), (^.), (^..), to, (&), (<~), (.=), use)
 
 import Data.Maybe
 import Data.Monoid          (Endo(..),Any(..))
@@ -353,7 +352,7 @@ setTopFocus = withWindowSet $ maybe (setFocusX =<< asks theRoot) setFocusX . W.p
 -- This happens if X notices we've moved the mouse (and perhaps moved
 -- the mouse to a new screen).
 focus :: Window -> X ()
-focus w = local (\c -> c { mouseFocused = True }) $ withWindowSet $ \s -> do
+focus w = local (_mouseFocused .~ True) $ withWindowSet $ \s -> do
     let stag = W.tag . W.workspace
         curr = stag $ W.current s
     mnew <- maybe (return Nothing) (fmap (fmap stag) . uncurry pointScreen)

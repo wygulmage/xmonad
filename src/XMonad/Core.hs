@@ -33,7 +33,7 @@ module XMonad.Core (
     atom_WM_STATE, atom_WM_PROTOCOLS, atom_WM_DELETE_WINDOW, atom_WM_TAKE_FOCUS, withWindowAttributes,
     ManageHook, Query(..), runQuery, Directories(..), Dirs, getDirs,
     -- XConf Optics
-    _currentEvent, _mousePosition,
+    _currentEvent, _mouseFocused, _mousePosition,
     -- XConfig Optics
     _layoutHook,
     -- XState Optics
@@ -152,6 +152,14 @@ _currentEvent ::
 _currentEvent f s = fmap
     (\ currentEvent' -> s{ currentEvent = currentEvent' })
     (f (currentEvent s))
+
+_mouseFocused ::
+    (Functor m)=>
+    (Bool -> m Bool) ->
+    XConf -> m XConf
+_mouseFocused f s = fmap
+    (\ mouseFocused' -> s{ mouseFocused = mouseFocused' })
+    (f (mouseFocused s))
 
 _mousePosition ::
     (Functor m)=>

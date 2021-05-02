@@ -341,7 +341,7 @@ handle e@(ButtonEvent {ev_event_type = t})
     drag <- gets dragging
     case drag of
         -- we're done dragging and have released the mouse:
-        Just (_, act) -> (_dragging .= Nothing) *> act
+        Just (_, cleanup) -> (_dragging .= Nothing) *> cleanup
         Nothing    -> broadcastMessage e
 
 -- handle motionNotify event, which may mean we are dragging.
