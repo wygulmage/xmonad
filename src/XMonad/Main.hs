@@ -26,6 +26,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Data.Maybe (fromMaybe, isJust)
 import Data.Monoid (getAll)
+import Data.Foldable (foldl')
 
 import Graphics.X11.Xlib hiding (refreshKeyboardMapping)
 import Graphics.X11.Xlib.Extras
@@ -35,6 +36,7 @@ import qualified XMonad.Config as Default
 import XMonad.StackSet (new, floating, member)
 import qualified XMonad.StackSet as W
 import XMonad.Operations
+import XMonad.Internal.Optics
 
 import System.IO
 import System.Directory
@@ -63,9 +65,9 @@ xmonad conf = do
     dirs <- getDirectories
     let launch' args = do
               catchIO (buildLaunch dirs)
-              conf'@XConfig { layoutHook = Layout l }
-                  <- handleExtraArgs conf args conf{ layoutHook = Layout (layoutHook conf) }
-              withArgs [] $ launch (conf' { layoutHook = l }) dirs
+              conf'@XConfig{ layoutHook = Layout l }
+                  <- handleExtraArgs conf args (conf & _layoutHook %~ Layout)
+              withArgs [] $ launch (conf' & _layoutHook .~ l) dirs
 
     args <- getArgs
     case args of
@@ -173,7 +175,8 @@ launch initxmc drs = do
     -- ignore SIGPIPE and SIGCHLD
     installSignalHandlers
     -- First, wrap the layout in an existential, to keep things pretty:
-    let xmc = initxmc { layoutHook = Layout $ layoutHook initxmc }
+    -- let xmc = initxmc { layoutHook = Layout $ layoutHook initxmc }
+    let xmc = initxmc & _layoutHook %~ Layout
     dpy   <- openDisplay ""
     let dflt = defaultScreen dpy
 
@@ -238,8 +241,7 @@ launch initxmc drs = do
                 if exists then readStateFile initxmc else return Nothing
 
             -- restore extensibleState if we read it from a file.
-            let extst = maybe M.empty extensibleState serializedSt
-            modify (\s -> s {extensibleState = extst})
+            _extensibleState .= foldMap extensibleState serializedSt
 
             setNumlockMask
             grabKeys
@@ -274,7 +276,7 @@ launch initxmc drs = do
         prehandle e = let mouse = do guard (ev_event_type e `elem` evs)
                                      return (fromIntegral (ev_x_root e)
                                             ,fromIntegral (ev_y_root e))
-                      in local (\c -> c { mousePosition = mouse, currentEvent = Just e }) (handleWithHook e)
+                      in local ((_mousePosition .~ mouse) . (_currentEvent .~ Just e)) (handleWithHook e)
         evs = [ keyPress, keyRelease, enterNotify, leaveNotify
               , buttonPress, buttonRelease]
 
@@ -300,14 +302,16 @@ handle :: Event -> X ()
 
 -- run window manager command
 handle KeyEvent{ ev_event_type = t, ev_state = m, ev_keycode = code }
-    | t == keyPress = withDisplay $ \dpy -> do
+    | t == keyPress = do
+        dpy <- asks display
         s  <- io $ keycodeToKeysym dpy code 0
         mClean <- cleanMask m
         ks <- asks keyActions
         userCodeDef () $ whenJust (M.lookup (mClean, s) ks) id
 
 -- manage a new window
-handle MapRequestEvent{ ev_window = w } = withDisplay $ \dpy -> do
+handle MapRequestEvent{ ev_window = w } = do
+    dpy <- asks display
     withWindowAttributes dpy w $ \wa -> do -- ignore override windows
       -- need to ignore mapping requests by managed windows not on the current workspace
       managed <- isClient w
@@ -317,8 +321,8 @@ handle MapRequestEvent{ ev_window = w } = withDisplay $ \dpy -> do
 -- window gone,      unmanage it
 handle DestroyWindowEvent{ ev_window = w } = whenX (isClient w) $ do
     unmanage w
-    modify (\s -> s { mapped       = S.delete w (mapped s)
-                    , waitingUnmap = M.delete w (waitingUnmap s)})
+    _mapped %= S.delete w
+    _waitingUnmap %= M.delete w
 
 -- We track expected unmap events in waitingUnmap.  We ignore this event unless
 -- it is synthetic or we are not expecting an unmap notification from a window.
@@ -326,7 +330,7 @@ handle UnmapEvent{ ev_window = w, ev_send_event = synthetic } = whenX (isClient 
     e <- gets (fromMaybe 0 . M.lookup w . waitingUnmap)
     if synthetic || e == 0
         then unmanage w
-        else modify (\s -> s { waitingUnmap = M.update mpred w (waitingUnmap s) })
+        else _waitingUnmap %= M.update mpred w
  where mpred 1 = Nothing
        mpred n = Just $ pred n
 
@@ -343,7 +347,7 @@ handle e@ButtonEvent{ ev_event_type = t }
     drag <- gets dragging
     case drag of
         -- we're done dragging and have released the mouse:
-        Just (_,f) -> modify (\s -> s { dragging = Nothing }) >> f
+        Just (_, cleanup) -> (_dragging .= Nothing) *> cleanup
         Nothing    -> broadcastMessage e
 
 -- handle motionNotify event, which may mean we are dragging.
@@ -389,7 +393,8 @@ handle e@CrossingEvent{ ev_event_type = t }
          when (ev_window e == rootw && not (ev_same_screen e)) $ setFocusX rootw
 
 -- configure a window
-handle e@ConfigureRequestEvent{ ev_window = w } = withDisplay $ \dpy -> do
+handle e@ConfigureRequestEvent{ ev_window = w } = do
+    dpy <- asks display
     ws <- gets windowset
     bw <- asks (borderWidth . config)
 
@@ -463,7 +468,7 @@ setNumlockMask = do
                             then return (setBit 0 (fromIntegral m))
                             else return (0 :: KeyMask)
                         | (m, kcs) <- ms, kc <- kcs, kc /= 0]
-    modify (\s -> s { numberlockMask = foldr (.|.) 0 xs })
+    _numberlockMask .= foldl' (.|.) 0 xs
 
 -- | Grab the keys back
 grabKeys :: X ()

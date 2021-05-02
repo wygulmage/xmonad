@@ -1,10 +1,9 @@
 {-# LANGUAGE ExistentialQuantification, FlexibleInstances, GeneralizedNewtypeDeriving,
              MultiParamTypeClasses, TypeSynonymInstances, DeriveDataTypeable,
-             LambdaCase, NamedFieldPuns, DeriveTraversable #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE DefaultSignatures #-}
-{-# LANGUAGE OverloadedStrings #-}
+             LambdaCase, NamedFieldPuns, DeriveTraversable,
+             RankNTypes,
+             FlexibleContexts,
+             ScopedTypeVariables #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -36,6 +35,10 @@ module XMonad.Core (
     stateFileName,
     atom_WM_STATE, atom_WM_PROTOCOLS, atom_WM_DELETE_WINDOW, atom_WM_TAKE_FOCUS, withWindowAttributes,
     ManageHook, Query(..), runQuery, Directories'(..), Directories, getDirectories,
+    -- XConf Optics
+    _display, _currentEvent, _mouseFocused, _mousePosition,
+    -- XConfig Optics
+    _layoutHook,
     -- XState Optics
     _dragging, _extensibleState, _mapped, _waitingUnmap, _numberlockMask, _windowset,
     -- Deprecated
@@ -43,7 +46,7 @@ module XMonad.Core (
   ) where
 
 import XMonad.StackSet hiding (modify)
-import XMonad.Internal.Optics ((%%~), (&))
+import XMonad.Internal.Optics ((%%~), (&), (.=), use)
 
 import Prelude hiding (fail)
 import Control.Exception (fromException, try, throw, finally, SomeException(..))
@@ -52,10 +55,11 @@ import Control.Applicative (liftA2, Alternative, (<|>), empty)
 import Control.Monad (filterM, guard, when)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Fail (MonadFail (fail))
-import Control.Monad.State (MonadState (..), gets)
+import Control.Monad.State.Strict (MonadState (..), gets)
 import Control.Monad.Reader (MonadReader (..), ReaderT (..), asks)
 import Control.Monad.Writer (MonadWriter (..))
 import Data.Semigroup
+import Data.Functor ((<&>))
 import Data.Traversable (for)
 import Data.Function (fix)
 import Data.Default
@@ -99,40 +103,36 @@ data XState = XState
 -- XState Lenses
 _windowset :: (Functor m)=> (WindowSet -> m WindowSet) -> XState -> m XState
 _windowset f xst =
-    fmap (\ windowset' -> xst{ windowset = windowset' }) (f (windowset xst))
+    f (windowset xst) <&> \ windowset' -> xst{ windowset = windowset' }
 
 _mapped ::
     (Functor m)=> (S.Set Window -> m (S.Set Window)) -> XState -> m XState
 _mapped f xst =
-    fmap (\ mapped' -> xst{ mapped = mapped' }) (f (mapped xst))
+    f (mapped xst) <&> \ mapped' -> xst{ mapped = mapped' }
 
 _waitingUnmap ::
     (Functor m)=>
     (M.Map Window Int -> m (M.Map Window Int)) -> XState -> m XState
 _waitingUnmap f xst =
-    fmap (\ waiting' -> xst{ waitingUnmap = waiting' }) (f (waitingUnmap xst))
+    f (waitingUnmap xst) <&> \ waiting' -> xst{ waitingUnmap = waiting' }
 
 _dragging ::
     (Functor m)=>
     (Maybe (Position -> Position -> X (), X ()) -> m (Maybe (Position -> Position -> X (), X ()))) ->
     XState -> m XState
 _dragging f xst =
-    fmap (\ dragging' -> xst{ dragging = dragging' }) (f (dragging xst))
+    f (dragging xst) <&> \ dragging' -> xst{ dragging = dragging' }
 
 _numberlockMask :: (Functor m)=> (KeyMask -> m KeyMask) -> XState -> m XState
 _numberlockMask f xst =
-    fmap
-    (\ numlock' -> xst{ numberlockMask = numlock' })
-    (f (numberlockMask xst))
+    f (numberlockMask xst) <&> \ numlock' -> xst{ numberlockMask = numlock' }
 
 _extensibleState ::
     (Functor m)=>
     (M.Map String (Either String StateExtension) -> m (M.Map String (Either String StateExtension))) ->
     XState -> m XState
 _extensibleState f xst =
-    fmap
-    (\ state' -> xst{ extensibleState = state' })
-    (f (extensibleState xst))
+    f (extensibleState xst) <&> \ state' -> xst{ extensibleState = state' }
 
 -- | XConf, the (read-only) window manager configuration.
 data XConf = XConf
@@ -153,6 +153,35 @@ data XConf = XConf
     , directories  :: !Directories    -- ^ directories to use
     }
 
+_display ::
+    (Functor m)=>
+    (Display -> m Display) ->
+    XConf -> m XConf
+_display f s =
+    f (display s) <&> \ display' -> s{ display = display' }
+
+_currentEvent ::
+    (Functor m)=>
+    (Maybe Event -> m (Maybe Event)) ->
+    XConf -> m XConf
+_currentEvent f s =
+    f (currentEvent s) <&> \ currentEvent' -> s{ currentEvent = currentEvent' }
+
+_mouseFocused ::
+    (Functor m)=>
+    (Bool -> m Bool) ->
+    XConf -> m XConf
+_mouseFocused f s =
+    f (mouseFocused s) <&>
+    \ mouseFocused' -> s{ mouseFocused = mouseFocused' }
+
+_mousePosition ::
+    (Functor m)=>
+    (Maybe (Position, Position) -> m (Maybe (Position, Position))) ->
+    XConf -> m XConf
+_mousePosition f s =
+    f (mousePosition s) <&>
+    \ mousePosition' -> s{ mousePosition = mousePosition' }
 
 -- todo, better name
 data XConfig l = XConfig
@@ -185,6 +214,13 @@ data XConfig l = XConfig
                                                  -- The module "XMonad.Util.ExtensibleConf" in xmonad-contrib
                                                  -- provides additional information and a simple interface for using this.
     }
+
+_layoutHook ::
+    (Functor m)=>
+    (l Window -> m (l' Window)) ->
+    XConfig l -> m (XConfig l')
+_layoutHook f xcfg =
+    f (layoutHook xcfg) <&> \ layoutHook' -> xcfg{ layoutHook= layoutHook' }
 
 
 type WindowSet   = StackSet  WorkspaceId (Layout Window) Window ScreenId ScreenDetail
@@ -600,8 +636,12 @@ spawnPipe command = Process.getStdin <$> Process.startProcess cfg
 
 -- | This is basically a map function, running a function in the 'X' monad on
 -- each workspace with the output of that function being the modified workspace.
-runOnWorkspaces :: (WindowSpace -> X WindowSpace) -> X ()
-runOnWorkspaces job = get >>= (_windowset . _workspaces %%~ job) >>= put
+runOnWorkspaces ::
+   (MonadState XState m)=> (WindowSpace -> m WindowSpace) -> m ()
+runOnWorkspaces job = do
+   ws' <- _workspaces %%~ job =<< use _windowset
+   _windowset .= ws'
+   -- WARNING: This has changed the order of runOnWorkspaces. Carefully check whether anything depended on acting on hidden workspaces first!
 
 -- | All the directories that xmonad will use.  They will be used for
 -- the following purposes:

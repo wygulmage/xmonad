@@ -1,5 +1,5 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-{-# LANGUAGE FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, PatternGuards, NamedFieldPuns, ScopedTypeVariables #-}
+{-# LANGUAGE FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, PatternGuards, TypeSynonymInstances, NamedFieldPuns, RankNTypes #-}
 -- --------------------------------------------------------------------------
 -- |
 -- Module      :  XMonad.Operations
@@ -19,8 +19,9 @@ module XMonad.Operations where
 import XMonad.Core
 import XMonad.Layout (Full(..))
 import qualified XMonad.StackSet as W
-import XMonad.Internal.Optics ((.~), (%~), (^.), (^..), to, (&))
+import XMonad.Internal.Optics
 
+import Data.Foldable (traverse_)
 import Data.Maybe
 import Data.Monoid          (Endo(..),Any(..))
 import Data.List            (nub, find)
@@ -29,7 +30,7 @@ import Data.Function        (on)
 import Data.Ratio
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
-import Data.Foldable (for_)
+import Data.Foldable (for_, traverse_)
 
 import Control.Arrow (second)
 import Control.Monad.Reader
@@ -150,8 +151,11 @@ windows f = do
 
         -- just the tiled windows:
         -- now tile the windows on this workspace, modified by the gap
-        (rs, ml') <- runLayout wsp { W.stack = tiled } viewrect `catchX`
-                     runLayout wsp { W.stack = tiled, W.layout = Layout Full } viewrect
+        (rs, ml') <-
+           runLayout (wsp & W._stack .~ tiled) viewrect
+           `catchX`
+           runLayout (wsp & W._stack .~ tiled & W._layout .~ Layout Full) viewrect
+
         updateLayout n ml'
 
         let m   = W.floating ws
@@ -196,9 +200,11 @@ modifyWindowSet f = modify $ _windowset %~ f
 -- | Perform an @X@ action and check its return value against a predicate p.
 -- If p holds, unwind changes to the @WindowSet@ and replay them using @windows@.
 windowBracket :: (a -> Bool) -> X a -> X a
-windowBracket p action = withWindowSet $ \old -> do
+windowBracket p action = do
+  old <- gets windowset
   a <- action
-  when (p a) . withWindowSet $ \new -> do
+  when (p a) $ do
+    new <- gets windowset
     modify $ _windowset .~ old
     windows         $ \_ -> new
   return a
@@ -216,7 +222,8 @@ scaleRationalRect (Rectangle sx sy sw sh) (W.RationalRect rx ry rw rh)
 
 -- | setWMState.  set the WM_STATE property
 setWMState :: Window -> Int -> X ()
-setWMState w v = withDisplay $ \dpy -> do
+setWMState w v = do
+    dpy <- asks display
     a <- atom_WM_STATE
     io $ changeProperty32 dpy w a a propModeReplace [fromIntegral v, fromIntegral none]
 
@@ -350,13 +357,15 @@ setButtonGrab grab w = do
 
 -- | Set the focus to the window on top of the stack, or root
 setTopFocus :: X ()
-setTopFocus = withWindowSet $ maybe (setFocusX =<< asks theRoot) setFocusX . W.peek
+setTopFocus =
+    maybe (setFocusX =<< asks theRoot) setFocusX =<< gets (W.peek . windowset)
 
 -- | Set focus explicitly to window 'w' if it is managed by us, or root.
 -- This happens if X notices we've moved the mouse (and perhaps moved
 -- the mouse to a new screen).
 focus :: Window -> X ()
-focus w = local (\c -> c { mouseFocused = True }) $ withWindowSet $ \s -> do
+focus w = local (_mouseFocused .~ True) $ do
+    s <- gets windowset
     let stag = W.tag . W.workspace
         curr = stag $ W.current s
     mnew <- maybe (return Nothing) (fmap (fmap stag) . uncurry pointScreen)
@@ -370,7 +379,8 @@ focus w = local (\c -> c { mouseFocused = True }) $ withWindowSet $ \s -> do
 
 -- | Call X to set the keyboard focus details.
 setFocusX :: Window -> X ()
-setFocusX w = withWindowSet $ \ws -> do
+setFocusX w = do
+    ws <- gets windowset
     dpy <- asks display
 
     -- clear mouse button grab and border on other windows
@@ -411,27 +421,40 @@ setFocusX w = withWindowSet $ \ws -> do
 -- layout the windows, in which case changes are handled through a refresh.
 sendMessage :: Message a => a -> X ()
 sendMessage a = windowBracket_ $ do
-    w <- gets $ W.workspace . W.current . windowset
-    ml' <- handleMessage (W.layout w) (SomeMessage a) `catchX` return Nothing
-    whenJust ml' $ \l' ->
-        modify $ _windowset . W._current . W._workspace . W._layout .~ l'
+    l <- gets $ W.layout . W.workspace . W.current . windowset
+    ml' <- userCodeDef Nothing $ handleMessage l (SomeMessage a)
+    traverse_ (_windowset . W._current . W._workspace . W._layout .=) ml'
     return (Any $ isJust ml')
 
 -- | Send a message to all layouts, without refreshing.
 broadcastMessage :: Message a => a -> X ()
-broadcastMessage a = withWindowSet $ \ws ->
-    mapM_ (sendMessageWithNoRefresh a) (ws ^.. W._workspaces)
+broadcastMessage = filterMessageWithNoRefresh (const True)
+
+updateLayoutsBy ::
+    (MonadState XState m)=>
+    (W.Workspace WorkspaceId (Layout Window) Window -> m (Maybe (Layout Window))) ->
+    m ()
+updateLayoutsBy f = runOnWorkspaces $ \ wrk ->
+    maybe wrk (\ l' -> wrk & W._layout .~ l') <$> f wrk
 
 -- | Send a message to a layout, without refreshing.
 sendMessageWithNoRefresh :: Message a => a -> W.Workspace WorkspaceId (Layout Window) Window -> X ()
 sendMessageWithNoRefresh a w =
-    handleMessage (W.layout w) (SomeMessage a) `catchX` return Nothing >>=
-    updateLayout  (W.tag w)
+    filterMessageWithNoRefresh (on (==) W.tag w) a
+
+-- | Send a message to the layouts of some workspaces, without refreshing.
+filterMessageWithNoRefresh :: Message a => (WindowSpace -> Bool) -> a -> X ()
+filterMessageWithNoRefresh p a = updateLayoutsBy $ \ wrk ->
+    if p wrk
+      then userCodeDef Nothing $ W.layout wrk `handleMessage` SomeMessage a
+      else pure Nothing
 
 -- | Update the layout field of a workspace
 updateLayout :: WorkspaceId -> Maybe (Layout Window) -> X ()
-updateLayout i ml = whenJust ml $ \l ->
-    runOnWorkspaces $ \ww -> return $ if W.tag ww == i then ww { W.layout = l} else ww
+updateLayout i ml =
+    for_ ml $ \l ->
+    runOnWorkspaces $ \ww ->
+    return $ if W.tag ww == i then ww & W._layout .~ l else ww
 
 -- | Set the layout of the currently viewed workspace
 setLayout :: Layout Window -> X ()
@@ -446,15 +469,15 @@ setLayout l = do
 
 -- | Return workspace visible on screen 'sc', or 'Nothing'.
 screenWorkspace :: ScreenId -> X (Maybe WorkspaceId)
-screenWorkspace sc = withWindowSet $ return . W.lookupWorkspace sc
+screenWorkspace sc = gets $ W.lookupWorkspace sc . windowset
 
 -- | Apply an 'X' operation to the currently focused window, if there is one.
 withFocused :: (Window -> X ()) -> X ()
-withFocused f = withWindowSet $ \w -> whenJust (W.peek w) f
+withFocused f = traverse_ f =<< gets (W.peek . windowset)
 
 -- | 'True' if window is under management by us
 isClient :: Window -> X Bool
-isClient w = withWindowSet $ return . W.member w
+isClient w = gets $ W.member w . windowset
 
 -- | Combinations of extra modifier masks we need to grab keys\/buttons for.
 -- (numlock and capslock)
@@ -479,8 +502,8 @@ initColor dpy c = C.handle (\(C.SomeException _) -> return Nothing) $
 
 -- | A type to help serialize xmonad's state to a file.
 data StateFile = StateFile
-  { sfWins :: W.StackSet  WorkspaceId String Window ScreenId ScreenDetail
-  , sfExt  :: [(String, String)]
+  { sfWins :: !(W.StackSet WorkspaceId String Window ScreenId ScreenDetail)
+  , sfExt  :: ![(String, String)]
   } deriving (Show, Read)
 
 -- | Write the current window state (and extensible state) to a file
@@ -588,7 +611,7 @@ floatLocation w =
 -- | Given a point, determine the screen (if any) that contains it.
 pointScreen :: Position -> Position
             -> X (Maybe (W.Screen WorkspaceId (Layout Window) Window ScreenId ScreenDetail))
-pointScreen x y = withWindowSet $ return . find p . W.screens
+pointScreen x y = gets $ find p . W.screens . windowset
   where p = pointWithin x y . screenRect . W.screenDetail
 
 -- | @pointWithin x y r@ returns 'True' if the @(x, y)@ co-ordinate is within
