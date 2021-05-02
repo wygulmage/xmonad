@@ -51,6 +51,7 @@ import Control.Monad.Fail
 import Control.Monad.State
 import Control.Monad.Reader
 import Data.Semigroup
+import Data.Functor ((<&>))
 import Data.Traversable (for)
 import Data.Default
 import System.FilePath
@@ -91,40 +92,36 @@ data XState = XState
 -- XState Lenses
 _windowset :: (Functor m)=> (WindowSet -> m WindowSet) -> XState -> m XState
 _windowset f xst =
-    fmap (\ windowset' -> xst{ windowset = windowset' }) (f (windowset xst))
+    f (windowset xst) <&> \ windowset' -> xst{ windowset = windowset' }
 
 _mapped ::
     (Functor m)=> (S.Set Window -> m (S.Set Window)) -> XState -> m XState
 _mapped f xst =
-    fmap (\ mapped' -> xst{ mapped = mapped' }) (f (mapped xst))
+    f (mapped xst) <&> \ mapped' -> xst{ mapped = mapped' }
 
 _waitingUnmap ::
     (Functor m)=>
     (M.Map Window Int -> m (M.Map Window Int)) -> XState -> m XState
 _waitingUnmap f xst =
-    fmap (\ waiting' -> xst{ waitingUnmap = waiting' }) (f (waitingUnmap xst))
+    f (waitingUnmap xst) <&> \ waiting' -> xst{ waitingUnmap = waiting' }
 
 _dragging ::
     (Functor m)=>
     (Maybe (Position -> Position -> X (), X ()) -> m (Maybe (Position -> Position -> X (), X ()))) ->
     XState -> m XState
 _dragging f xst =
-    fmap (\ dragging' -> xst{ dragging = dragging' }) (f (dragging xst))
+    f (dragging xst) <&> \ dragging' -> xst{ dragging = dragging' }
 
 _numberlockMask :: (Functor m)=> (KeyMask -> m KeyMask) -> XState -> m XState
 _numberlockMask f xst =
-    fmap
-    (\ numlock' -> xst{ numberlockMask = numlock' })
-    (f (numberlockMask xst))
+    f (numberlockMask xst) <&> \ numlock' -> xst{ numberlockMask = numlock' }
 
 _extensibleState ::
     (Functor m)=>
     (M.Map String (Either String StateExtension) -> m (M.Map String (Either String StateExtension))) ->
     XState -> m XState
 _extensibleState f xst =
-    fmap
-    (\ state' -> xst{ extensibleState = state' })
-    (f (extensibleState xst))
+    f (extensibleState xst) <&> \ state' -> xst{ extensibleState = state' }
 
 -- | XConf, the (read-only) window manager configuration.
 data XConf = XConf
@@ -149,25 +146,24 @@ _currentEvent ::
     (Functor m)=>
     (Maybe Event -> m (Maybe Event)) ->
     XConf -> m XConf
-_currentEvent f s = fmap
-    (\ currentEvent' -> s{ currentEvent = currentEvent' })
-    (f (currentEvent s))
+_currentEvent f s =
+    f (currentEvent s) <&> \ currentEvent' -> s{ currentEvent = currentEvent' }
 
 _mouseFocused ::
     (Functor m)=>
     (Bool -> m Bool) ->
     XConf -> m XConf
-_mouseFocused f s = fmap
-    (\ mouseFocused' -> s{ mouseFocused = mouseFocused' })
-    (f (mouseFocused s))
+_mouseFocused f s =
+    f (mouseFocused s) <&>
+    \ mouseFocused' -> s{ mouseFocused = mouseFocused' }
 
 _mousePosition ::
     (Functor m)=>
     (Maybe (Position, Position) -> m (Maybe (Position, Position))) ->
     XConf -> m XConf
-_mousePosition f s = fmap
-    (\ mousePosition' -> s{ mousePosition = mousePosition' })
-    (f (mousePosition s))
+_mousePosition f s =
+    f (mousePosition s) <&>
+    \ mousePosition' -> s{ mousePosition = mousePosition' }
 
 -- todo, better name
 data XConfig l = XConfig
@@ -200,9 +196,8 @@ _layoutHook ::
     (Functor m)=>
     (l Window -> m (l' Window)) ->
     XConfig l -> m (XConfig l')
-_layoutHook f s@XConfig{ layoutHook = l } = fmap
-    (\ layoutHook' -> s{ layoutHook = layoutHook' })
-    (f l)
+_layoutHook f xcfg =
+    f (layoutHook xcfg) <&> \ layoutHook' -> xcfg{ layoutHook= layoutHook' }
 
 
 type WindowSet   = StackSet  WorkspaceId (Layout Window) Window ScreenId ScreenDetail
@@ -229,11 +224,8 @@ newtype ScreenDetail = SD { screenRect :: Rectangle }
 -- instantiated on 'XConf' and 'XState' automatically.
 --
 newtype X a = X (ReaderT XConf (StateT XState IO) a)
-    deriving (Functor, Monad, MonadFail, MonadIO, MonadState XState, MonadReader XConf, Typeable)
-
-instance Applicative X where
-  pure = return
-  (<*>) = ap
+  deriving
+    (Functor, Applicative, Monad, MonadFail, MonadIO, MonadState XState, MonadReader XConf, Typeable)
 
 instance Semigroup a => Semigroup (X a) where
     (<>) = liftM2 (<>)
