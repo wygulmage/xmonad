@@ -453,8 +453,8 @@ filterMessageWithNoRefresh p a = updateLayoutsBy $ \ wrk ->
 updateLayout :: WorkspaceId -> Maybe (Layout Window) -> X ()
 updateLayout i ml =
     for_ ml $ \l ->
-    runOnWorkspaces $ \ww ->
-    return $ if W.tag ww == i then ww & W._layout .~ l else ww
+    _windowset . W._workspaces %= \ ww ->
+    if W.tag ww == i then ww & W._layout .~ l else ww
 
 -- | Set the layout of the currently viewed workspace
 setLayout :: Layout Window -> X ()
@@ -578,11 +578,12 @@ floatLocation w =
     catchX go $ do
       -- Fallback solution if `go' fails.  Which it might, since it
       -- calls `getWindowAttributes'.
-      sc <- gets $ W.current . windowset
-      return (W.screen sc, W.RationalRect 0 0 1 1)
+      sc <- gets $ W.screen . W.current . windowset
+      pure (sc, W.RationalRect 0 0 1 1)
 
   where fi x = fromIntegral x
-        go = withDisplay $ \d -> do
+        go = do
+          d <- asks display
           ws <- gets windowset
           wa <- io $ getWindowAttributes d w
           let bw = (fromIntegral . wa_border_width) wa
