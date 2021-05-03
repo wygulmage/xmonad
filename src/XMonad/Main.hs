@@ -20,7 +20,7 @@ import qualified Control.Exception as E
 import Data.Bits
 import Data.List ((\\))
 import Data.Function
-import Data.Foldable (for_, traverse_)
+import Data.Foldable (for_, traverse_, foldl')
 import Data.Traversable (for)
 import qualified Data.Map as M
 import qualified Data.Set as S
@@ -28,7 +28,6 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Data.Maybe (fromMaybe, isJust)
 import Data.Monoid (getAll)
-import Data.Foldable (foldl')
 
 import Graphics.X11.Xlib hiding (refreshKeyboardMapping)
 import Graphics.X11.Xlib.Extras

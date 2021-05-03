@@ -47,7 +47,6 @@ import XMonad.Layout (Full(..))
 import qualified XMonad.StackSet as W
 import XMonad.Internal.Optics
 
-import Data.Foldable (traverse_)
 import Data.Int (Int32)
 import Data.Word (Word32)
 import Data.Maybe
@@ -60,7 +59,6 @@ import Data.Function        (on)
 import Data.Ratio
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
-import Data.Foldable (for_, traverse_)
 
 import Control.Arrow (second)
 import Control.Monad.Reader

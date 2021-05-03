@@ -50,7 +50,7 @@ module XMonad.Core (
   ) where
 
 import XMonad.StackSet hiding (modify)
-import XMonad.Internal.Optics ((%%~), (&), (.=), use)
+import XMonad.Internal.Optics ((%%~), (.=), use)
 
 import Prelude hiding (fail)
 import Control.Exception (fromException, try, throw, finally, SomeException(..))
@@ -77,7 +77,7 @@ import System.Posix.Signals
 import System.Posix.IO
 import System.Posix.Types (ProcessID)
 import System.Process
-import qualified System.Process.Typed as Process
+-- import qualified System.Process.Typed as Process
 import System.Directory
 import System.Exit -- ExitCode
 import Graphics.X11.Xlib
@@ -243,7 +243,7 @@ newtype ScreenDetail = SD { screenRect :: Rectangle }
 
 _screenRect ::
    (Functor m)=>
-   (Rectangle -> m Rectangle) -> ScreenDetail -> m (ScreenDetail)
+   (Rectangle -> m Rectangle) -> ScreenDetail -> m ScreenDetail
 _screenRect f = fmap SD . f . screenRect
 
 ------------------------------------------------------------------------
@@ -683,11 +683,11 @@ xfork x = io . forkProcess . finally nullStdin $ do
         dupTo fd stdInput
         closeFd fd
 
-spawnPipe :: MonadIO m => [Char] -> m Handle
-spawnPipe command = Process.getStdin <$> Process.startProcess cfg
-   where
-   cfg = Process.proc "/bin/sh" ["-c", command]
-         & Process.setStdin Process.createPipe
+-- spawnPipe :: MonadIO m => [Char] -> m Handle
+-- spawnPipe command = Process.getStdin <$> Process.startProcess cfg
+--    where
+--    cfg = Process.proc "/bin/sh" ["-c", command]
+--          & Process.setStdin Process.createPipe
 
 -- | This is basically a map function, running a function in the 'X' monad on
 -- each workspace with the output of that function being the modified workspace.
@@ -791,7 +791,7 @@ getXMonadDataDir = asks (dataDir . directories)
 
 -- | Get the name of the file used to store the xmonad window state.
 stateFileName :: X FilePath
-stateFileName = (</> "xmonad.state") <$> asks (dataDir . directories)
+stateFileName = asks $ (</> "xmonad.state") . dataDir . directories
 
 -- | 'recompile force', recompile the xmonad configuration file when
 -- any of the following apply:

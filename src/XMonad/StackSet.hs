@@ -64,7 +64,6 @@ module XMonad.StackSet (
 import Prelude hiding (filter)
 import Control.Applicative (liftA3)
 import Control.Applicative.Backwards (Backwards (Backwards, forwards))
-import Data.Function (on)
 import Data.Foldable (foldr, toList)
 import Data.Function (on)
 import Data.Maybe   (listToMaybe,isJust,fromMaybe)

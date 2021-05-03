@@ -10,6 +10,7 @@
 - ignore: {name: "Use list literal"}
 - ignore: {name: "Use const"}
 - ignore: {name: "Use tuple-section"}
+- ignore: {name: "Use ?~"}
 
 
 # Specify additional command line arguments

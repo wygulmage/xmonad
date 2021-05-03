@@ -25,7 +25,6 @@ import Control.Exception (bracket, SomeException(..))
 import qualified Control.Exception as E
 import Control.Monad.Reader
 import Data.Foldable (fold)
-import Data.Maybe
 import Data.Monoid
 import qualified XMonad.StackSet as W
 import XMonad.Operations (floatLocation, reveal)
