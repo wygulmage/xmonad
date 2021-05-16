@@ -15,11 +15,23 @@
 
 -- XXX examples required
 
-module XMonad.ManageHook where
+module XMonad.ManageHook (
+    -- ManageHooks
+    liftX, idHook, (<+>), composeAll,
+    doFloat, doIgnore, doShift,
+    -- Lifted operations
+    (-->), (=?),
+    (<&&>), (<||>),
+    -- Queries
+    title, appName, className, doF, stringProperty, getWindowPropertyString,
+    -- For backwards compatibility
+    resource, getStringProperty
+    ) where
 
 import XMonad.Core
 import Graphics.X11.Xlib.Extras
 import Graphics.X11.Xlib (Display, Window, internAtom, wM_NAME)
+import qualified Codec.Binary.UTF8.String as UTF8
 import Control.Applicative (liftA2)
 import Control.Exception (bracket, SomeException(..))
 import qualified Control.Exception as E
@@ -28,14 +40,14 @@ import Data.Foldable (fold)
 import Data.Monoid
 import qualified XMonad.StackSet as W
 import XMonad.Operations (floatLocation, reveal)
+import XMonad.Internal.Optics
 
 -- | Lift an 'X' action to a 'Query'.
 liftX :: X a -> Query a
 liftX = Query . lift
 
--- | The identity hook that returns the WindowSet unchanged.
--- idHook :: Monoid m => m
-idHook :: ManageHook
+-- | The identity hook that returns the WindowSet unchanged. It's in an ad hoc way in xmonad-contrib, so it has to be an alias for mempty rather than restricted to the 'ManageHook' type.
+idHook :: Monoid m => m
 idHook = mempty
 
 -- | Infix 'mappend'. Compose two 'ManageHook' from right to left.
@@ -76,17 +88,22 @@ title = ask >>= \w -> liftX $ do
     let
         getProp =
             (internAtom d "_NET_WM_NAME" False >>= getTextProperty d w)
-                `E.catch` \(SomeException _) -> getTextProperty d w wM_NAME
-        extract prop = do l <- wcTextPropertyToTextList d prop
-                          pure $ if null l then "" else head l
-    io $ bracket getProp (xFree . tp_value) extract `E.catch` \(SomeException _) -> pure ""
+            `catch_`
+            getTextProperty d w wM_NAME
+        -- extract prop = fold . listToMaybe <$> wcTextPropertyToTextList d prop
+        extract prop = (head <$> wcTextPropertyToTextList d prop) `catch_` mempty
+    io $ bracket getProp (xFree . tp_value) extract
+    -- This should not return empty if the cleanup action fails.
+    -- io $ bracket getProp (xFree . tp_value) extract `catch_` mempty
+  where
+    catch_ act1 act2 = act1 `E.catch` \(SomeException _) -> act2
 
 -- | Return the application name.
 appName :: Query String
 appName =
     ask >>= \ w ->
     liftX $ asks display >>= \ d ->
-    fmap resName $ io $ getClassHint d w
+    io $ resName <$> getClassHint d w
 
 -- | Backwards compatible alias for 'appName'.
 resource :: Query String
@@ -97,23 +114,27 @@ className :: Query String
 className =
     ask >>= \ w ->
     liftX $ asks display >>= \ d ->
-    fmap resClass $ io $ getClassHint d w
+    io $ resClass <$> getClassHint d w
 
 -- | A query that can return an arbitrary X property of type 'String',
---   identified by name.
+--   identified by name. If the query fails it returns the empty @String@.
 stringProperty :: String -> Query String
 stringProperty p =
-    ask >>= \ w ->
-    liftX $ asks display >>= \ d ->
-    fold <$> getStringProperty d w p
+    liftX . fmap fold . getWindowPropertyString p =<< ask
+
+-- | Get a @String@ property of a 'Window'.
+getWindowPropertyString :: String -> Window -> X (Maybe String)
+getWindowPropertyString p w = do
+    d <- asks display
+    a <- getAtom p
+    io $ fmap UTF8.decode <$> rawGetWindowProperty 8 d a w
 
 getStringProperty :: Display -> Window -> String -> X (Maybe String)
-getStringProperty d w p = do
-  a  <- getAtom p
-  md <- io $ getWindowProperty8 d a w
-  pure $ fmap (fmap (toEnum . fromIntegral)) md
+getStringProperty d w p = local (_display .~ d) $ getWindowPropertyString p w
+{-# DEPRECATED getStringProperty "Use getWindowPropertyString." #-}
 
 -- | Modify the 'WindowSet' with a pure function.
+-- Usually used as @doF :: (WindowSet -> WindowSet) -> ManageHook@.
 doF :: (s -> s) -> Query (Endo s)
 doF = pure . Endo
 
