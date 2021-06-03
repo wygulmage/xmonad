@@ -40,7 +40,7 @@ module XMonad.Core (
     atom_WM_STATE, atom_WM_PROTOCOLS, atom_WM_DELETE_WINDOW, atom_WM_TAKE_FOCUS, withWindowAttributes,
     ManageHook, Query(..), runQuery, Directories'(..), Directories, getDirectories,
     -- XConf Optics
-    _display, _currentEvent, _mouseFocused, _mousePosition,
+    _config, _currentEvent, _directories, _display, _theRoot, _focusedBorder, _normalBorder, _buttonActions, _keyActions, _mouseFocused, _mousePosition,
     -- XConfig Optics
     _layoutHook,
     -- XState Optics
@@ -165,6 +165,50 @@ _display ::
 _display f s =
     f (display s) <&> \ display' -> s{ display = display' }
 
+_config ::
+    (Functor m)=>
+    (XConfig Layout -> m (XConfig Layout)) ->
+    XConf -> m XConf
+_config f s = f (config s) <&> \ config' -> s{ config = config' }
+
+_theRoot ::
+    (Functor m)=>
+    (Window -> m Window) ->
+    XConf -> m XConf
+_theRoot f s =
+    f (theRoot s) <&> \ theRoot' -> s{ theRoot = theRoot' }
+
+_normalBorder ::
+    (Functor m)=>
+    (Pixel -> m Pixel) ->
+    XConf -> m XConf
+_normalBorder f s =
+    f (normalBorder s) <&>
+    \ normalBorder' -> s{ normalBorder = normalBorder' }
+
+_focusedBorder ::
+    (Functor m)=>
+    (Pixel -> m Pixel) ->
+    XConf -> m XConf
+_focusedBorder f s =
+    f (focusedBorder s) <&>
+    \ focusedBorder' -> s{ focusedBorder = focusedBorder' }
+
+_keyActions ::
+    (Functor m)=>
+    (M.Map (KeyMask, KeySym) (X ()) -> m (M.Map (KeyMask, KeySym) (X ()))) ->
+    XConf -> m XConf
+_keyActions f s =
+    f (keyActions s) <&> \ keyActions' -> s{ keyActions = keyActions' }
+
+_buttonActions ::
+    (Functor m)=>
+    (M.Map (KeyMask, Button) (Window -> X ()) -> m (M.Map (KeyMask, Button) (Window -> X ()))) ->
+    XConf -> m XConf
+_buttonActions f s =
+    f (buttonActions s) <&>
+    \ buttonActions' -> s{ buttonActions = buttonActions' }
+
 _currentEvent ::
     (Functor m)=>
     (Maybe Event -> m (Maybe Event)) ->
@@ -187,6 +231,13 @@ _mousePosition ::
 _mousePosition f s =
     f (mousePosition s) <&>
     \ mousePosition' -> s{ mousePosition = mousePosition' }
+
+_directories ::
+    (Functor m)=>
+    (Directories -> m Directories) ->
+    XConf -> m XConf
+_directories f s =
+    f (directories s) <&> \ directories' -> s{ directories = directories' }
 
 -- todo, better name
 data XConfig l = XConfig
