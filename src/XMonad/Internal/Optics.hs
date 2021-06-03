@@ -43,10 +43,11 @@ import Data.Functor ((<&>))
 
 -- ** Modifying
 
--- NOTE: ASetter is not exported.
 type ASetter c d a b = (a -> Identity b) -> c -> Identity d
 {- ^
 @ASetter@ describes 'Data.Functor.fmap'-like optics used to modify and replace values.
+
+This type alias is not exported.
 -}
 
 (%~) :: ASetter c d a b -> (a -> b) -> c -> d
@@ -86,10 +87,11 @@ sets f g = Identity #. f (runIdentity #. g)
 
 -- ** Getting
 
--- NOTE: Getting is not exported.
 type Getting r c a = (a -> Const r a) -> c -> Const r c
 {- ^
 @Getting@ is a concrete type used to instantiate optics when they are used to get single values or 'Data.Monoid.Monoid' folds.
+
+This type alias is not exported.
 -}
 
 (^.) :: c -> Getting a c a -> a
@@ -118,9 +120,10 @@ x ^.. o = x ^. o . to singleDList & runDList
 infixl 8 ^..
 {-# INLINE (^..) #-}
 
--- NOTE: Getter is not exported.
 type Getter c a = forall m. (Contravariant m)=> (a -> m a) -> c -> m c
 {- ^ @Getter@ characterizes optics that can only be used to get a single value out of a structure.
+
+This type alias is not exported.
 -}
 
 to :: (c -> a) -> Getter c a
@@ -139,17 +142,21 @@ view l = Reader.asks (^. l)
 
 infixr 4 %=
 (%=) :: (State.MonadState s m)=> ASetter s s a b -> (a -> b) -> m ()
+{- ^ Apply a function to part of the state.
+-}
 l %= f = State.modify $ l %~ f
 {-# INLINE (%=) #-}
 
 infixr 4 .=
 (.=) :: (State.MonadState s m)=> ASetter s s a b -> b -> m ()
+{- ^ Set part of the state to a new value.
+-}
 l .= x = State.modify $ l .~ x
 {-# INLINE (.=) #-}
 
 infixr 2 <~
 (<~) :: (State.MonadState s m)=> ASetter s s a b -> m b -> m ()
-{- ^ Think of @<~@ as @.=<<@.
+{- ^ Think of @<~@ as @.=<<@. It sets part of the state to a monadic value.
 -}
 l <~ mx = (l .=) =<< mx
 {-# INLINE (<~) #-}
@@ -159,6 +166,7 @@ l <~ mx = (l .=) =<< mx
 
 use :: (State.MonadState s m)=> Getting a s a -> m a
 use l = State.gets (^. l)
+{-# INLINE use #-}
 
 
 --- Module-Internal Definitions (not exported) ---
