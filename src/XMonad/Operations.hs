@@ -329,12 +329,13 @@ clearEvents mask = withDisplay $ \d -> io $ do
 -- | Move and resize @w@ such that it fits inside the given rectangle,
 -- including its border.
 tileWindow :: Window -> Rectangle -> X ()
-tileWindow w r = withDisplay $ \d -> withWindowAttributes d w $ \wa -> do
+tileWindow w r = withWindowAttributes' w $ \wa -> do
     -- give all windows at least 1x1 pixels
     let bw = fromIntegral $ wa_border_width wa
         least x
           | x <= bw*2 = 1
           | otherwise = x - bw*2
+    d <- asks display
     io $ moveResizeWindow d w (rect_x r) (rect_y r)
                               (least $ rect_width r) (least $ rect_height r)
 

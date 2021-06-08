@@ -312,8 +312,7 @@ handle KeyEvent{ ev_event_type = t, ev_state = m, ev_keycode = code }
 
 -- manage a new window
 handle MapRequestEvent{ ev_window = w } = do
-    dpy <- asks display
-    withWindowAttributes dpy w $ \wa -> do -- ignore override windows
+    withWindowAttributes' w $ \wa -> do -- ignore override windows
       -- need to ignore mapping requests by managed windows not on the current workspace
       managed <- isClient w
       when (not (wa_override_redirect wa) && not managed) $ manage w
@@ -410,7 +409,7 @@ handle e@ConfigureRequestEvent{ ev_window = w } = do
                     , wc_sibling      = ev_above e
                     , wc_stack_mode   = ev_detail e }
                 when (member w ws) (float w)
-        else withWindowAttributes dpy w $ \wa -> io $ allocaXEvent $ \ev -> do
+        else withWindowAttributes' w $ \wa -> io $ allocaXEvent $ \ev -> do
                  setEventType ev configureNotify
                  setConfigureEvent ev w w
                      (wa_x wa) (wa_y wa) (wa_width wa)
