@@ -50,7 +50,7 @@ module XMonad.Core (
   ) where
 
 import XMonad.StackSet hiding (modify)
-import XMonad.Internal.Optics ((%%~), (.=), use)
+import XMonad.Internal.Optics ((^.), (%%~), (.=), use)
 
 import Prelude hiding (fail)
 import Control.Exception (fromException, try, throw, finally, SomeException(..))
@@ -278,6 +278,13 @@ _layoutHook ::
 _layoutHook f xcfg =
     f (layoutHook xcfg) <&> \ layoutHook' -> xcfg{ layoutHook= layoutHook' }
 
+_extensibleConf ::
+    (Functor m)=>
+    (M.Map TypeRep ConfExtension -> m (M.Map TypeRep ConfExtension)) ->
+    XConfig l -> m (XConfig l)
+_extensibleConf f xcfg =
+    f (extensibleConf xcfg) <&>
+    \ extensibleConf' -> xcfg{ extensibleConf = extensibleConf' }
 
 type WindowSet   = StackSet  WorkspaceId (Layout Window) Window ScreenId ScreenDetail
 type WindowSpace = Workspace WorkspaceId (Layout Window) Window
@@ -401,6 +408,11 @@ newtype Query a = Query (ReaderT Window X a)
 runQuery :: Query a -> Window -> X a
 runQuery (Query m) w = runReaderT m w
 
+_runQuery ::
+    (Functor m)=>
+    ((Window -> X a) -> m (Window -> X a)) -> Query a -> m (Query a)
+_runQuery f = fmap (Query . ReaderT) . f . runQuery
+
 instance Semigroup a => Semigroup (Query a) where
     (<>) = liftA2 (<>)
 
@@ -416,23 +428,30 @@ instance Default a => Default (Query a) where
 -- to stderr, and run the error case.
 catchX :: X a -> X a -> X a
 catchX job errcase = do
-    st <- get
-    c <- ask
-    (a, s') <- io $ runX c st job `E.catch` \e -> case fromException e of
-                        Just (_ :: ExitCode) -> throw e
-                        Nothing -> do hPrint stderr e; runX c st errcase
-    put s'
-    pure a
+--     st <- get
+--     c <- ask
+--     (a, s') <- io $ runX c st job `E.catch` \e -> case fromException e of
+--                         Just (_ :: ExitCode) -> throw e
+--                         Nothing -> do hPrint stderr e; runX c st errcase
+--     put s'
+--     pure a
+    result <- tryX job
+    case result of
+      Left e ->
+          case fromException e of
+            Just (_ :: ExitCode) -> throw e
+            Nothing -> liftIO (hPrint stderr e) *> errcase
+      Right x -> pure x
 
--- -- | Run an action in 'X'; if it produces an error, return the error wrapped in 'Left' and leave the 'XState' unchanged; otherwise wrap the result in 'Right' and use the new 'XState'.
--- tryX :: (E.Exception e)=> X a -> X (Either e a)
--- tryX act = do
---     conf <- ask
---     stat <- get
---     result <- io $ E.try $ runX conf stat act
---     case result of
---       Left e -> pure $ Left e
---       Right (x, stat') -> Right x <$ put stat'
+-- | Run an action in 'X'; if it produces an error, return the error wrapped in 'Left' and leave the 'XState' unchanged; otherwise wrap the result in 'Right' and use the new 'XState'.
+tryX :: (E.Exception e)=> X a -> X (Either e a)
+tryX act = do
+    conf <- ask
+    stat <- get
+    result <- liftIO $ E.try $ unX act conf stat mempty
+    case result of
+      Left e -> pure $ Left e
+      Right (XResult stat' refr' x) -> Right x <$ (put stat' *> tell refr')
 
 -- -- | Run an action in 'X'; if it produces an error, run a cleanup action, then throw the error; otherwise return the result of the action.
 -- onExceptionX :: X a -> X () -> X a
