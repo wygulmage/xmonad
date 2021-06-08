@@ -37,7 +37,7 @@ module XMonad.Core (
     spawn, spawnPID, xfork, -- spawnPipe,
     recompile, trace, whenJust, whenX,
     stateFileName,
-    atom_WM_STATE, atom_WM_PROTOCOLS, atom_WM_DELETE_WINDOW, atom_WM_TAKE_FOCUS, withWindowAttributes,
+    atom_WM_STATE, atom_WM_PROTOCOLS, atom_WM_DELETE_WINDOW, atom_WM_TAKE_FOCUS, withWindowAttributes',
     ManageHook, Query(..), runQuery, Directories'(..), Directories, getDirectories,
     -- XConf Optics
     _config, _currentEvent, _directories, _display, _theRoot, _focusedBorder, _normalBorder, _buttonActions, _keyActions, _mouseFocused, _mousePosition,
@@ -46,11 +46,11 @@ module XMonad.Core (
     -- XState Optics
     _dragging, _extensibleState, _mapped, _waitingUnmap, _numberlockMask, _windowset,
     -- Deprecated
-    getXMonadDir, getXMonadCacheDir, getXMonadDataDir,
+    withWindowAttributes, getXMonadDir, getXMonadCacheDir, getXMonadDataDir,
   ) where
 
 import XMonad.StackSet hiding (modify)
-import XMonad.Internal.Optics ((^.), (%%~), (.=), use)
+import XMonad.Internal.Optics ((%%~), (.=), use)
 
 import Prelude hiding (fail)
 import Control.Exception (fromException, try, throw, finally, SomeException(..))
@@ -507,18 +507,25 @@ userCodeDef defValue act = act `catchX` pure defValue
 -- Convenient wrappers to state
 
 -- | Run a monad action with the current display settings
+-- Provided for backward compatibility; current style is to directly use @asks display@ instead.
 withDisplay :: (Display -> X a) -> X a
 withDisplay   f = asks display >>= f
 
 -- | Run a monadic action with the current stack set
+-- Provided for backward compatibility; current style is to directly use @gets windowset@ instead.
 withWindowSet :: (WindowSet -> X a) -> X a
 withWindowSet f = gets windowset >>= f
 
 -- | Safely access window attributes.
 withWindowAttributes :: Display -> Window -> (WindowAttributes -> X ()) -> X ()
-withWindowAttributes dpy win f = do
-    wa <- userCode (io $ getWindowAttributes dpy win)
-    catchX (whenJust wa f) (pure ())
+withWindowAttributes disp window f =
+    userCodeDef () $ liftIO (getWindowAttributes disp window) >>= f
+{-# DEPRECATED withWindowAttributes "Use withWindowAttributes'" #-}
+
+withWindowAttributes' :: Window -> (WindowAttributes -> X ()) -> X ()
+withWindowAttributes' window f = do
+    disp <- asks display
+    withWindowAttributes disp window f
 
 -- | True if the given window is the root window
 isRoot :: Window -> X Bool
