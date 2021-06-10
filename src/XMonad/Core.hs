@@ -428,19 +428,12 @@ instance Default a => Default (Query a) where
 -- to stderr, and run the error case.
 catchX :: X a -> X a -> X a
 catchX job errcase = do
---     st <- get
---     c <- ask
---     (a, s') <- io $ runX c st job `E.catch` \e -> case fromException e of
---                         Just (_ :: ExitCode) -> throw e
---                         Nothing -> do hPrint stderr e; runX c st errcase
---     put s'
---     pure a
     result <- tryX job
     case result of
       Left e ->
           case fromException e of
             Just (_ :: ExitCode) -> throw e
-            Nothing -> liftIO (hPrint stderr e) *> errcase
+            Nothing -> liftIO (hPrint stderr e *> hFlush stderr) *> errcase
       Right x -> pure x
 
 -- | Run an action in 'X'; if it produces an error, return the error wrapped in 'Left' and leave the 'XState' unchanged; otherwise wrap the result in 'Right' and use the new 'XState'.
