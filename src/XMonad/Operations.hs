@@ -105,8 +105,8 @@ manage w = whenX (not <$> isClient w) $ withDisplay $ \d -> do
           = W.insertUp w ws
         where i = W.tag $ W.workspace $ W.current ws
 
-    mh <- asks (manageHook . config)
-    g <- appEndo <$> userCodeDef (Endo id) (runQuery mh w)
+    mh <- asks $ manageHook . config
+    g <- userCodeDef id (appEndo <$> runQuery mh w)
     windows (g . f)
 
 -- | A window no longer exists; remove it from the window
@@ -122,7 +122,8 @@ unmanage = windows . W.delete
 -- supports the delete protocol, send a delete event (e.g. firefox)
 --
 killWindow :: Window -> X ()
-killWindow w = withDisplay $ \d -> do
+killWindow w = do
+    d <- asks display
     wmdelt <- atom_WM_DELETE_WINDOW  ;  wmprot <- atom_WM_PROTOCOLS
 
     io $ do
@@ -156,13 +157,14 @@ windows f = do
         newWindowsSet = ws ^. W._workspaces . stackToSet
 
         ws = f old
+
     XConf { display = d , normalBorder = nbc, focusedBorder = fbc } <- ask
 
-    traverse_ setInitialProperties newWindowsSet
+    for_ newWindowsSet setInitialProperties
 
-    whenJust (W.peek old) $ \otherw -> do
+    for_ (W.peek old) $ \otherw -> do
       nbs <- asks (normalBorderColor . config)
-      setWindowBorderWithFallback d otherw nbs nbc
+      setWindowBorderWithFallback' otherw nbs nbc
 
     _windowset .= ws
 
@@ -170,7 +172,8 @@ windows f = do
     let
         tags_oldvisible = old ^. W._screens . traverse . W._workspace . W._tag . to S.singleton
         gottenhidden    = filter (flip elem tags_oldvisible . W.tag) $ W.hidden ws
-    traverse_ (sendMessageWithNoRefresh Hide) gottenhidden
+    -- traverse_ (sendMessageWithNoRefresh Hide) gottenhidden
+    for_ gottenhidden $ sendMessageWithNoRefresh Hide
 
     -- for each workspace, layout the currently visible workspaces
     let allscreens     = W.screens ws
@@ -205,13 +208,13 @@ windows f = do
 
     let visible = fmap fst rects
 
-    traverse_ (uncurry tileWindow) rects
+    for_ rects $ uncurry tileWindow
 
-    whenJust (W.peek ws) $ \w -> do
+    for_ (W.peek ws) $ \w -> do
       fbs <- asks (focusedBorderColor . config)
-      setWindowBorderWithFallback d w fbs fbc
+      setWindowBorderWithFallback' w fbs fbc
 
-    traverse_ reveal visible
+    for_ visible reveal
     setTopFocus
 
     -- hide every window that was potentially visible before, but is not
@@ -223,13 +226,13 @@ windows f = do
     -- will overwrite withdrawnState with iconicState
     traverse_ (`setWMState` withdrawnState) (oldWindowsSet S.\\ newWindowsSet)
 
-    isMouseFocused <- asks mouseFocused
-    unless isMouseFocused $ clearEvents enterWindowMask
+    -- unless isMouseFocused $ clearEvents enterWindowMask
+    whenX (asks $ not . mouseFocused) $ clearEvents enterWindowMask
     asks (logHook . config) >>= userCodeDef ()
 
 -- | Modify the @WindowSet@ in state with no special handling.
 modifyWindowSet :: (WindowSet -> WindowSet) -> X ()
-modifyWindowSet f = modify $ _windowset %~ f
+modifyWindowSet f = _windowset %= f
 
 -- | Perform an @X@ action and check its return value against a predicate p.
 -- If p holds, unwind changes to the @WindowSet@ and replay them using @windows@.
@@ -239,8 +242,8 @@ windowBracket p action = do
   a <- action
   when (p a) $ do
     new <- gets windowset
-    modify $ _windowset .~ old
-    windows         $ \_ -> new
+    _windowset .= old
+    windows $ \_ -> new
   pure a
 
 -- | Perform an @X@ action. If it returns @Any True@, unwind the changes to the @WindowSet@ and replay them using @windows@.
@@ -264,20 +267,26 @@ setWMState w v = do
 
 -- | Set the border color using the window's color map, if possible;
 -- otherwise fall back to the color in @Pixel@.
-setWindowBorderWithFallback :: Display -> Window -> String -> Pixel -> X ()
-setWindowBorderWithFallback dpy w color basic = io $
+setWindowBorderWithFallback ::
+    (MonadIO m)=> Display -> Window -> String -> Pixel -> m ()
+setWindowBorderWithFallback dpy w color basic = liftIO $
     C.handle fallback $ do
       wa <- getWindowAttributes dpy w
       pixel <- color_pixel . fst <$> allocNamedColor dpy (wa_colormap wa) color
       setWindowBorder dpy w pixel
   where
     fallback :: C.SomeException -> IO ()
-    fallback e = do hPrint stderr e *> hFlush stderr
-                    setWindowBorder dpy w basic
+    fallback e = hPrint stderr e *> hFlush stderr *> setWindowBorder dpy w basic
+
+setWindowBorderWithFallback' :: Window -> String -> Pixel -> X ()
+setWindowBorderWithFallback' window color fallbackColor = do
+    disply <- asks display
+    setWindowBorderWithFallback disply window color fallbackColor
 
 -- | Hide a window by unmapping it and setting Iconified.
 hide :: Window -> X ()
-hide w = whenX (gets (S.member w . mapped)) $ withDisplay $ \d -> do
+hide w = whenX (gets (S.member w . mapped)) $ do
+    d <- asks display
     cMask <- asks $ clientMask . config
     io $ do
       selectInput d w (cMask .&. complement structureNotifyMask)
@@ -293,21 +302,22 @@ hide w = whenX (gets (S.member w . mapped)) $ withDisplay $ \d -> do
 -- | Show a window by mapping it and setting Normal.
 -- This is harmless if the window was already visible.
 reveal :: Window -> X ()
-reveal w = withDisplay $ \d -> do
+reveal w = do
+    d <- asks display
     setWMState w normalState
     io $ mapWindow d w
     whenX (isClient w) $ modify $ _mapped %~ S.insert w
 
 -- | Set some properties when we initially gain control of a window.
 setInitialProperties :: Window -> X ()
-setInitialProperties w = asks normalBorder >>= \nb -> withDisplay $ \d -> do
+setInitialProperties w = do
+    d <- asks display
     setWMState w iconicState
     asks (clientMask . config) >>= io . selectInput d w
-    bw <- asks (borderWidth . config)
-    io $ setWindowBorderWidth d w bw
+    asks (borderWidth . config) >>= io . setWindowBorderWidth d w
     -- we must initially set the color of new windows, to maintain invariants
     -- required by the border setting in 'windows'
-    io $ setWindowBorder d w nb
+    asks normalBorder >>= io . setWindowBorder d w
 
 -- | Render the currently visible workspaces, as determined by
 -- the 'StackSet'. Also, set focus to the focused window.
@@ -320,7 +330,7 @@ refresh = windows id
 
 -- | Remove all events of a given type from the event queue.
 clearEvents :: EventMask -> X ()
-clearEvents mask = withDisplay $ \d -> io $ do
+clearEvents mask = asks display >>= \d -> io $ do
     sync d False
     allocaXEvent $ \p -> fix $ \again -> do
         more <- checkMaskEvent d mask p
@@ -345,12 +355,6 @@ tileWindow w r = withWindowAttributes' w $ \wa -> do
 -- to the second.
 containedIn :: Rectangle -> Rectangle -> Bool
 r1 `containedIn` r2 = not (r1 `notContainedIn` r2)
--- containedIn r1@(Rectangle x1 y1 w1 h1) r2@(Rectangle x2 y2 w2 h2)
---  = and [ r1 /= r2
---        , x1 >= x2
---        , y1 >= y2
---        , fromIntegral x1 + w1 <= fromIntegral x2 + w2
---        , fromIntegral y1 + h1 <= fromIntegral y2 + h2 ]
 
 notContainedIn :: Rectangle -> Rectangle -> Bool
 Rectangle x1 y1 w1 h1 `notContainedIn` Rectangle x2 y2 w2 h2 =
@@ -363,22 +367,22 @@ Rectangle x1 y1 w1 h1 `notContainedIn` Rectangle x2 y2 w2 h2 =
 -- | Given a list of screens, remove all duplicated screens and screens that
 -- are entirely contained within another.
 nubScreens :: [Rectangle] -> [Rectangle]
-nubScreens xs = nub . filter (\x -> not $ any (x `containedIn`) xs) $ xs
+nubScreens xs = nub . filter (\x -> all (x `notContainedIn`) xs) $ xs
 
 -- | Clean the list of screens according to the rules documented for
 -- nubScreens.
 getCleanedScreenInfo :: MonadIO m => Display -> m [Rectangle]
-getCleanedScreenInfo = io .  fmap nubScreens . getScreenInfo
+getCleanedScreenInfo = io . fmap nubScreens . getScreenInfo
 
 -- | The screen configuration may have changed (due to -- xrandr),
 -- update the state and refresh the screen, and reset the gap.
 rescreen :: X ()
 rescreen = do
-    xinesc <- withDisplay getCleanedScreenInfo
+    xinesc <- asks display >>= getCleanedScreenInfo
     windows $ \ws ->
         let
             (xs, ys) = splitAt (length xinesc) $ ws ^.. W._workspaces
-            (a:as)   = zipWith3 W.Screen xs [0..] $ map SD xinesc
+            (a:as)   = zipWith3 W.Screen xs [0..] $ fmap SD xinesc
         in ws
            & W._current .~ a
            & W._visible .~ as
