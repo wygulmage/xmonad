@@ -124,6 +124,7 @@ test-suite properties
                   Properties.Swap
                   Properties.View
                   Properties.Workspace
+                  Properties.NubScreens
                   Utils
   hs-source-dirs: tests
   build-depends:  base

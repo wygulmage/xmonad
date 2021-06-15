@@ -17,6 +17,7 @@ import Properties.View
 import Properties.Workspace
 import Properties.Layout.Full
 import Properties.Layout.Tall
+import Properties.NubScreens
 
 import System.Environment
 import Text.Printf
@@ -194,6 +195,7 @@ tests =
 
   ,("pointWithin",        property prop_point_within)
   ,("pointWithin mirror", property prop_point_within_mirror)
+  ,("nubScreens keeps 1 of 2 equal Rectangles", property prop_nubScreens_equal)
 
   ] <>
   prop_laws_Stack
