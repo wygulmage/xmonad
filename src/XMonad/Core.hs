@@ -276,7 +276,7 @@ _layoutHook ::
     (l Window -> m (l' Window)) ->
     XConfig l -> m (XConfig l')
 _layoutHook f xcfg =
-    f (layoutHook xcfg) <&> \ layoutHook' -> xcfg{ layoutHook= layoutHook' }
+    f (layoutHook xcfg) <&> \ layoutHook' -> xcfg{ layoutHook = layoutHook' }
 
 _extensibleConf ::
     (Functor m)=>
