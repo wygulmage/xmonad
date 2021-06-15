@@ -354,9 +354,11 @@ tileWindow w r = withWindowAttributes' w $ \wa -> do
 -- | Returns 'True' if the first rectangle is contained within, but not equal
 -- to the second.
 containedIn :: Rectangle -> Rectangle -> Bool
-r1 `containedIn` r2 = not (r1 `notContainedIn` r2)
+r1 `containedIn` r2 =
+  r1 /= r2  &&  not (r1 `notContainedIn` r2)
 
 notContainedIn :: Rectangle -> Rectangle -> Bool
+-- ^ Some part of the first rectangle is outside the second.
 Rectangle x1 y1 w1 h1 `notContainedIn` Rectangle x2 y2 w2 h2 =
     x1 < x2 || -- The first rectangle extends left of the second.
     y1 < y2 || -- The first rectangle extends above the second.
@@ -367,7 +369,9 @@ Rectangle x1 y1 w1 h1 `notContainedIn` Rectangle x2 y2 w2 h2 =
 -- | Given a list of screens, remove all duplicated screens and screens that
 -- are entirely contained within another.
 nubScreens :: [Rectangle] -> [Rectangle]
-nubScreens xs = nub . filter (\x -> all (x `notContainedIn`) xs) $ xs
+nubScreens = scrubBy containedIn . nub
+   where scrubBy f xs = filter (\ x -> not $ any (f x) xs) xs
+-- @nub@, as bad as it is, is still more efficient than @filter (\ x -> not $any (x `containedIn`) xs) xs@.
 
 -- | Clean the list of screens according to the rules documented for
 -- nubScreens.
