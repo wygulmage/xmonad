@@ -54,6 +54,8 @@ import Data.Word (Word32)
 import Data.Maybe
 import Data.Monoid          (Endo(..),Any(..))
 import Data.List            (nub, find)
+import qualified Data.List as List
+import qualified Data.List.NonEmpty as NonEmpty
 import Data.Bits            ((.|.), (.&.), complement, testBit)
 import Data.Foldable        (for_, traverse_)
 import Data.Traversable     (for)
@@ -427,18 +429,24 @@ setTopFocus =
 focus :: Window -> X ()
 focus w = local (_mouseFocused .~ True) $ do
     s <- gets windowset
-    let stag = W.tag . W.workspace
-        curr = stag $ W.current s
-    mnew <- maybe (pure Nothing) (fmap (fmap stag) . uncurry pointScreen)
-            =<< asks mousePosition
+    let
+      currentScreenId = W.screen $ W.current s
+    mouseScreen <- asks mousePosition >>= maybe (pure Nothing) (uncurry pointScreen)
     root <- asks theRoot
     case () of
-        _ | W.member w s && W.peek s /= Just w
-          -> windows (W.focusWindow w)
-          | Just new <- mnew, w == root && curr /= new
-          -> windows (W.view new)
+        _ | W.peek s == Just w -- 'w' is already focused.
+          -> pure ()
+          | W.member w s -- 'w' is not focused but is managed.
+          -> windows $ W.focusWindow w
+          | w == root
+          , Just new <- mouseScreen
+          , currentScreenId /= W.screen new -- The screen with mouse focus is not the current screen.
+          -> windows $ W._screens %~ focusScreen new
           | otherwise
           -> pure ()
+  where
+    focusScreen scr scrs =
+        scr NonEmpty.:| List.deleteBy ((==) `on` W.screen) scr (NonEmpty.toList scrs)
 
 -- | Call X to set the keyboard focus details.
 setFocusX :: Window -> X ()
