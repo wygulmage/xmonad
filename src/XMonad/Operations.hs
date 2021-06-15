@@ -382,11 +382,14 @@ nubScreens = scrubBy containedIn . nub
 getCleanedScreenInfo :: MonadIO m => Display -> m [Rectangle]
 getCleanedScreenInfo = io . fmap nubScreens . getScreenInfo
 
+cleanedScreenInfo :: X [Rectangle]
+cleanedScreenInfo = asks display >>= getCleanedScreenInfo
+
 -- | The screen configuration may have changed (due to -- xrandr),
 -- update the state and refresh the screen, and reset the gap.
 rescreen :: X ()
 rescreen = do
-    xinesc <- asks display >>= getCleanedScreenInfo
+    xinesc <- cleanedScreenInfo
     windows $ \ws ->
         let
             (xs, ys) = splitAt (length xinesc) $ ws ^.. W._workspaces
