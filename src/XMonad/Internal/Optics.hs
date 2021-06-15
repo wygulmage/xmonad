@@ -15,6 +15,8 @@ module XMonad.Internal.Optics (
 -- Summarize
     (^.), (^?), (^..),
     to,
+-- Act on
+    traverseOf_,
 -- Read
     view,
 -- Modify State
@@ -120,6 +122,12 @@ x ^.. o = x ^. o . to singleDList & runDList
 infixl 8 ^..
 {-# INLINE (^..) #-}
 
+traverseOf_ :: (Functor m)=> Getting (Traversed r m) c a -> (a -> m r) -> c -> m ()
+traverseOf_ o f = (() <$) . getTraversed #. foldMapOf o (Traversed #. f)
+
+foldMapOf :: Getting r c a -> (a -> r) -> c -> r
+foldMapOf o f = getConst #. o (Const #. f)
+
 type Getter c a = forall m. (Contravariant m)=> (a -> m a) -> c -> m c
 {- ^ @Getter@ characterizes optics that can only be used to get a single value out of a structure.
 
@@ -186,3 +194,14 @@ singleDList = Endo #. (:)
 (#.) _ = coerce
 infixr 9 #.
 {-# INLINE (#.) #-}
+
+newtype Traversed a m = Traversed{ getTraversed :: m a}
+
+instance (Applicative m)=> Semigroup (Traversed a m) where
+    (<>) = coerce ((*>) :: m a -> m a -> m a)
+    {-# INLINE (<>) #-}
+
+instance (Applicative m)=> Monoid (Traversed a m) where
+    mempty = Traversed (pure (error "Traversed: value used"))
+    {-# INLINE mempty #-}
+    mappend = (<>)
