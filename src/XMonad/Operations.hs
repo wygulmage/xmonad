@@ -21,7 +21,7 @@ module XMonad.Operations (
     hide, reveal, tileWindow,
     setTopFocus, focus, withFocused,
 -- * Manage Windows
-    windows, refresh, rescreen, modifyWindowSet, windowBracket, windowBracket_, clearEvents, getCleanedScreenInfo,
+    windows, refresh, rescreen, windowBracket, windowBracket_, clearEvents, getCleanedScreenInfo,
 -- * Keyboard and Mouse
     cleanMask, extraModifiers,
     mouseDrag, mouseMoveWindow, mouseResizeWindow,
@@ -40,6 +40,8 @@ module XMonad.Operations (
 -- * Other Utilities
     initColor, pointScreen, screenWorkspace,
     setLayout, updateLayout,
+-- * Deprecated
+    modifyWindowSet,
     ) where
 
 import XMonad.Core
