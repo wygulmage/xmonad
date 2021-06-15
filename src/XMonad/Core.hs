@@ -526,7 +526,7 @@ isRoot w = asks $ (w ==) . theRoot
 
 -- | Wrapper for the common case of atom internment
 getAtom :: String -> X Atom
-getAtom str = withDisplay $ \dpy -> io $ internAtom dpy str False
+getAtom str = asks display >>= \ dpy -> io $ internAtom dpy str False
 
 -- | Common non-predefined atoms
 atom_WM_PROTOCOLS, atom_WM_DELETE_WINDOW, atom_WM_STATE, atom_WM_TAKE_FOCUS :: X Atom
