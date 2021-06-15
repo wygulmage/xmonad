@@ -457,8 +457,10 @@ setFocusX w = do
     ws <- gets windowset
     dpy <- asks display
 
-    -- clear mouse button grab and border on other windows
-    for_ (ws ^. W._screens . traverse . W._workspace . W._stack . traverse . to W.integrate) $ setButtonGrab True
+    traverseOf_
+        (W._screens . traverse . W._workspace . W._stack . traverse . traverse)
+        (setButtonGrab True)
+        ws
 
     -- If we ungrab buttons on the root window, we lose our mouse bindings.
     whenX (not <$> isRoot w) $ setButtonGrab False w
