@@ -64,15 +64,14 @@ module XMonad.StackSet (
 import Prelude hiding (filter)
 import Control.Applicative (liftA3)
 import Control.Applicative.Backwards (Backwards (Backwards, forwards))
-import Data.Foldable (foldr, toList)
-import Data.Function (on)
-import Data.Maybe   (listToMaybe,isJust,fromMaybe)
-import qualified Data.List as L (deleteBy,find,splitAt,filter,nub)
+import Data.Foldable (find, foldr, toList)
+import Data.Maybe (isJust, fromMaybe)
+import qualified Data.List as L (splitAt, filter, nub)
 import Data.List ( (\\) )
 import Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.Map  as M (Map,insert,delete,empty)
 
-import XMonad.Internal.Optics ((.~), (%~), (^..), (&))
+import XMonad.Internal.Optics hiding (view)
 
 -- $intro
 --
@@ -395,23 +394,22 @@ new _ _ _ = abort "non-positive argument to StackSet.new"
 -- current.
 
 view :: (Eq s, Eq i) => i -> StackSet i l a s sd -> StackSet i l a s sd
-view i s
-    | i == currentTag s
-    = s  -- current
+view targetTag stackSet
+    | targetTag == currentTag stackSet
+    = stackSet  -- current
 
-    | Just x <- L.find ((i==).tag.workspace) (visible s)
-    -- If it is visible, it is just raised:
-    = s
-      & (_current .~ x)
-      & (_visible %~ \ vis -> current s : L.deleteBy (on (==) screen) x vis)
+    | Just (targetScreen :| visible')
+    <- popBy ((targetTag ==) . tag . workspace) (visible stackSet)
+    = stackSet & _screens %~ \ (currentScreen :| _) -> targetScreen :| currentScreen : visible'
 
-    | Just x <- L.find ((i==).tag) (hidden  s) -- Must be hidden then:
-    = s
-      & _current . _workspace .~ x
-      & (_hidden %~ \ hid -> workspace (current s) : L.deleteBy (on (==) tag) x hid)
+    | Just (targetWorkspace :| hidden')
+    <- popBy ((targetTag ==) . tag) (hidden stackSet)
+    = stackSet
+        & _current . _workspace .~ targetWorkspace
+        & _hidden .~ workspace (current stackSet) : hidden'
 
     | otherwise
-    = s -- not a member of the stackset
+    = stackSet -- not a member of the stackset
 
 
     -- 'Catch'ing this might be hard. Relies on monotonically increasing
@@ -428,20 +426,57 @@ view i s
 -- swapped.
 
 greedyView :: (Eq s, Eq i) => i -> StackSet i l a s sd -> StackSet i l a s sd
-greedyView w ws
-     | any wTag (hidden ws)
-     = view w ws
+greedyView targetTag stackSet
+    | targetTag == currentTag stackSet
+    = stackSet  -- current
 
-     | (Just s) <- L.find (wTag . workspace) (visible ws)
-     = ws
-       & _current . _workspace .~ workspace s
-       & (_visible %~ \ vis ->
-             (s & _workspace .~ workspace (current ws))
-             : L.filter (not . wTag . workspace) vis)
+    | Just (targetScreen :| visible')
+    <- popBy ((targetTag ==) . tag . workspace) (visible stackSet)
+    = stackSet & _screens %~ \ (currentScreen :| _) ->
+         (currentScreen & _workspace .~ workspace targetScreen)
+         :| (targetScreen & _workspace .~ workspace currentScreen) : visible'
+
+    | Just (targetWorkspace :| hidden')
+    <- popBy ((targetTag ==) . tag) (hidden stackSet)
+    = stackSet
+        & _current . _workspace .~ targetWorkspace
+        & _hidden .~ workspace (current stackSet) : hidden'
 
      | otherwise
-     = ws
-   where wTag = (w == ) . tag
+     = stackSet
+
+-- Non-exported helper function:
+-- popBy :: (a -> Bool) -> [a] -> Maybe (a, [a])
+popBy :: (a -> Bool) -> [a] -> Maybe (NonEmpty a)
+-- popBy p = fmap (\ (x, y) -> (y :| x)) . sequenceA . loop
+--   where
+--     loop [] = ([], Nothing)
+--     loop (x : xs)
+--       | p x = (xs, Just x)
+--       | otherwise = case loop xs of
+--           ~(xs', mx') -> (x : xs', mx')
+-- popBy p = loop
+--   where
+--     loop (x : xs)
+--        | p x = Just (x :| xs)
+--        | otherwise = case loop xs of
+--            Nothing -> Nothing
+--            Just (x', xs') -> Just (x' :| x : xs')
+--     loop [] = Nothing
+-- popBy p = loop []
+--   where
+--     loop acc xs = case xs of
+--         [] -> Nothing
+--         x : xs'
+--           | p x -> Just (x :| foldl (flip (:)) xs' acc)
+--           | otherwise -> loop (x : acc) xs'
+popBy p xs = fmap (:| lose p xs) (find p xs)
+  where
+    lose q ys = case ys of
+        [] -> []
+        y : ys'
+          | q y -> ys'
+          | otherwise -> y : lose p ys'
 
 -- ---------------------------------------------------------------------
 -- $xinerama
@@ -449,7 +484,8 @@ greedyView w ws
 -- | Find the tag of the workspace visible on Xinerama screen 'sc'.
 -- 'Nothing' if screen is out of bounds.
 lookupWorkspace :: Eq s => s -> StackSet i l a s sd -> Maybe i
-lookupWorkspace sc w = listToMaybe [ tag i | Screen i s _ <- current w : visible w, s == sc ]
+lookupWorkspace screenID =
+    fmap (tag . workspace) . find ((screenID ==) . screen) . (^. _screens)
 
 -- ---------------------------------------------------------------------
 -- $stackOperations
@@ -568,7 +604,7 @@ focusWindow w s | Just w == peek s = s
 
 -- | Get a list of all screens in the 'StackSet'.
 screens :: StackSet i l a s sd -> [Screen i l a s sd]
-screens s = current s : visible s
+screens = (^. _screens . to toList)
 
 -- | Get a list of all workspaces in the 'StackSet'.
 workspaces :: StackSet i l a s sd -> [Workspace i l a]
@@ -617,10 +653,10 @@ member a s = isJust (findTag a s)
 -- Return 'Just' the workspace tag of the given window, or 'Nothing'
 -- if the window is not in the 'StackSet'.
 findTag :: Eq a => a -> StackSet i l a s sd -> Maybe i
-findTag a s = listToMaybe
-    [ tag w | w <- workspaces s, has a (stack w) ]
-    where has _ Nothing         = False
-          has x (Just (Stack t l r)) = x `elem` (t : l <> r)
+-- findTag a s = listToMaybe
+--     [ tag w | w <- workspaces s, a `elem` (w ^. _stack . to integrate') ]
+findTag a =
+    fmap tag . find (elem a . (^.. _stack . traverse . traverse)) . (^.. _workspaces)
 
 -- ---------------------------------------------------------------------
 -- $modifyStackset
