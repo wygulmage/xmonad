@@ -310,7 +310,7 @@ reveal w = do
     d <- asks display
     setWMState w normalState
     io $ mapWindow d w
-    whenX (isClient w) $ modify $ _mapped %~ S.insert w
+    whenX (isClient w) $ _mapped %= S.insert w
 
 -- | Set some properties when we initially gain control of a window.
 setInitialProperties :: Window -> X ()
@@ -408,7 +408,8 @@ setButtonGrab False = setButtonGrabOff
 
 setButtonGrabOn :: Window -> X ()
 setButtonGrabOn w = do
-    XConf{ display = d, config = XConfig{ clickJustFocuses = cjf }} <- ask
+    d <- asks display
+    cjf <- asks $ clickJustFocuses . config
     let pointerMode = if cjf then grabModeAsync else grabModeSync
     io $ for_ [button1, button2, button3] $ \ b ->
         grabButton d b anyModifier w False buttonPressMask pointerMode grabModeSync none none
@@ -472,7 +473,9 @@ setFocusX w = do
     currevt <- asks currentEvent
     let inputHintSet = wmh_flags hints `testBit` inputHintBit
 
-    when ((inputHintSet && wmh_input hints) || not inputHintSet) $
+    -- FIXME: What is this test actually supposed to do? Should it be (wmh_input hints == inputHintSet)?
+    -- when ((inputHintSet && wmh_input hints) || not inputHintSet) $
+    when (wmh_input hints || not inputHintSet) $
       io $ do setInputFocus dpy w revertToPointerRoot 0
     when (wmtf `elem` protocols) $
       io $ allocaXEvent $ \ev -> do
@@ -656,7 +659,8 @@ floatLocation w =
   where
         fi :: CInt -> Position
         fi = fromIntegral
-        go = withDisplay $ \d -> do
+        go = do
+          d <- asks display
           ws <- gets windowset
           wa <- io $ getWindowAttributes d w
           let bw = wa_border_width wa
@@ -707,11 +711,12 @@ float :: Window -> X ()
 float w = do
     (sc, rr) <- floatLocation w
     windows $ \ws -> W.float w rr . fromMaybe ws $ do
-        i  <- W.findTag w ws
-        guard $ i `elem` fmap (W.tag . W.workspace) (W.screens ws)
-        f  <- W.peek ws
-        sw <- W.lookupWorkspace sc ws
-        pure (W.focusWindow f . W.shiftWin sw w $ ws)
+        i  <- W.findTag w ws -- find the ID of the window's workspace.
+        guard $ i `elem` (ws ^.. W._screens . traverse . W._workspace . W._tag) -- Check the visible workspaces' tags to ensure the window's workspace is visible. If not, return Nothing.
+        f  <- W.peek ws -- Save the focused window of the current workspace.
+        sw <- W.lookupWorkspace sc ws -- Search the screens to find the workspace ID of window's float location.
+        pure (W.focusWindow f . W.shiftWin sw w $ ws) -- Search all workspaces for the window and move it to the workspace with the ID of the window's float location. Then change the focus back to the original focus.
+-- Then, finally float the window with the specified rectangle.
 
 -- ---------------------------------------------------------------------
 -- Mouse handling
@@ -723,18 +728,25 @@ mouseDrag f done = do
     case drag of
         Just _ -> pure () -- error case? we're already dragging
         Nothing -> do
-            XConf { theRoot = root, display = d } <- ask
-            io $ grabPointer d root False (buttonReleaseMask .|. pointerMotionMask)
-                    grabModeAsync grabModeAsync none none currentTime
-            modify $ _dragging .~ Just (motion, cleanup)
+            d <- asks display
+            root <- asks theRoot
+            io $ grabPointer
+                d
+                root
+                False
+                (buttonReleaseMask .|. pointerMotionMask)
+                grabModeAsync
+                grabModeAsync
+                none
+                none
+                currentTime
+            _dragging .= Just (motion, cleanup)
  where
     cleanup = do
         withDisplay $ io . flip ungrabPointer currentTime
-        modify $ _dragging .~ Nothing
+        _dragging .= Nothing
         done
-    motion x y = do z <- f x y
-                    clearEvents pointerMotionMask
-                    pure z
+    motion x y = f x y <* clearEvents pointerMotionMask
 
 -- | Drag the window under the cursor with the mouse while it is dragged.
 mouseMoveWindow :: Window -> X ()
@@ -752,7 +764,8 @@ mouseMoveWindow w = whenX (isClient w) $ withDisplay $ \d -> do
 
 -- | Resize the window under the cursor with the mouse while it is dragged.
 mouseResizeWindow :: Window -> X ()
-mouseResizeWindow w = whenX (isClient w) $ withDisplay $ \d -> do
+mouseResizeWindow w = whenX (isClient w) $ do
+    d <- asks display
     wa <- io $ getWindowAttributes d w
     sh <- io $ getWMNormalHints d w
     io $ warpPointer d none w 0 0 0 0 (fromCInt (wa_width wa)) (fromCInt (wa_height wa))
@@ -776,7 +789,7 @@ type D = (Dimension, Dimension)
 -- | Given a window, build an adjuster function that will reduce the given
 -- dimensions according to the window's border width and size hints.
 mkAdjust :: Window -> X (D -> D)
-mkAdjust w = withDisplay $ \d -> liftIO $ do
+mkAdjust w = asks display >>= \d -> liftIO $ do
     sh <- getWMNormalHints d w
     wa <- C.try $ getWindowAttributes d w
     case (wa :: Either C.SomeException WindowAttributes) of
