@@ -68,6 +68,7 @@ library
                    XMonad.StackSet
   other-modules:   Paths_xmonad
                    XMonad.Internal.Optics
+                   XMonad.Internal.Stack
   hs-source-dirs:  src
   build-depends:   base                  >= 4.9 && < 5
                  , X11                   >= 1.10 && < 1.11

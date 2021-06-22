@@ -74,7 +74,7 @@ import Control.Applicative (liftA3)
 import Control.Applicative.Backwards (Backwards (Backwards, forwards))
 import Data.Foldable (find, foldr, toList)
 import Data.Semigroup (Any (Any, getAny))
-import Data.Maybe (isJust, fromMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import qualified Data.List as L
 import Data.List ( (\\) )
 import Data.List.NonEmpty (NonEmpty ((:|)))
@@ -82,6 +82,7 @@ import qualified Data.Map  as M
 import qualified Data.Set as Set
 
 import XMonad.Internal.Optics hiding (view)
+import qualified XMonad.Internal.Stack as Stack
 
 -- $intro
 --
@@ -429,7 +430,7 @@ _focus :: (Functor m)=> (a -> m a) -> Stack a -> m (Stack a)
 _focus f sta = fmap (\ foc' -> sta{ focus = foc' }) (f (focus sta))
 
 _up :: (Functor m)=> ([a] -> m [a]) -> Stack a -> m (Stack a)
-{- ^ @_up@ is a @Lens@ from a 'Stack' to the list of its 'up' elements.
+{- ^ @_up@ is a @Lens@ from a 'Stack' to the list of its 'up' elements in reverse order.
 
 Use @(_up . traverse %~)@ to map a function over the 'up' elements of a 'Stack'.
 -}
@@ -703,11 +704,6 @@ renameTag old newTag = _workspaces %~ rename
 -- existing workspaces and\/or creating new hidden workspaces as
 -- necessary.
 ensureTags :: Eq i => l -> [i] -> StackSet i l a s sd -> StackSet i l a s sd
--- ensureTags l allt st = et allt ((st ^.. _workspaces . _tag) \\ allt) st
---     where et [] _ s = s
---           et (i:is) rn s | i `tagMember` s = et is rn s
---           et (i:is) [] s = et is [] (s & _hidden %~ (Workspace i l Nothing :))
---           et (i:is) (r:rs) s = et is rs $ renameTag r i s
 ensureTags l tags stackSet =
     ensure tags ((stackSet ^.. _tags) \\ tags) stackSet
   where
@@ -817,10 +813,7 @@ swapMaster = modify' $ \ c@(Stack t ls rs) -> case reverse ls of
 -- just hit mod-shift-k a bunch of times.
 -- Focus stays with the item moved.
 shiftMaster :: StackSet i l a s sd -> StackSet i l a s sd
-shiftMaster = modify' $ \c -> case c of
-    Stack _ [] _ -> c     -- already master.
-    Stack t ls rs -> Stack t [] (reverse ls <> rs)
--- shiftMaster = modify' $ \ (Stack t ls rs) -> Stack t [] (reverse ls <> rs)
+shiftMaster = modify' $ \ (Stack t ls rs) -> Stack t [] (reverse ls <> rs)
 
 -- | /O(s)/. Set focus to the master window.
 focusMaster :: StackSet i l a s sd -> StackSet i l a s sd
@@ -851,7 +844,7 @@ shiftWin :: (Ord a, Eq s, Eq i) => i -> a -> StackSet i l a s sd -> StackSet i l
 shiftWin n w s = case findTag w s of
                     Just from | n `tagMember` s && n /= from -> go from s
                     _                                        -> s
- where go from = onWorkspace n (insertUp w) . onWorkspace from (delete' w)
+  where go from = onWorkspace n (insertUp w) . onWorkspace from (delete' w)
 
 
 onWorkspace ::
