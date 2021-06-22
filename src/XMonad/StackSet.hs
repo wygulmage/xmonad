@@ -82,6 +82,7 @@ import qualified Data.Map  as M
 import qualified Data.Set as Set
 
 import XMonad.Internal.Optics hiding (view)
+import XMonad.Internal.Stack (Stack (..), _focus, _up, _down, filter)
 import qualified XMonad.Internal.Stack as Stack
 
 -- $intro
@@ -386,63 +387,6 @@ _inStack = _stack . traverse . traverse
 data RationalRect = RationalRect !Rational !Rational !Rational !Rational
     deriving (Show, Read, Eq)
 
--- |
--- A stack is a cursor onto a window list.
--- The data structure tracks focus by construction, and
--- the master window is by convention the top-most item.
--- Focus operations will not reorder the list that results from
--- flattening the cursor. The structure can be envisaged as:
---
--- >    +-- master:  < '7' >
--- > up |            [ '2' ]
--- >    +---------   [ '3' ]
--- > focus:          < '4' >
--- > dn +----------- [ '8' ]
---
--- A 'Stack' can be viewed as a list with a hole punched in it to make
--- the focused position. Under the zipper\/calculus view of such
--- structures, it is the differentiation of a [a], and integrating it
--- back has a natural implementation used in 'index'.
---
-data Stack a = Stack { focus  :: !a        -- focused thing in this set
-                     , up     :: [a]       -- clowns to the left
-                     , down   :: [a] }     -- jokers to the right
-    deriving (Show, Read, Eq, Functor)
-
-instance Foldable Stack where
-    toList = integrate
-    foldr f z = foldr f z . toList
-
-instance Traversable Stack where
-    traverse f s =
-        flip Stack
-            -- 'Backwards' applies the Applicative in reverse order.
-            <$> forwards (traverse (Backwards . f) (up s))
-            <*> f (focus s)
-            <*> traverse f (down s)
-
--- Stack Optics
--- Stack Lenses
-_focus :: (Functor m)=> (a -> m a) -> Stack a -> m (Stack a)
-{- ^
-@_focus@ is a @Lens@ from a 'Stack' to its 'focus'.
--}
-_focus f sta = fmap (\ foc' -> sta{ focus = foc' }) (f (focus sta))
-
-_up :: (Functor m)=> ([a] -> m [a]) -> Stack a -> m (Stack a)
-{- ^ @_up@ is a @Lens@ from a 'Stack' to the list of its 'up' elements in reverse order.
-
-Use @(_up . traverse %~)@ to map a function over the 'up' elements of a 'Stack'.
--}
-_up f sta = fmap (\ up' -> sta{ up = up' }) (f (up sta))
-
-_down :: (Functor m)=> ([a] -> m [a]) -> Stack a -> m (Stack a)
-{- ^ @_down@ is a @Lens@ from a 'Stack' to the list of its 'down' elements.
-
-Use @(_down . traverse %~)@ to map a function over the 'down' elements of a 'Stack'.
--}
-_down f sta = fmap (\ dn' -> sta{ down = dn' }) (f (down sta))
-
 
 -- | this function indicates to catch that an error is expected
 abort :: String -> a
@@ -601,17 +545,6 @@ differentiate []     = Nothing
 differentiate (x:xs) = Just $ Stack x [] xs
 
 -- |
--- /O(n)/. 'filter p s' returns the elements of 's' such that 'p' evaluates to
--- 'True'.  Order is preserved, and focus moves as described for 'delete'.
---
-filter :: (a -> Bool) -> Stack a -> Maybe (Stack a)
-filter p (Stack f ls rs) = case L.filter p (f:rs) of
-    f':rs' -> Just $ Stack f' (L.filter p ls) rs'    -- maybe move focus down
-    []     -> case L.filter p ls of                  -- filter back up
-                    f':ls' -> Just $ Stack f' ls' [] -- else up
-                    []     -> Nothing
-
--- |
 -- /O(s)/. Extract the stack on the current workspace, as a list.
 -- The order of the stack is determined by the master window -- it will be
 -- the head of the list. The implementation is given by the natural
@@ -633,22 +566,20 @@ index = (^.. _inCurrentStack)
 -- the current stack.
 --
 focusUp, focusDown, swapUp, swapDown :: StackSet i l a s sd -> StackSet i l a s sd
-focusUp   = modify' focusUp'
-focusDown = modify' focusDown'
+focusUp   = modify' Stack.goUp
+focusDown = modify' Stack.goDown
 
-swapUp    = modify' swapUp'
-swapDown  = modify' (reverseStack . swapUp' . reverseStack)
+swapUp    = modify' Stack.swapUp
+swapDown  = modify' (reverseStack . Stack.swapUp . reverseStack)
 
 -- | Variants of 'focusUp' and 'focusDown' that work on a
 -- 'Stack' rather than an entire 'StackSet'.
 focusUp', focusDown' :: Stack a -> Stack a
-focusUp' (Stack t (l:ls) rs) = Stack l ls (t:rs)
-focusUp' (Stack t []     rs) = Stack x xs [] where (x:xs) = reverse (t:rs)
-focusDown'                   = reverseStack . focusUp' . reverseStack
-
-swapUp' :: Stack a -> Stack a
-swapUp'  (Stack t (l:ls) rs) = Stack t ls (l:rs)
-swapUp'  (Stack t []     rs) = Stack t (reverse rs) []
+focusUp' = Stack.goUp
+focusDown' = Stack.goDown
+-- focusUp' (Stack t (l:ls) rs) = Stack l ls (t:rs)
+-- focusUp' (Stack t []     rs) = Stack x xs [] where (x:xs) = reverse (t:rs)
+-- focusDown'                   = reverseStack . focusUp' . reverseStack
 
 -- | reverse a stack: up becomes down and down becomes up.
 reverseStack :: Stack a -> Stack a
@@ -749,9 +680,8 @@ findTag a =
 -- However, we choose to insert above, and move the focus.
 --
 insertUp :: Eq a => a -> StackSet i l a s sd -> StackSet i l a s sd
-insertUp a s = if member a s then s else insert
-  where
-    insert = modify (Just $ Stack a [] []) (\(Stack t l r) -> Just $ Stack a l (t:r)) s
+insertUp a s =
+    if member a s then s else modify (Just (pure a)) (Just . Stack.insertUp a) s
 
 -- insertDown :: a -> StackSet i l a s sd -> StackSet i l a s sd
 -- insertDown a = modify (Stack a [] []) $ \(Stack t l r) -> Stack a (t:l) r
@@ -802,9 +732,7 @@ sink w = _floating %~ M.delete w
 -- The old master window is swapped in the tiling order with the focused window.
 -- Focus stays with the item moved.
 swapMaster :: StackSet i l a s sd -> StackSet i l a s sd
-swapMaster = modify' $ \ c@(Stack t ls rs) -> case reverse ls of
-    [] -> c
-    x : xs -> Stack t [] (xs <> (x : rs))
+swapMaster = modify' Stack.swapTop
 
 -- natural! keep focus, move current to the top, move top to current.
 
@@ -813,13 +741,11 @@ swapMaster = modify' $ \ c@(Stack t ls rs) -> case reverse ls of
 -- just hit mod-shift-k a bunch of times.
 -- Focus stays with the item moved.
 shiftMaster :: StackSet i l a s sd -> StackSet i l a s sd
-shiftMaster = modify' $ \ (Stack t ls rs) -> Stack t [] (reverse ls <> rs)
+shiftMaster = modify' Stack.shiftTop
 
 -- | /O(s)/. Set focus to the master window.
 focusMaster :: StackSet i l a s sd -> StackSet i l a s sd
-focusMaster = modify' $ \c@(Stack t ls rs) -> case reverse ls of
-    [] -> c
-    x : xs -> Stack x [] (xs <> (t : rs))
+focusMaster = modify' Stack.focusTop
 
 --
 -- ---------------------------------------------------------------------
