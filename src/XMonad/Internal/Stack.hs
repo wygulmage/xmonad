@@ -8,21 +8,18 @@ module XMonad.Internal.Stack (
    tryUp, tryDown,
    goUp, goDown, swapUp,
    focusTop, shiftTop, swapTop,
-   insertUp,
+   insertUp, insertUpMaybe,
+   integrate, integrate', differentiate,
    ) where
 
 
 import Prelude hiding (filter, reverse)
 
-import Control.Applicative (Alternative, (<|>), liftA2, liftA3, optional)
--- import Control.Applicative.Backwards (Backwards (Backwards, forwards))
+import Control.Applicative
 import Data.Foldable
-import Data.Semigroup (Any (Any, getAny), Dual (Dual, getDual))
 import Data.Functor ((<&>))
-import Data.Functor.Compose (Compose (Compose, getCompose))
 import qualified Data.List as List
 import qualified Data.Maybe as List (mapMaybe)
-import Data.Maybe (fromMaybe)
 
 import XMonad.Internal.Backwards
 
@@ -62,34 +59,30 @@ instance Monad Stack where
            (dnx' <> (dnx >>= toList . f))
 
 instance Foldable Stack where
-    -- foldl f z ~(Stack x upx dnx) = foldr (flip f) z (reverse dnx <> (x : upx))
-    -- foldl f z xs = foldr (flip f) (foldl f z (down xs) `f` focus xs) (up xs)
-    -- foldl' f z ~(Stack x upx dnx) = foldl' f z (reverse upx <> (x : dnx))
-    -- foldr f z ~(Stack x upx dnx) = foldr f z (reverse upx <> (x : dnx))
     foldr f z xs = foldl (flip f) (focus xs `f` foldr f z (down xs)) (up xs)
-    -- foldr' f z ~(Stack x upx dnx) = foldl' (flip f) z (reverse dnx <> (x : upx))
-    -- toList xs = reverse (up xs) <> (focus xs : down xs)
+    {-# INLINE foldr #-}
     foldMap f xs =
-        getDual (foldMap (Dual . f) (up xs)) `mappend`
-        f (focus xs) `mappend`
-        foldMap f (down xs)
+        foldr (\ x y -> y `mappend` f x) mempty (up xs)
+        `mappend` f (focus xs)
+        `mappend` foldMap f (down xs)
+    {-# INLINABLE foldMap #-}
+    -- foldMap' f xs =
+    --     foldl' (\ y x -> f x `mappend` y) (foldl' (\ y x -> y `mappend` f x) (f (focus xs)) (down xs)) (up xs)
     elem x xs = x == focus xs || elem x (up xs) || elem x (down xs)
-    length xs = 1 + length (up xs) + length (down xs)
-    null _ = False
 
-    -- Not used in stacks of Windows, but may be useful generally or reduce compile time and code size:
+    -- Not used in stacks of Windows, but may be useful generally:
     minimum = fold1Commutative' min
+    {-# INLINABLE minimum #-}
     maximum = fold1Commutative' max
+    {-# INLINABLE maximum #-}
+
+    toList xs = foldl' (flip (:)) (focus xs : down xs) (up xs)
+    {-# INLINE toList #-}
 
 fold1Commutative' :: (a -> a -> a) -> Stack a -> a
-fold1Commutative' f xs = loopUp (focus xs) (up xs)
-   where
-      loopUp !acc (x : xs') = loopUp (f acc x) xs'
-      loopUp !acc []        = loopDn acc (down xs)
-
-      loopDn !acc (x : xs') = loopDn (f acc x) xs'
-      loopDn !acc []        = acc
-
+fold1Commutative' f xs =
+    foldl' f (foldl' f (focus xs) (up xs)) (down xs)
+{-# INLINE fold1Commutative' #-}
 
 instance Traversable Stack where
     traverse f s =
@@ -98,6 +91,7 @@ instance Traversable Stack where
             (forwards (traverse (Backwards . f) (up s)))
             (f (focus s))
             (traverse f (down s))
+    {-# INLINE traverse #-}
 
 -- Stack Optics
 -- Stack Lenses
@@ -229,5 +223,23 @@ insertUp :: a -> Stack a -> Stack a
 insertUp x' ~(Stack x upx dnx) = Stack x' upx (x : dnx)
 
 insertUpMaybe :: a -> Maybe (Stack a) -> Stack a
-insertUpMaybe x' Nothing = pure x'
-insertUpMaybe x' (Just xs) = insertUp x' xs
+insertUpMaybe x' = maybe (pure x') (insertUp x')
+
+
+-- |
+-- /O(n)/. Flatten a 'Stack' into a list.
+--
+integrate :: Stack a -> [a]
+integrate = toList
+
+-- |
+-- /O(n)/ Flatten a possibly empty stack into a list.
+integrate' :: Maybe (Stack a) -> [a]
+integrate' = foldMap integrate
+
+-- |
+-- /O(n)/. Turn a list into a possibly empty stack (i.e., a zipper):
+-- the first element of the list is focus, and the rest of the list
+-- is down.
+differentiate :: [a] -> Maybe (Stack a)
+differentiate = maybeStack []
