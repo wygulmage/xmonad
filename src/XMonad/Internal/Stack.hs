@@ -192,14 +192,14 @@ mapAlt f (Just xs) =
         (forwards $ mapAltList (Backwards . f) (up xs))
         (mapAltList f (focus xs : down xs))
 
-wither ::
-    (Applicative m)=>
-    (a -> m (Maybe b)) -> Maybe (Stack a) -> m (Maybe (Stack b))
-wither _ Nothing = pure Nothing
-wither f (Just xs) =
-    liftA2 maybeStack
-        (forwards $ witherList (Backwards . f) (up xs))
-        (witherList f (focus xs : down xs))
+-- wither ::
+--     (Applicative m)=>
+--     (a -> m (Maybe b)) -> Maybe (Stack a) -> m (Maybe (Stack b))
+-- wither _ Nothing = pure Nothing
+-- wither f (Just xs) =
+--     liftA2 maybeStack
+--         (forwards $ witherList (Backwards . f) (up xs))
+--         (witherList f (focus xs : down xs))
 
 
 mapAltList :: (Alternative m)=> (a -> m b) -> [a] -> m [b]
