@@ -1,7 +1,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
-module XMonad.Internal.Backwards where
 -- | This module defines a 'backwards' applicative using 'liftA2'. Remove it when transformers's 'Control.Applicative.Backwards' uses 'liftA2'. It only defines the instances necessary for its internal use.
+module XMonad.Internal.Backwards where
 
 
 import Control.Applicative
