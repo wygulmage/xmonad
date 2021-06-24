@@ -1,5 +1,4 @@
 {-# LANGUAGE PatternGuards #-}
-{-# LANGUAGE DeriveFunctor #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -34,7 +33,7 @@ module XMonad.StackSet (
         lookupWorkspace,
         -- *  Operations on the current stack
         -- $stackOperations
-        peek, integrate, integrate', differentiate,
+        peek, integrate', differentiate,
         focusUp, focusDown, focusUp', focusDown', focusMaster, focusWindow,
         tagMember, renameTag, ensureTags, member, findTag,
         -- * Modifying the stackset
@@ -67,14 +66,14 @@ module XMonad.StackSet (
         workspaces, -- Use @^.. _workspaces@
         currentTag, -- Use @^. _currentTag@
         index,
+        integrate, -- Use 'toList'
     ) where
 
 import Prelude hiding (filter)
 import Control.Applicative (liftA3)
-import Control.Applicative.Backwards (Backwards (Backwards, forwards))
-import Data.Foldable (find, foldr, toList)
+import Data.Foldable (find, toList)
 import Data.Semigroup (Any (Any, getAny))
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe)
 import qualified Data.List as L
 import Data.List ( (\\) )
 import Data.List.NonEmpty (NonEmpty ((:|)))
@@ -82,7 +81,8 @@ import qualified Data.Map  as M
 import qualified Data.Set as Set
 
 import XMonad.Internal.Optics hiding (view)
-import XMonad.Internal.Stack (Stack (..), _focus, _up, _down, filter)
+import XMonad.Internal.Stack
+    (Stack (..), _focus, _up, _down, filter, differentiate, integrate, integrate')
 import qualified XMonad.Internal.Stack as Stack
 
 -- $intro
@@ -315,8 +315,8 @@ _iworkspace ::
     StackSet i l a sid sd -> m (StackSet i l a sid sd)
 {- ^ Traverse a workspace specificed by tag.
 -}
-_iworkspace tag' f = _workspaces $
-    \ workspace' -> if tag workspace' == tag' then f workspace' else pure workspace'
+_iworkspace tag' f = _workspaces $ \ workspace' ->
+    if tag workspace' == tag' then f workspace' else pure workspace'
 
 -- Screen Optics
 -- Screen Lenses
@@ -496,14 +496,14 @@ lookupWorkspace screenID =
 -- ---------------------------------------------------------------------
 -- $stackOperations
 
--- |
--- The 'with' function takes a default value, a function, and a
--- StackSet. If the current stack is Nothing, 'with' returns the
--- default value. Otherwise, it applies the function to the stack,
--- returning the result. It is like 'maybe' for the focused workspace.
---
-with :: b -> (Stack a -> b) -> StackSet i l a s sd -> b
-with dflt f = maybe dflt f . (^. _currentStack)
+-- -- |
+-- -- The 'with' function takes a default value, a function, and a
+-- -- StackSet. If the current stack is Nothing, 'with' returns the
+-- -- default value. Otherwise, it applies the function to the stack,
+-- -- returning the result. It is like 'maybe' for the focused workspace.
+-- --
+-- with :: b -> (Stack a -> b) -> StackSet i l a s sd -> b
+-- with dflt f = maybe dflt f . (^. _currentStack)
 
 -- |
 -- Apply a function, and a default value for 'Nothing', to modify the current stack.
@@ -525,24 +525,6 @@ modify' f = _currentStack . traverse %~ f
 peek :: StackSet i l a s sd -> Maybe a
 peek = (^? _currentFocus)
 
--- |
--- /O(n)/. Flatten a 'Stack' into a list.
---
-integrate :: Stack a -> [a]
-integrate (Stack x l r) = reverse l <> (x : r)
-
--- |
--- /O(n)/ Flatten a possibly empty stack into a list.
-integrate' :: Maybe (Stack a) -> [a]
-integrate' = foldMap integrate
-
--- |
--- /O(n)/. Turn a list into a possibly empty stack (i.e., a zipper):
--- the first element of the list is current, and the rest of the list
--- is down.
-differentiate :: [a] -> Maybe (Stack a)
-differentiate []     = Nothing
-differentiate (x:xs) = Just $ Stack x [] xs
 
 -- |
 -- /O(s)/. Extract the stack on the current workspace, as a list.
@@ -577,13 +559,10 @@ swapDown  = modify' (reverseStack . Stack.swapUp . reverseStack)
 focusUp', focusDown' :: Stack a -> Stack a
 focusUp' = Stack.goUp
 focusDown' = Stack.goDown
--- focusUp' (Stack t (l:ls) rs) = Stack l ls (t:rs)
--- focusUp' (Stack t []     rs) = Stack x xs [] where (x:xs) = reverse (t:rs)
--- focusDown'                   = reverseStack . focusUp' . reverseStack
 
 -- | reverse a stack: up becomes down and down becomes up.
 reverseStack :: Stack a -> Stack a
-reverseStack (Stack t ls rs) = Stack t rs ls
+reverseStack = Stack.reverse
 
 --
 -- | /O(1) on current window, O(n) in general/. Focus the window 'w',
@@ -625,11 +604,10 @@ currentTag = (^. _currentTag)
 tagMember :: Eq i => i -> StackSet i l a s sd -> Bool
 tagMember t = elem t . (^.. _tags)
 
--- | Rename a given tag if present in the 'StackSet'.
+-- | Rename a given tag if present in the 'StackSet'. Should probably be called @renameWorkspace@.
 renameTag :: Eq i => i -> i -> StackSet i l a s sd -> StackSet i l a s sd
-renameTag old newTag = _workspaces %~ rename
-  where
-    rename wrksp = if tag wrksp == old then wrksp & _tag .~ newTag else wrksp
+renameTag oldTag newTag =
+  _iworkspace oldTag . _tag .~ newTag
 
 -- | Ensure that a given set of workspace tags is present by renaming
 -- existing workspaces and\/or creating new hidden workspaces as
@@ -654,15 +632,14 @@ mapLayout f = _layouts %~ f
 
 -- | /O(n)/. Is a window in the 'StackSet'?
 member :: Eq a => a -> StackSet i l a s sd -> Bool
--- member a s = isJust (findTag a s)
-member a s = s ^. _workspaces . _inStack . to (Any . (a ==)) & getAny
+member w = getAny . (^. _workspaces . _stack . traverse . to (Any . elem w))
 
 -- | /O(1) on current window, O(n) in general/.
 -- Return 'Just' the workspace tag of the given window, or 'Nothing'
 -- if the window is not in the 'StackSet'.
 findTag :: Eq a => a -> StackSet i l a s sd -> Maybe i
 findTag a =
-    fmap tag . find (elem a . (^.. _inStack)) . (^.. _workspaces)
+    fmap tag . find (any (elem a) . stack) . (^.. _workspaces)
 
 -- ---------------------------------------------------------------------
 -- $modifyStackset
@@ -680,8 +657,9 @@ findTag a =
 -- However, we choose to insert above, and move the focus.
 --
 insertUp :: Eq a => a -> StackSet i l a s sd -> StackSet i l a s sd
-insertUp a s =
-    if member a s then s else modify (Just (pure a)) (Just . Stack.insertUp a) s
+insertUp w stackSet
+  | member w stackSet = stackSet
+  | otherwise = stackSet & _currentStack %~ Just . Stack.insertUpMaybe w
 
 -- insertDown :: a -> StackSet i l a s sd -> StackSet i l a s sd
 -- insertDown a = modify (Stack a [] []) $ \(Stack t l r) -> Stack a (t:l) r
@@ -692,13 +670,13 @@ insertUp a s =
 -- /O(1) on current window, O(n) in general/. Delete window 'w' if it exists.
 -- There are 4 cases to consider:
 --
---   * delete on an 'Nothing' workspace leaves it Nothing
+--   * delete on a 'Nothing' stack leaves it Nothing
 --
 --   * otherwise, try to move focus to the down
 --
 --   * otherwise, try to move focus to the up
 --
---   * otherwise, you've got an empty workspace, becomes 'Nothing'
+--   * otherwise, you've got an empty stack, becomes 'Nothing'
 --
 -- Behaviour with respect to the master:
 --
@@ -760,24 +738,30 @@ focusMaster = modify' Stack.focusTop
 shift :: (Ord a, Eq s, Eq i) => i -> StackSet i l a s sd -> StackSet i l a s sd
 shift n s = maybe s (\w -> shiftWin n w s) (s ^? _currentFocus)
 
--- | /O(n)/. shiftWin. Searches for the specified window 'w' on all workspaces
--- of the stackSet and moves it to stack 'n', leaving it as the focused
--- element on that stack. The item is inserted above the currently
--- focused element on that workspace.
--- The actual focused workspace doesn't change. If the window is not
--- found in the stackSet, the original stackSet is returned.
+-- | /O(n)/. shiftWin.
+-- @shiftWin newTag window stackSet@
+-- If a 'Workspace' with 'tag' @newTag@ does not exsist in @stackSet@,
+-- @window@ is not tiled in a 'Workspace' or
+-- @window@ is already tiled in the 'Workspace' with 'tag' @newTag@, return @stackSet@ unchanged.
+-- Otherwise, delete @window@ from @stackSet@ and then re-insert it as the focused item of the 'Workspace' with 'tag' @newTag@.
 shiftWin :: (Ord a, Eq s, Eq i) => i -> a -> StackSet i l a s sd -> StackSet i l a s sd
-shiftWin n w s = case findTag w s of
-                    Just from | n `tagMember` s && n /= from -> go from s
-                    _                                        -> s
-  where go from = onWorkspace n (insertUp w) . onWorkspace from (delete' w)
+shiftWin newTag window stackSet
+  | newTag `tagMember` stackSet
+  , Just oldTag <- findTag window stackSet
+  , newTag /= oldTag
+  = onWorkspace newTag (insertUp window) . onWorkspace oldTag (delete' window) $ stackSet
+  | otherwise = stackSet
 
+-- shiftWin' newTag window =
+--     _workspaces %~ \ workspac ->
+--         if newTag == tag workspac
+--           then workspac & _stack %~ (Just . Stack.insertUpMaybe window . filter (/= window) =<<)
+--           else workspac & _stack %~ (filter (/= window) =<<)
 
 onWorkspace ::
    (Eq i, Eq s) =>
    i -> (StackSet i l a s sd -> StackSet i l a s sd) ->
    (StackSet i l a s sd -> StackSet i l a s sd)
--- onWorkspace n f s = view (currentTag s) . f . view n $ s
 onWorkspace n f = _viewing n %~ f
 
 _viewing ::
