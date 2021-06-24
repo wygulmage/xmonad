@@ -168,6 +168,14 @@ focusTop s@(Stack x ups dns) = case List.reverse ups of
     [] -> s
     x' : xs -> Stack x' [] (xs <> (x : dns))
 
+maybeStack :: [a] -> [a] -> Maybe (Stack a)
+-- ^ Construct a stack from a reversed list and a list.
+maybeStack upx dnx = case dnx of
+    x : dnx' -> Just $ Stack x upx dnx'
+    []       -> case upx of
+        x : upx' -> Just $ Stack x upx' []
+        []       -> Nothing
+
 -- |
 -- /O(n)/. 'filter p s' returns the elements of 's' such that 'p' evaluates to
 -- 'True'.  Order is preserved, and focus moves as described for 'delete'.
@@ -177,18 +185,13 @@ filter p xs =
    maybeStack (List.filter p (up xs)) (List.filter p (focus xs : down xs))
 
 mapMaybe :: (a -> Maybe b) -> Stack a -> Maybe (Stack b)
+-- ^ @'filter' p === mapMaybe (\ x -> if p x then Just x else Nothing)@
 mapMaybe f xs =
     maybeStack (List.mapMaybe f (up xs)) (List.mapMaybe f (focus xs : down xs))
 
-maybeStack :: [a] -> [a] -> Maybe (Stack a)
-maybeStack upx dnx = case dnx of
-    x : dnx' -> Just $ Stack x upx dnx'
-    []       -> case upx of
-        x : upx' -> Just $ Stack x upx' []
-        []       -> Nothing
-
 mapAlt ::
     (Alternative m)=> (a -> m b) -> Maybe (Stack a) -> m (Maybe (Stack b))
+-- ^ @mapMaybe f xs === join . mapAlt f . Just@
 mapAlt _ Nothing = pure Nothing
 mapAlt f (Just xs) =
     liftA2 maybeStack
@@ -213,6 +216,13 @@ witherList :: (Applicative m)=> (a -> m (Maybe b)) -> [a] -> m [b]
 witherList f = foldr consM (pure [])
   where
     consM = liftA2 (maybe id (:)) . f
+
+-- unionAlt :: (Alternative m)=> (a -> a -> a) -> m a -> m a -> m a
+-- -- If the first action is empty, return the second; otherwise combine the contents of the first item and the second.
+-- -- unionAlt f x empty === empty
+-- -- unionAlt f empty x === x
+-- unionAlt f = liftA2 (maybe id f) . optional
+-- -- For example, unionAlt f :: Maybe a -> Maybe a -> Maybe a === maybe id (fmap . f)
 
 
 insertUp :: a -> Stack a -> Stack a
