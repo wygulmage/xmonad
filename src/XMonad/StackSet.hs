@@ -65,7 +65,7 @@ module XMonad.StackSet (
         screens, -- Use @^. _screens@ (@NonEmpty@) or @^.. _screens@ (@[]@)
         workspaces, -- Use @^.. _workspaces@
         currentTag, -- Use @^. _currentTag@
-        index,
+        index, -- Use @^.. _inCurrentStack@ or @^. _currentStack . traverse . to toList@
         integrate, -- Use 'toList'
     ) where
 
@@ -585,7 +585,7 @@ screens = (^. _screens . to toList)
 workspaces :: StackSet i l a s sd -> [Workspace i l a]
 workspaces = (^.. _workspaces)
 
--- | Get a list of all windows in the 'StackSet' in no particular order
+-- | Get a list of all tiled windows in the 'StackSet' in no particular order
 allWindows :: Eq a => StackSet i l a s sd -> [a]
 allWindows = L.nub . concatMap (integrate' . stack) . workspaces
 
