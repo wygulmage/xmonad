@@ -589,12 +589,12 @@ workspaces = (^.. _workspaces)
 allWindows :: Eq a => StackSet i l a s sd -> [a]
 allWindows = L.nub . concatMap (integrate' . stack) . workspaces
 
-tiledWindowSet :: (Ord a)=> StackSet i l a s sd -> Set.Set a
-tiledWindowSet = (^. _tiledWindows . to Set.singleton)
+-- tiledWindowSet :: (Ord a)=> StackSet i l a s sd -> Set.Set a
+-- tiledWindowSet = (^. _tiledWindows . to Set.singleton)
 
-allWindowSet :: (Ord a)=> StackSet i l a s sd -> Set.Set a
-allWindowSet stackSet =
-    tiledWindowSet stackSet <> M.keysSet (floating stackSet)
+-- allWindowSet :: (Ord a)=> StackSet i l a s sd -> Set.Set a
+-- allWindowSet stackSet =
+--     tiledWindowSet stackSet <> M.keysSet (floating stackSet)
 
 -- | Get the tag of the currently focused workspace.
 currentTag :: StackSet i l a s sd -> i
