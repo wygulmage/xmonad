@@ -78,7 +78,7 @@ import qualified Data.List as L
 import Data.List ( (\\) )
 import Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.Map  as M
-import qualified Data.Set as Set
+-- import qualified Data.Set as Set
 
 import XMonad.Internal.Optics hiding (view)
 import XMonad.Internal.Stack
