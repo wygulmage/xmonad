@@ -53,7 +53,7 @@ module XMonad.StackSet (
         -- Screen Optics
         _workspace, _screen, _screenDetail,
         -- StackSet Optics
-        _workspaces, _screens, _current, _visible, _hidden, _floating,
+        _workspaces, _iworkspace, _screens, _iscreen, _current, _visible, _hidden, _floating,
 
         -- for testing
         abort,
@@ -753,10 +753,10 @@ shiftWin newTag window stackSet
     & _iworkspace newTag . _stack %~ Just . Stack.insertUpMaybe window
   | otherwise = stackSet
 
-_viewing ::
-    (Functor m, Eq i, Eq s, Eq s')=>
-    i -> (StackSet i l a s sd -> m (StackSet i l a s' sd)) ->
-    StackSet i l a s sd -> m (StackSet i l a s' sd)
-{- ^ E.g. @stackSet ^. _viewing workspaceID . _currentStack@
--}
-_viewing n f s = fmap (view (currentTag s)) . f . view n $ s
+-- _viewing ::
+--     (Functor m, Eq i, Eq s, Eq s')=>
+--     i -> (StackSet i l a s sd -> m (StackSet i l a s' sd)) ->
+--     StackSet i l a s sd -> m (StackSet i l a s' sd)
+-- {- ^ E.g. @stackSet ^. _viewing workspaceID . _currentStack@
+-- -}
+-- _viewing n f s = fmap (view (currentTag s)) . f . view n $ s
