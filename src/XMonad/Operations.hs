@@ -175,9 +175,11 @@ windows f = do
     -- notify non visibility
     let
         tags_oldvisible = old ^. W._screens . traverse . W._workspace . W._tag . to S.singleton
-        gottenhidden    = filter (flip elem tags_oldvisible . W.tag) $ W.hidden ws
-    -- traverse_ (sendMessageWithNoRefresh Hide) gottenhidden
-    for_ gottenhidden $ sendMessageWithNoRefresh Hide
+        tags_newhidden = ws ^. W._hidden . traverse . W._tag . to S.singleton
+        gottenHiddenTags = S.intersection tags_oldvisible tags_newhidden
+    filterMessageWithNoRefresh
+        ((`elem` gottenHiddenTags) . W.tag)
+        Hide
 
     -- for each workspace, layout the currently visible workspaces
     let allscreens     = W.screens ws
@@ -513,15 +515,15 @@ updateLayoutsBy f = runOnWorkspaces $ \ wrk ->
     maybe wrk (\ l' -> wrk & W._layout .~ l') <$> f wrk
 
 -- | Send a message to a layout, without refreshing.
-sendMessageWithNoRefresh :: Message a => a -> W.Workspace WorkspaceId (Layout Window) Window -> X ()
-sendMessageWithNoRefresh a w =
-    filterMessageWithNoRefresh (on (==) W.tag w) a
+sendMessageWithNoRefresh :: Message a => a -> WindowSpace -> X ()
+sendMessageWithNoRefresh message windowSpace =
+    on (==) W.tag windowSpace `filterMessageWithNoRefresh` message
 
 -- | Send a message to the layouts of some workspaces, without refreshing.
 filterMessageWithNoRefresh :: Message a => (WindowSpace -> Bool) -> a -> X ()
-filterMessageWithNoRefresh p a = updateLayoutsBy $ \ wrk ->
-    if p wrk
-      then userCodeDef Nothing $ W.layout wrk `handleMessage` SomeMessage a
+filterMessageWithNoRefresh p message = updateLayoutsBy $ \ windowSpace ->
+    if p windowSpace
+      then userCodeDef Nothing $ W.layout windowSpace `handleMessage` SomeMessage message
       else pure Nothing
 
 -- | Update the layout field of a workspace
