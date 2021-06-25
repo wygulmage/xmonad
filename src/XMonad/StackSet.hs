@@ -271,11 +271,11 @@ _stacks ::
     (Maybe (Stack a) -> m (Maybe (Stack a))) -> StackSet i l a sid sd -> m (StackSet i l a sid sd)
 _stacks = _workspaces . _stack
 
-_tiledWindows ::
+_inStacks ::
     (Applicative m)=>
     (a -> m a) -> StackSet i l a s sd -> m (StackSet i l a s sd)
--- _tiledWindows = _stacks . traverse . traverse
-_tiledWindows = _workspaces . _inStack
+-- _inStacks = _stacks . traverse . traverse
+_inStacks = _workspaces . _inStack
 
 _tags ::
     (Applicative m)=>
@@ -418,7 +418,6 @@ new _ _ _ = abort "non-positive argument to StackSet.new"
 -- Xinerama: If the workspace is not visible on any Xinerama screen, it
 -- becomes the current screen. If it is in the visible list, it becomes
 -- current.
-
 view :: (Eq s, Eq i) => i -> StackSet i l a s sd -> StackSet i l a s sd
 view = viewBy switching
   where
@@ -437,7 +436,6 @@ view = viewBy switching
 -- current workspace to 'hidden'.  If that workspace is 'visible' on another
 -- screen, the workspaces of the current screen and the other screen are
 -- swapped.
-
 greedyView :: (Eq s, Eq i) => i -> StackSet i l a s sd -> StackSet i l a s sd
 greedyView = viewBy greed
   where
@@ -452,7 +450,7 @@ viewBy ::
     i -> StackSet i l a s sd -> StackSet i l a s sd
 viewBy visibleMethod targetTag stackSet
     | targetTag == currentTag stackSet
-    = stackSet  -- current
+    = stackSet
 
     | Just visible'
     <- popBy ((targetTag ==) . tag . workspace) (visible stackSet)
@@ -470,6 +468,7 @@ viewBy visibleMethod targetTag stackSet
 -- Non-exported helper function:
 popBy :: (a -> Bool) -> [a] -> Maybe (NonEmpty a)
 -- popBy p = fmap (\ (x, y) -> (y :| x)) . sequenceA . loop
+-- -- This constructs the list while searching.
 --   where
 --     loop [] = ([], Nothing)
 --     loop (x : xs)
@@ -477,6 +476,7 @@ popBy :: (a -> Bool) -> [a] -> Maybe (NonEmpty a)
 --       | otherwise = case loop xs of
 --           ~(xs', mx') -> (x : xs', mx')
 popBy p xs = fmap (:| lose xs) (find p xs)
+  -- This searches and then goes back and constructs the list if a matching target is found.
   where
     lose ys = case ys of
         [] -> []
@@ -524,7 +524,6 @@ modify' f = _currentStack . traverse %~ f
 --
 peek :: StackSet i l a s sd -> Maybe a
 peek = (^? _currentFocus)
-
 
 -- |
 -- /O(s)/. Extract the stack on the current workspace, as a list.
@@ -590,7 +589,7 @@ allWindows :: Eq a => StackSet i l a s sd -> [a]
 allWindows = L.nub . concatMap (integrate' . stack) . workspaces
 
 -- tiledWindowSet :: (Ord a)=> StackSet i l a s sd -> Set.Set a
--- tiledWindowSet = (^. _tiledWindows . to Set.singleton)
+-- tiledWindowSet = (^. _inStacks . to Set.singleton)
 
 -- allWindowSet :: (Ord a)=> StackSet i l a s sd -> Set.Set a
 -- allWindowSet stackSet =
@@ -749,20 +748,10 @@ shiftWin newTag window stackSet
   | newTag `tagMember` stackSet
   , Just oldTag <- findTag window stackSet
   , newTag /= oldTag
-  = onWorkspace newTag (insertUp window) . onWorkspace oldTag (delete' window) $ stackSet
+  = stackSet
+    & delete' window
+    & _iworkspace newTag . _stack %~ Just . Stack.insertUpMaybe window
   | otherwise = stackSet
-
--- shiftWin' newTag window =
---     _workspaces %~ \ workspac ->
---         if newTag == tag workspac
---           then workspac & _stack %~ (Just . Stack.insertUpMaybe window . filter (/= window) =<<)
---           else workspac & _stack %~ (filter (/= window) =<<)
-
-onWorkspace ::
-   (Eq i, Eq s) =>
-   i -> (StackSet i l a s sd -> StackSet i l a s sd) ->
-   (StackSet i l a s sd -> StackSet i l a s sd)
-onWorkspace n f = _viewing n %~ f
 
 _viewing ::
     (Functor m, Eq i, Eq s, Eq s')=>
