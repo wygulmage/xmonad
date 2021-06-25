@@ -499,7 +499,7 @@ sendMessage a = windowBracket_ $ do
     l <- gets $ W.layout . W.workspace . W.current . windowset
     ml' <- userCodeDef Nothing $ handleMessage l (SomeMessage a)
     traverse_ (_windowset . W._current . W._workspace . W._layout .=) ml'
-    return (Any $ isJust ml')
+    pure (Any $ isJust ml')
 
 -- | Send a message to all layouts, without refreshing.
 broadcastMessage :: Message a => a -> X ()
@@ -526,10 +526,7 @@ filterMessageWithNoRefresh p a = updateLayoutsBy $ \ wrk ->
 
 -- | Update the layout field of a workspace
 updateLayout :: WorkspaceId -> Maybe (Layout Window) -> X ()
-updateLayout i ml =
-    for_ ml $ \l ->
-    _windowset . W._workspaces %= \ ww ->
-    if W.tag ww == i then ww & W._layout .~ l else ww
+updateLayout i = traverse_ (_windowset . W._iworkspace i . W._layout .=)
 
 -- | Set the layout of the currently viewed workspace
 setLayout :: Layout Window -> X ()
