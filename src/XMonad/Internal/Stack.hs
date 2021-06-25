@@ -1,4 +1,4 @@
-{-# LANGUAGE BangPatterns, DeriveFunctor #-}
+{-# LANGUAGE DeriveFunctor #-}
 
 
 module XMonad.Internal.Stack (
