@@ -506,7 +506,7 @@ focus w = local (_mouseFocused .~ True) $ do
     mouseScreen <- asks mousePosition >>= maybe (pure Nothing) (uncurry pointScreen)
     root <- asks theRoot
     case () of
-        _ | W.peek s == Just w -- 'w' is already focused.
+        _ | s ^? W._currentFocus == Just w -- 'w' is already focused.
           -> pure ()
           | W.member w s -- 'w' is not focused but is managed.
           -> windows $ W.focusWindow w
@@ -527,7 +527,7 @@ setFocusX w = do
     dpy <- asks display
 
     traverseOf_
-        (W._screens . traverse . W._workspace . W._stack . traverse . traverse)
+        (W._screens . traverse . W._workspace . W._inStack)
         (setButtonGrab True)
         ws
 
@@ -564,9 +564,9 @@ setFocusX w = do
 -- layout the windows, in which case changes are handled through a refresh.
 sendMessage :: Message a => a -> X ()
 sendMessage a = windowBracket_ $ do
-    l <- gets $ W.layout . W.workspace . W.current . windowset
+    l <- use $ _windowset . W._currentLayout
     ml' <- userCodeDef Nothing $ handleMessage l (SomeMessage a)
-    traverse_ (_windowset . W._current . W._workspace . W._layout .=) ml'
+    traverse_ (_windowset . W._currentLayout .=) ml'
     pure (Any $ isJust ml')
 
 -- | Send a message to all layouts, without refreshing.
