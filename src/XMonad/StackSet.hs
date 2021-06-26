@@ -49,11 +49,13 @@ module XMonad.StackSet (
         -- Stack Optics
         _focus, _up, _down,
         -- Workspace Optics
-        _tag, _layout, _stack,
+        _tag, _layout, _stack, _inStack,
         -- Screen Optics
         _workspace, _screen, _screenDetail,
         -- StackSet Optics
         _workspaces, _iworkspace, _screens, _iscreen, _current, _visible, _hidden, _floating,
+        _tags, _layouts, _stacks, _inStacks,
+        _currentFocus, _currentTag, _inCurrentStack,
 
         -- for testing
         abort,
