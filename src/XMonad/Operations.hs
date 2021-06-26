@@ -151,29 +151,32 @@ windows :: (WindowSet -> WindowSet) -> X ()
 windows f = do
     old <- gets windowset
     let
-        stackToSet = W._stack . traverse . traverse . to S.singleton
+        stackToSet = W._inStack . to S.singleton
 
+        oldVisibleSet :: S.Set Window
+        oldVisibleSet = old ^. W._screens . traverse . W._workspace . stackToSet
         oldWindowsSet :: S.Set Window
-        oldWindowsSet = (old ^. W._hidden . traverse . stackToSet) <> oldvisibleSet
-        oldvisibleSet :: S.Set Window
-        oldvisibleSet = old ^. W._screens . traverse . W._workspace . stackToSet
+        oldWindowsSet = (old ^. W._hidden . traverse . stackToSet) <> oldVisibleSet
+        ws :: WindowSet
+        ws = f old
+
         newWindowsSet :: S.Set Window
         newWindowsSet = ws ^. W._workspaces . stackToSet
 
-        ws = f old
 
     XConf { display = d , normalBorder = nbc, focusedBorder = fbc } <- ask
 
     for_ newWindowsSet setInitialProperties
 
-    for_ (W.peek old) $ \otherw -> do
-      nbs <- asks (normalBorderColor . config)
-      setWindowBorderWithFallback' otherw nbs nbc
+    old & W._currentFocus `traverseOf_` \otherw -> do
+        nbs <- asks $ normalBorderColor . config
+        setWindowBorderWithFallback' otherw nbs nbc
 
     _windowset .= ws
 
     -- notify non visibility
     let
+        tags_oldvisible, tags_newhidden :: S.Set WorkspaceId
         tags_oldvisible = old ^. W._screens . traverse . W._workspace . W._tag . to S.singleton
         tags_newhidden = ws ^. W._hidden . traverse . W._tag . to S.singleton
         gottenHiddenTags = S.intersection tags_oldvisible tags_newhidden
@@ -183,13 +186,14 @@ windows f = do
 
     -- for each workspace, layout the currently visible workspaces
     let allscreens     = W.screens ws
+        summed_visible :: [[Window]]
+        -- What is this? The first element is []. The second is all the windows in the current screen. The second is all the windows in the current screen and all the windows in the next screen. Etc. Why? It tells you what windows you've already seen, in case they're visible in multiple workspaces. Essentially you're traversing allscreens with state, except you figured out what the state would be in a previous pass.
         summed_visible = scanl (<>) [] $ fmap (W.integrate' . W.stack . W.workspace) allscreens
     rects <- fmap concat $ for (zip allscreens summed_visible) $ \ (w, vis) -> do
         let
           wsp   = W.workspace w
-          this  = W.view n ws
           n     = W.tag wsp
-          tiled = (W.stack . W.workspace . W.current $ this)
+          tiled = W.stack wsp
                     >>= W.filter (\ win -> win `M.notMember` W.floating ws && win `notElem` vis)
           viewrect = screenRect $ W.screenDetail w
 
@@ -202,30 +206,29 @@ windows f = do
 
         updateLayout n ml'
 
-        let m   = W.floating ws
-            flt = [(fw, scaleRationalRect viewrect r)
-                    | fw <- filter (`M.member` m) (W.index this)
-                    , Just r <- [M.lookup fw m]]
-            vs = flt <> rs
+        let
+          flt = [(fw, scaleRationalRect viewrect r)
+                | fw <- W.integrate' . W.stack $ wsp
+                , Just r <- [M.lookup fw (W.floating ws)]]
+          vs = flt <> rs
 
         io $ restackWindows d (fmap fst vs)
         -- return the visible windows for this workspace:
         pure vs
 
-    let visible = fmap fst rects
-
     for_ rects $ uncurry tileWindow
 
-    for_ (W.peek ws) $ \w -> do
-      fbs <- asks (focusedBorderColor . config)
-      setWindowBorderWithFallback' w fbs fbc
+    ws & W._currentFocus `traverseOf_` \ w -> do
+        fbs <- asks $ focusedBorderColor . config
+        setWindowBorderWithFallback' w fbs fbc
 
+    let visible = fmap fst rects
     for_ visible reveal
     setTopFocus
 
     -- hide every window that was potentially visible before, but is not
     -- given a position by a layout now.
-    traverse_ hide ((oldvisibleSet <> newWindowsSet) S.\\ S.fromList visible)
+    traverse_ hide ((oldVisibleSet <> newWindowsSet) S.\\ S.fromList visible)
 
     -- all windows that are no longer in the windowset are marked as
     -- withdrawn, it is important to do this after the above, otherwise 'hide'
