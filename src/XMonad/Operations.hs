@@ -161,15 +161,13 @@ windows f = do
         ws = f old
 
         newWindowsSet :: S.Set Window
-        newWindowsSet = ws ^. W._workspaces . stackToSet
-
-
-    XConf { display = d , normalBorder = nbc, focusedBorder = fbc } <- ask
+        newWindowsSet = (ws ^. W._workspaces . stackToSet) S.\\ oldWindowsSet
 
     for_ newWindowsSet setInitialProperties
 
     old & W._currentFocus `traverseOf_` \otherw -> do
         nbs <- asks $ normalBorderColor . config
+        nbc <- asks $ normalBorder
         setWindowBorderWithFallback' otherw nbs nbc
 
     _windowset .= ws
@@ -212,6 +210,7 @@ windows f = do
                 , Just r <- [M.lookup fw (W.floating ws)]]
           vs = flt <> rs
 
+        d <- asks display
         io $ restackWindows d (fmap fst vs)
         -- return the visible windows for this workspace:
         pure vs
@@ -220,6 +219,7 @@ windows f = do
 
     ws & W._currentFocus `traverseOf_` \ w -> do
         fbs <- asks $ focusedBorderColor . config
+        fbc <- asks $ focusedBorder
         setWindowBorderWithFallback' w fbs fbc
 
     let visible = fmap fst rects
@@ -335,7 +335,70 @@ setInitialProperties w = do
 -- with X calls.
 --
 refresh :: X ()
-refresh = windows id
+-- refresh = windows id
+
+refresh = do
+    ws <- gets windowset
+
+    _windowset .= ws
+
+    -- for each workspace, layout the currently visible workspaces
+    let allscreens     = W.screens ws
+        summed_visible :: [[Window]]
+        -- What is this? The first element is []. The second is all the windows in the current screen. The second is all the windows in the current screen and all the windows in the next screen. Etc. Why? It tells you what windows you've already seen, in case they're visible in multiple workspaces. Essentially you're traversing allscreens with state, except you figured out what the state would be in a previous pass.
+        summed_visible = scanl (<>) [] $ fmap (W.integrate' . W.stack . W.workspace) allscreens
+    rects <- fmap concat $ for (zip allscreens summed_visible) $ \ (w, vis) -> do
+        let
+          wsp   = W.workspace w
+          n     = W.tag wsp
+          tiled = W.stack wsp
+                    >>= W.filter (\ win -> win `M.notMember` W.floating ws && win `notElem` vis)
+          viewrect = screenRect $ W.screenDetail w
+
+        -- just the tiled windows:
+        -- now tile the windows on this workspace, modified by the gap
+        (rs, ml') <-
+           runLayout (wsp & W._stack .~ tiled) viewrect
+           `catchX`
+           runLayout (wsp & W._stack .~ tiled & W._layout .~ Layout Full) viewrect
+
+        updateLayout n ml'
+
+        let
+          flt = [(fw, scaleRationalRect viewrect r)
+                | fw <- W.integrate' . W.stack $ wsp
+                , Just r <- [M.lookup fw (W.floating ws)]]
+          vs = flt <> rs
+
+        d <- asks display
+        io $ restackWindows d (fmap fst vs)
+        -- return the visible windows for this workspace:
+        pure vs
+
+    for_ rects $ uncurry tileWindow
+
+    fbc <- asks focusedBorder
+    ws & W._currentFocus `traverseOf_` \ w -> do
+        fbs <- asks $ focusedBorderColor . config
+        setWindowBorderWithFallback' w fbs fbc
+
+    let visible = fmap fst rects
+    for_ visible reveal
+    setTopFocus
+
+    -- hide every window that was potentially visible before, but is not
+    -- given a position by a layout now.
+    let
+      stackToSet = W._inStack . to S.singleton
+      visibleSet :: S.Set Window
+      visibleSet = ws ^. W._screens . traverse . W._workspace . stackToSet
+    traverse_ hide (visibleSet S.\\ S.fromList visible)
+
+    whenX (asks $ not . mouseFocused) $ clearEvents enterWindowMask
+    asks (logHook . config) >>= userCodeDef ()
+
+
+
 
 -- | Remove all events of a given type from the event queue.
 clearEvents :: EventMask -> X ()
