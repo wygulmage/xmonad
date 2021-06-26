@@ -55,7 +55,7 @@ module XMonad.StackSet (
         -- StackSet Optics
         _workspaces, _iworkspace, _screens, _iscreen, _current, _visible, _hidden, _floating,
         _tags, _layouts, _stacks, _inStacks,
-        _currentFocus, _currentTag, _inCurrentStack,
+        _currentFocus, _currentLayout, _currentTag, _inCurrentStack,
 
         -- for testing
         abort,
@@ -233,6 +233,12 @@ _floating ::
 -}
 _floating f stackSet =
     fmap (\ flo -> stackSet{ floating = flo }) (f (floating stackSet))
+
+_currentLayout ::
+    (Functor m)=>
+    (l -> m l) ->
+    StackSet i l a sid sd -> m (StackSet i l a sid sd)
+_currentLayout = _current . _workspace . _layout
 
 _currentStack ::
     (Functor m)=>
