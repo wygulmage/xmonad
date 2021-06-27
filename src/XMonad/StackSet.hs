@@ -1,4 +1,7 @@
-{-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE PatternGuards
+           , FunctionalDependencies
+           , FlexibleInstances
+  #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -55,7 +58,7 @@ module XMonad.StackSet (
         -- StackSet Optics
         _workspaces, _iworkspace, _screens, _iscreen, _current, _visible, _hidden, _floating,
         _tags, _layouts, _stacks, _inStacks,
-        _currentFocus, _currentLayout, _currentTag, _inCurrentStack,
+        _currentFocus,
 
         -- for testing
         abort,
@@ -66,8 +69,8 @@ module XMonad.StackSet (
         mapLayout, -- Use @'_layouts' '%~'@
         screens, -- Use @^. _screens@ (@NonEmpty@) or @^.. _screens@ (@[]@)
         workspaces, -- Use @^.. _workspaces@
-        currentTag, -- Use @^. _currentTag@
-        index, -- Use @^.. _inCurrentStack@ or @^. _currentStack . traverse . to toList@
+        currentTag, -- Use @^. _current . _tag@
+        index, -- Use @^.. _current . _inStack@ or @^. _current . _stack . traverse . to toList@
         integrate, -- Use 'toList'
     ) where
 
@@ -234,32 +237,13 @@ _floating ::
 _floating f stackSet =
     fmap (\ flo -> stackSet{ floating = flo }) (f (floating stackSet))
 
-_currentLayout ::
-    (Functor m)=>
-    (l -> m l) ->
-    StackSet i l a sid sd -> m (StackSet i l a sid sd)
-_currentLayout = _current . _workspace . _layout
-
-_currentStack ::
-    (Functor m)=>
-    (Maybe (Stack a) -> m (Maybe (Stack a))) ->
-    StackSet i l a sid sd -> m (StackSet i l a sid sd)
-_currentStack = _current . _workspace . _stack
-
-_currentTag ::
-    (Functor m)=>
-    (i -> m i) ->
-    StackSet i l a sid sd -> m (StackSet i l a sid sd)
-_currentTag = _current . _workspace . _tag
-
-
 -- StackSet Traversals
 
 _currentFocus ::
     (Applicative m)=>
     (a -> m a) ->
     StackSet i l a sid sd -> m (StackSet i l a sid sd)
-_currentFocus = _currentStack . traverse . _focus
+_currentFocus = _current . _stack . traverse . _focus
 
 _workspaces ::
     (Applicative m)=>
@@ -294,11 +278,6 @@ _layouts ::
     (Applicative m)=>
     (l -> m l') -> StackSet i l a s sd -> m (StackSet i l' a s sd)
 _layouts = _workspaces . _layout
-
-_inCurrentStack ::
-    (Applicative m)=>
-    (a -> m a) -> StackSet i l a sid sd -> m (StackSet i l a sid sd)
-_inCurrentStack = _current . _workspace . _inStack
 
 -- | Visible workspaces, and their Xinerama screens.
 data Screen i l a sid sd = Screen { workspace :: !(Workspace i l a)
@@ -355,6 +334,15 @@ _screenDetail ::
 _screenDetail f scr =
     fmap (\ sd' -> scr{ screenDetail = sd' }) (f (screenDetail scr))
 
+instance HasLayout (Screen i l w sid sd) (Screen i l' w sid sd) l l' where
+  _layout = _workspace . _layout
+
+instance HasStack (Screen i l w sid sd) (Screen i l w' sid sd) w w' where
+  _stack = _workspace . _stack
+
+instance HasTag (Screen i l w sid sd) (Screen i' l w sid sd) i i' where
+  _tag = _workspace . _tag
+
 -- |
 -- A workspace is just a tag, a layout, and a stack.
 --
@@ -363,32 +351,55 @@ data Workspace i l a = Workspace  { tag :: !i, layout :: l, stack :: Maybe (Stac
 
 -- Workspace Optics
 -- Workspace Lenses
-_tag :: (Functor m)=> (i -> m i') -> Workspace i l a -> m (Workspace i' l a)
-_tag f wrk = fmap (\ tag' -> wrk{ tag = tag' }) (f (tag wrk))
 
-_layout :: (Functor m)=> (l -> m l') -> Workspace i l a -> m (Workspace i l' a)
-{- ^
-@_layout@ is a @Lens@ from a @Workspace@ to its 'layout'. Because, when used, 'l' is an existential type, it is tough to get this to work at all.
-If @_layout@ does not work, use @layout@, @\\ wrk -> wrk{ layout = lay' }@, or @\\ wrk -> wrk{ layout = f (layout wrk) }@ as needed.
--}
--- _layout f wrk = fmap (\ lay' -> wrk{ layout = lay' }) (f (layout wrk))
-_layout f (Workspace i lay sta) =
-    fmap (\ lay' -> Workspace i lay' sta) (f lay)
+instance HasLayout (Workspace i l w) (Workspace i l' w) l l' where
+  _layout f wrk = f (layout wrk) <&> \ layout' -> wrk{ layout = layout' }
 
-_stack ::
-    (Functor m)=>
-    (Maybe (Stack a) -> m (Maybe (Stack b))) ->
-    Workspace i l a -> m (Workspace i l b)
-{- ^
-@_stack@ is a @Lens@ from a 'Workspace' to 'Maybe' a 'Stack'.
+class HasLayout a a' l l' | a -> l, a' -> l', a l' -> a', a' l -> a where
+  _layout :: (Functor m)=> (l -> m l') -> a -> m a'
+  {- ^
+  @_layout@ is a @Lens@ to a 'layout'.
+  It currently has two instances: 'Workspace' and 'Screen'. The 'Screen' layout is the @screen@'s @Workspace@'s layout.
+  -}
 
-To map a function over the windows in a 'Workspace'\'s 'Stack', use @(_stack . traverse %~)@.
--}
-_stack f wrk = fmap (\ sta' -> wrk{ stack = sta' }) (f (stack wrk))
+-- _stack ::
+--     (Functor m)=>
+--     (Maybe (Stack a) -> m (Maybe (Stack b))) ->
+--     Workspace i l a -> m (Workspace i l b)
+-- {- ^
+-- @_stack@ is a @Lens@ from a 'Workspace' to 'Maybe' a 'Stack'.
+
+-- To map a function over the windows in a 'Workspace'\'s 'Stack', use @(_stack . traverse %~)@.
+-- -}
+-- _stack f wrk = fmap (\ sta' -> wrk{ stack = sta' }) (f (stack wrk))
+
+instance HasStack (Workspace i l w) (Workspace i l w') w w' where
+  _stack f wrk = f (stack wrk) <&> \ stack' -> wrk{ stack = stack' }
+
+class HasStack a a' w w' | a -> w, a' -> w', a w' -> a', a' w -> a where
+  _stack ::
+      (Functor m)=>
+      (Maybe (Stack w) -> m (Maybe (Stack w'))) -> a -> m a'
+  {- ^
+  @_stack@ is a @Lens@ from a 'Workspace' to 'Maybe' a 'Stack'.
+
+  To map a function over the windows in a 'Workspace'\'s 'Stack', use @(_stack . traverse %~)@.
+  -}
 
 _inStack ::
-    (Applicative m)=> (a -> m b) -> Workspace i l a -> m (Workspace i l b)
+    (HasStack a a' w w') =>
+    -- (Applicative m)=> (a -> m b) -> Workspace i l a -> m (Workspace i l b)
+    (Applicative m)=> (w -> m w') -> a -> m a'
 _inStack = _stack . traverse . traverse
+
+instance HasTag (Workspace i l w) (Workspace i' l w) i i' where
+  _tag f wrk = f (tag wrk) <&> \ tag' -> wrk{ tag = tag' }
+
+class HasTag a a' i i' | a -> i, a' -> i', a i' -> a', a' i -> a where
+  _tag :: (Functor m)=> (i -> m i') -> a -> m a'
+
+-- _tag :: (Functor m)=> (i -> m i') -> Workspace i l a -> m (Workspace i' l a)
+-- _tag f wrk = fmap (\ tag' -> wrk{ tag = tag' }) (f (tag wrk))
 
 
 -- | A structure for window geometries
@@ -511,20 +522,20 @@ lookupWorkspace screenID =
 -- -- returning the result. It is like 'maybe' for the focused workspace.
 -- --
 -- with :: b -> (Stack a -> b) -> StackSet i l a s sd -> b
--- with dflt f = maybe dflt f . (^. _currentStack)
+-- with dflt f = maybe dflt f . (^. _current . _stack)
 
 -- |
 -- Apply a function, and a default value for 'Nothing', to modify the current stack.
 --
 modify :: Maybe (Stack a) -> (Stack a -> Maybe (Stack a)) -> StackSet i l a s sd -> StackSet i l a s sd
-modify d f = _currentStack %~ maybe d f
+modify d f = _current . _stack %~ maybe d f
 
 -- |
 -- Apply a function to modify the current stack if it isn't empty, and we don't
 --  want to empty it.
 --
 modify' :: (Stack a -> Stack a) -> StackSet i l a s sd -> StackSet i l a s sd
-modify' f = _currentStack . traverse %~ f
+modify' f = _current . _stack . traverse %~ f
 
 -- |
 -- /O(1)/. Extract the focused element of the current stack.
@@ -540,7 +551,7 @@ peek = (^? _currentFocus)
 -- integration of a one-hole list cursor, back to a list.
 --
 index :: StackSet i l a s sd -> [a]
-index = (^.. _inCurrentStack)
+index = (^.. _current . _inStack)
 
 -- |
 -- /O(1), O(w) on the wrapping case/.
@@ -605,7 +616,7 @@ allWindows = L.nub . concatMap (integrate' . stack) . workspaces
 
 -- | Get the tag of the currently focused workspace.
 currentTag :: StackSet i l a s sd -> i
-currentTag = (^. _currentTag)
+currentTag = (^. _current . _tag)
 
 -- | Is the given tag present in the 'StackSet'?
 tagMember :: Eq i => i -> StackSet i l a s sd -> Bool
@@ -666,7 +677,7 @@ findTag a =
 insertUp :: Eq a => a -> StackSet i l a s sd -> StackSet i l a s sd
 insertUp w stackSet
   | member w stackSet = stackSet
-  | otherwise = stackSet & _currentStack %~ Just . Stack.insertUpMaybe w
+  | otherwise = stackSet & _current . _stack %~ Just . Stack.insertUpMaybe w
 
 -- insertDown :: a -> StackSet i l a s sd -> StackSet i l a s sd
 -- insertDown a = modify (Stack a [] []) $ \(Stack t l r) -> Stack a (t:l) r
@@ -765,6 +776,6 @@ shiftWin newTag window stackSet
 --     (Functor m, Eq i, Eq s, Eq s')=>
 --     i -> (StackSet i l a s sd -> m (StackSet i l a s' sd)) ->
 --     StackSet i l a s sd -> m (StackSet i l a s' sd)
--- {- ^ E.g. @stackSet ^. _viewing workspaceID . _currentStack@
+-- {- ^ E.g. @stackSet ^. _viewing workspaceID . _current . _stack@
 -- -}
 -- _viewing n f s = fmap (view (currentTag s)) . f . view n $ s

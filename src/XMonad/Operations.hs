@@ -564,9 +564,9 @@ setFocusX w = do
 -- layout the windows, in which case changes are handled through a refresh.
 sendMessage :: Message a => a -> X ()
 sendMessage a = windowBracket_ $ do
-    l <- use $ _windowset . W._currentLayout
+    l <- use $ _windowset . W._current . W._layout
     ml' <- userCodeDef Nothing $ handleMessage l (SomeMessage a)
-    traverse_ (_windowset . W._currentLayout .=) ml'
+    traverse_ (_windowset . W._current . W._layout .=) ml'
     pure (Any $ isJust ml')
 
 -- | Send a message to all layouts, without refreshing.
