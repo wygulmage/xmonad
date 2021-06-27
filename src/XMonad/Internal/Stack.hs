@@ -108,14 +108,14 @@ _up :: (Functor m)=> ([a] -> m [a]) -> Stack a -> m (Stack a)
 
 Use @(_up . traverse %~)@ to map a function over the 'up' elements of a 'Stack'.
 -}
-_up f sta = f (up sta) <&> \ up' -> sta{ up = up' }
+_up f xs = f (up xs) <&> \ up' -> xs{ up = up' }
 
 _down :: (Functor m)=> ([a] -> m [a]) -> Stack a -> m (Stack a)
 {- ^ @_down@ is a @Lens@ from a 'Stack' to the list of its 'down' elements.
 
 Use @(_down . traverse %~)@ to map a function over the 'down' elements of a 'Stack'.
 -}
-_down f sta = f (down sta) <&> \ dn' -> sta{ down = dn' }
+_down f xs = f (down xs) <&> \ dn' -> xs{ down = dn' }
 
 _top :: (Functor m)=> (a -> m a) -> Stack a -> m (Stack a)
 _top f (Stack x upx dnx) =
@@ -170,7 +170,7 @@ focusTop s@(Stack x ups dns) = case List.reverse ups of
     x' : xs -> Stack x' [] (xs <> (x : dns))
 
 maybeStack :: [a] -> [a] -> Maybe (Stack a)
--- ^ Construct a stack from a reversed list and a list.
+-- ^ Construct a stack from a reversed list and a list. The focus is selected in the same way as in 'delete' (the first item of the down list or the first item of the up list).
 maybeStack upx dnx = case dnx of
     x : dnx' -> Just $ Stack x upx dnx'
     []       -> case upx of
