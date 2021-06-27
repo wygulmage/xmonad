@@ -9,7 +9,9 @@ module XMonad.Internal.Stack (
    goUp, goDown, swapUp,
    focusTop, shiftTop, swapTop,
    insertUp, insertUpMaybe,
-   integrate, integrate', differentiate,
+   differentiate,
+
+   integrate, integrate',
    ) where
 
 
@@ -184,18 +186,21 @@ filter p xs =
    maybeStack (List.filter p (up xs)) (List.filter p (focus xs : down xs))
 
 mapMaybe :: (a -> Maybe b) -> Stack a -> Maybe (Stack b)
--- ^ @'filter' p === mapMaybe (\ x -> if p x then Just x else Nothing)@
+{- ^ @'filter' p === mapMaybe (\ x -> if p x then Just x else Nothing)@
+-}
 mapMaybe f xs =
     maybeStack (List.mapMaybe f (up xs)) (List.mapMaybe f (focus xs : down xs))
 
 mapAlt ::
     (Alternative m)=> (a -> m b) -> Maybe (Stack a) -> m (Maybe (Stack b))
--- ^ @mapMaybe f xs === join . mapAlt f . Just@
+{- ^ Run an action of each item of a stack and collect the successful results.
+@mapMaybe f xs === join . mapAlt f . Just@ -}
 mapAlt _ Nothing = pure Nothing
 mapAlt f (Just xs) =
     liftA2 maybeStack
         (forwards $ mapAltList (Backwards . f) (up xs))
         (mapAltList f (focus xs : down xs))
+{-# SPECIALIZE mapAlt :: (a -> Maybe b) -> Maybe (Stack a) -> Maybe (Maybe (Stack b)) #-}
 
 -- wither ::
 --     (Applicative m)=>
@@ -208,6 +213,7 @@ mapAlt f (Just xs) =
 
 
 mapAltList :: (Alternative m)=> (a -> m b) -> [a] -> m [b]
+{- ^ Run an action of each item of a list and collect the successful results. -}
 mapAltList f =
     witherList (optional . f)
 
@@ -225,9 +231,11 @@ witherList f = foldr consM (pure [])
 
 
 insertUp :: a -> Stack a -> Stack a
+{- ^ Insert an item into the focus of a stack, pushing the old focus down. -}
 insertUp x' ~(Stack x upx dnx) = Stack x' upx (x : dnx)
 
 insertUpMaybe :: a -> Maybe (Stack a) -> Stack a
+{- ^ Insert an item into the focus of a (possibly empty) stack, pushing the old focus (if any) down. -}
 insertUpMaybe x' = maybe (pure x') (insertUp x')
 
 
