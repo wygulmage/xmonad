@@ -2,7 +2,7 @@
 
 
 module XMonad.Internal.Stack (
-   Stack (..), _focus, _up, _down,
+   Stack (..), _focus, _up, _down, _top,
    filter, mapMaybe, mapAlt,
    reverse,
    tryUp, tryDown,
@@ -115,6 +115,11 @@ Use @(_down . traverse %~)@ to map a function over the 'down' elements of a 'Sta
 -}
 _down f sta = f (down sta) <&> \ dn' -> sta{ down = dn' }
 
+_top :: (Functor m)=> (a -> m a) -> Stack a -> m (Stack a)
+_top f (Stack x upx dnx) =
+    case List.reverse upx of
+        [] -> f x <&> \ x' -> Stack x' [] dnx
+        x' : upx' -> f x' <&> \ x'' -> Stack x (List.reverse (x'' : upx')) dnx
 
 reverse :: Stack a -> Stack a
 reverse (Stack x ups dns) = Stack x dns ups
