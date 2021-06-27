@@ -104,73 +104,91 @@ _focus :: (Functor m)=> (a -> m a) -> Stack a -> m (Stack a)
 _focus f xs = f (focus xs) <&> \ focus' -> xs{ focus = focus' }
 
 _up :: (Functor m)=> ([a] -> m [a]) -> Stack a -> m (Stack a)
-{- ^ @_up@ is a @Lens@ from a 'Stack' to the list of its 'up' elements in reverse order.
+{- ^ @_up@ is a @Lens@ from a 'Stack' to its list of 'up' items in reverse order.
 
 Use @(_up . traverse %~)@ to map a function over the 'up' elements of a 'Stack'.
 -}
 _up f xs = f (up xs) <&> \ up' -> xs{ up = up' }
 
 _down :: (Functor m)=> ([a] -> m [a]) -> Stack a -> m (Stack a)
-{- ^ @_down@ is a @Lens@ from a 'Stack' to the list of its 'down' elements.
+{- ^ @_down@ is a @Lens@ from a 'Stack' to its list of 'down' items.
 
 Use @(_down . traverse %~)@ to map a function over the 'down' elements of a 'Stack'.
 -}
 _down f xs = f (down xs) <&> \ dn' -> xs{ down = dn' }
 
 _top :: (Functor m)=> (a -> m a) -> Stack a -> m (Stack a)
+{- ^ /O/(n) @_top@ is a @Lens@ from a 'Stack' to its topmost item (called the "master window" in a stack of 'Window's).
+
+Use @(^. _top)@ to get the topmost item.
+Use @(_top .~)@ to replace the topmost item.
+-}
 _top f (Stack x upx dnx) =
     case List.reverse upx of
         [] -> f x <&> \ x' -> Stack x' [] dnx
         x' : upx' -> f x' <&> \ x'' -> Stack x (List.reverse (x'' : upx')) dnx
 
 reverse :: Stack a -> Stack a
+{- ^ /O/(1) Reverse the order of a 'Stack'.
+-}
 reverse (Stack x ups dns) = Stack x dns ups
 
 tryUp :: Stack a -> Maybe (Stack a)
--- ^ Focus on the next higher item. If you're at the top already, return Nothing.
+-- ^ /O/(1) Focus on the next higher item. If you're at the top already, return Nothing.
 tryUp (Stack x (x' : ups) dns) = Just $ Stack x' ups (x : dns)
 tryUp _                        = Nothing
 
 tryDown :: Stack a -> Maybe (Stack a)
--- ^ Focus on the next lower item. If your're already at the bottom, return Nothing.
+-- ^ /O/(1) Focus on the next lower item. If your're already at the bottom, return Nothing.
 tryDown = fmap reverse . tryUp . reverse
 -- tryDown (Stack x ups (x' : dns)) = Just $ Stack x' (x : ups) dns
 -- tryDown _                        = Nothing
 
 goUp :: Stack a -> Stack a
--- ^ Focus on the next element up. If you're at the top, treat the stack as a loop and focus on the bottom.
-goUp (Stack x (x' : ups) dns) = Stack x' ups (x : dns)
-goUp (Stack x [] dns) = case List.reverse $ x : dns of
-   x' : ups' -> Stack x' ups' []
-   _         -> errorWithoutStackTrace "goUp: impossible empty list"
+{- ^ /O/(1) amortized, /O/(/n/) worst case
+Focus on the next element up. If you're at the top, treat the 'Stack' as a loop and focus on the bottom.
+-}
+goUp (Stack x upx dnx) = case upx of
+    x' : upx' -> Stack x' upx' (x : dnx)
+    []        -> case List.reverse (x : dnx) of
+        x' : upx' -> Stack x' upx' []
+        []        -> errorWithoutStackTrace "goUp: impossible empty list"
 
 goDown :: Stack a -> Stack a
--- ^ Focus on the next element down. If you're at the bottom, treat the stack as a loop and focus on the top.
+{- ^ /O/(1) amortized, /O/(/n/) worst case
+Focus on the next element down. If you're at the bottom, treat the 'Stack' as a loop and focus on the top.
+-}
 goDown = reverse . goUp . reverse
 
 swapUp :: Stack a -> Stack a
--- ^ Swap the focus with the item above it, keeping focus on the focus. If you're at the top, treat the stack as a loop.
-swapUp (Stack x (x' : upx) dnx) = Stack x upx (x' : dnx)
-swapUp (Stack x [] dnx) = Stack x (List.reverse dnx) []
+{- ^ /O/(1) amortized, /O/(/n/) worst case
+Swap the focus with the item above it, keeping focus on the focus. If you're at the top, treat the 'Stack' as a loop.
+-}
+swapUp (Stack x upx dnx) = case upx of
+    x' : upx' -> Stack x upx' (x' : dnx)
+    []        -> Stack x (List.reverse dnx) []
 
 swapTop :: Stack a -> Stack a
--- ^ Make the current focus the top by swapping it with the current top.
+-- ^ /O/(/n/) Make the current focus the top by swapping it with the current top.
 swapTop s@(Stack x ups dns) = case List.reverse ups of
-   [] -> s
+   []      -> s
    x' : xs -> Stack x [] (xs <> (x' : dns))
 
 shiftTop :: Stack a -> Stack a
--- ^ Place the focused element on the top of the stack.
+{- ^ /O/(/n/) Place the focused element on the top of the 'Stack', keeping it focused.
+-}
 shiftTop (Stack x ups dns) = Stack x [] (List.reverse ups <> dns)
 
 focusTop :: Stack a -> Stack a
--- ^ Make the top the focus by shifting the whole stack down.
+{- ^ /O/(/n/) Make the top the focus by shifting the whole stack down.
+-}
 focusTop s@(Stack x ups dns) = case List.reverse ups of
-    [] -> s
+    []      -> s
     x' : xs -> Stack x' [] (xs <> (x : dns))
 
 maybeStack :: [a] -> [a] -> Maybe (Stack a)
--- ^ Construct a stack from a reversed list and a list. The focus is selected in the same way as in 'delete' (the first item of the down list or the first item of the up list).
+{- ^ /O/(1) Construct a stack from a reversed list and a list. The focus is selected in the same way as in 'delete' (the first item of the down list or the first item of the up list).
+-}
 maybeStack upx dnx = case dnx of
     x : dnx' -> Just $ Stack x upx dnx'
     []       -> case upx of
@@ -178,7 +196,7 @@ maybeStack upx dnx = case dnx of
         []       -> Nothing
 
 -- |
--- /O(n)/. 'filter p s' returns the elements of 's' such that 'p' evaluates to
+-- /O/(/n/). 'filter p s' returns the elements of 's' such that 'p' evaluates to
 -- 'True'.  Order is preserved, and focus moves as described for 'delete'.
 --
 filter :: (a -> Bool) -> Stack a -> Maybe (Stack a)
@@ -186,15 +204,18 @@ filter p xs =
    maybeStack (List.filter p (up xs)) (List.filter p (focus xs : down xs))
 
 mapMaybe :: (a -> Maybe b) -> Stack a -> Maybe (Stack b)
-{- ^ @'filter' p === mapMaybe (\ x -> if p x then Just x else Nothing)@
+{- ^ /O/(/n/)
+Apply a function to each item of a 'Stack' and collect the 'Just' results.
+@'filter' p === mapMaybe (\ x -> if p x then Just x else Nothing)@
 -}
 mapMaybe f xs =
     maybeStack (List.mapMaybe f (up xs)) (List.mapMaybe f (focus xs : down xs))
 
 mapAlt ::
     (Alternative m)=> (a -> m b) -> Maybe (Stack a) -> m (Maybe (Stack b))
-{- ^ Run an action of each item of a stack and collect the successful results.
-@mapMaybe f xs === join . mapAlt f . Just@ -}
+{- ^ /O/(/n/) Run an action of each item of a stack and collect the successful results.
+@mapMaybe f xs === join . mapAlt f . Just@
+-}
 mapAlt _ Nothing = pure Nothing
 mapAlt f (Just xs) =
     liftA2 maybeStack
@@ -213,11 +234,14 @@ mapAlt f (Just xs) =
 
 
 mapAltList :: (Alternative m)=> (a -> m b) -> [a] -> m [b]
-{- ^ Run an action of each item of a list and collect the successful results. -}
+{- ^ /O/(/n/) Run an action of each item of a list and collect the successful results.
+-}
 mapAltList f =
     witherList (optional . f)
 
 witherList :: (Applicative m)=> (a -> m (Maybe b)) -> [a] -> m [b]
+{- ^ /O/(/n/) Run an action of each item of a list and collect the 'Just' results.
+-}
 witherList f = foldr consM (pure [])
   where
     consM = liftA2 (maybe id (:)) . f
@@ -233,28 +257,28 @@ witherList f = foldr consM (pure [])
 
 
 insertUpNonEmpty :: a -> Stack a -> Stack a
-{- ^ Insert an item into the focus of a stack, pushing the old focus down. -}
+{- ^ /O/(1) Insert an item into the focus of a stack, pushing the old focus down.
+-}
 insertUpNonEmpty x' ~(Stack x upx dnx) = Stack x' upx (x : dnx)
 
 insertUp :: a -> Maybe (Stack a) -> Stack a
-{- ^ Insert an item into the focus of a (possibly empty) stack, pushing the old focus (if any) down. -}
+{- ^ /O/(1) Insert an item into the focus of a (possibly empty) stack, pushing the old focus (if any) down.
+-}
 insertUp x' = maybe (pure x') (insertUpNonEmpty x')
 
-
 -- |
--- /O(n)/. Flatten a 'Stack' into a list.
---
-integrate :: Stack a -> [a]
-integrate = toList
-
--- |
--- /O(n)/ Flatten a possibly empty stack into a list.
-integrate' :: Maybe (Stack a) -> [a]
-integrate' = foldMap integrate
-
--- |
--- /O(n)/. Turn a list into a possibly empty stack (i.e., a zipper):
+-- /O/(1). Turn a list into a possibly empty stack (i.e., a zipper):
 -- the first element of the list is focus, and the rest of the list
 -- is down.
 differentiate :: [a] -> Maybe (Stack a)
 differentiate = maybeStack []
+
+-- |
+-- /O/(/n/). Flatten a 'Stack' into a list.
+integrate :: Stack a -> [a]
+integrate = toList
+
+-- |
+-- /O/(/n/) Flatten a possibly empty stack into a list.
+integrate' :: Maybe (Stack a) -> [a]
+integrate' = foldMap integrate
