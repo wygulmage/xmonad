@@ -49,6 +49,45 @@ data Stack a = Stack { focus  :: !a        -- focused thing in this set
                      , down   :: [a] }     -- jokers to the right
     deriving (Show, Read, Eq, Functor)
 
+maybeStack :: [a] -> [a] -> Maybe (Stack a)
+{- ^ /O/(1) Construct a (possibly empty) stack from a reversed list and a list. The focus is selected in the same way as in 'delete' (the first item of the down list or the first item of the up list).
+-}
+maybeStack upx dnx = case dnx of
+    x : dnx' -> Just $ Stack x upx dnx'
+    []       -> case upx of
+        x : upx' -> Just $ Stack x upx' []
+        []       -> Nothing
+
+insertUpNonEmpty :: a -> Stack a -> Stack a
+{- ^ /O/(1) Insert an item into the focus of a stack, pushing the old focus down.
+-}
+insertUpNonEmpty x' ~(Stack x upx dnx) = Stack x' upx (x : dnx)
+
+insertUp :: a -> Maybe (Stack a) -> Stack a
+{- ^ /O/(1) Insert an item into the focus of a (possibly empty) stack, pushing the old focus (if any) down.
+-}
+insertUp x' = maybe (pure x') (insertUpNonEmpty x')
+
+-- |
+-- /O/(1). Turn a list into a possibly empty stack (i.e., a zipper):
+-- the first element of the list is focus, and the rest of the list
+-- is down.
+differentiate :: [a] -> Maybe (Stack a)
+differentiate = maybeStack []
+
+-- |
+-- /O/(/n/). Flatten a 'Stack' into a list.
+integrate :: Stack a -> [a]
+integrate = toList
+
+-- |
+-- /O/(/n/) Flatten a possibly empty stack into a list.
+integrate' :: Maybe (Stack a) -> [a]
+integrate' = foldMap integrate
+
+
+-- Instances
+
 instance Applicative Stack where
    pure x = Stack x [] []
    liftA2 f xs ys = xs >>= \ x -> fmap (f x) ys
@@ -70,7 +109,8 @@ instance Foldable Stack where
     {-# INLINABLE foldMap #-}
     -- foldMap' f xs =
     --     foldl' (\ y x -> f x `mappend` y) (foldl' (\ y x -> y `mappend` f x) (f (focus xs)) (down xs)) (up xs)
-    elem x xs = x == focus xs || elem x (up xs) || elem x (down xs)
+    -- elem x xs = x == focus xs || elem x (up xs) || elem x (down xs)
+    -- elem x = foldr (\ x' b -> x == x'  || b) False
 
     -- Not used in stacks of Windows, but may be useful generally:
     minimum = fold1Commutative' min
@@ -128,21 +168,16 @@ _top f (Stack x upx dnx) =
         [] -> f x <&> \ x' -> Stack x' [] dnx
         x' : upx' -> f x' <&> \ x'' -> Stack x (List.reverse (x'' : upx')) dnx
 
+
+-- Functions from Stack to Stack
+
 reverse :: Stack a -> Stack a
 {- ^ /O/(1) Reverse the order of a 'Stack'.
 -}
 reverse (Stack x ups dns) = Stack x dns ups
 
-tryUp :: Stack a -> Maybe (Stack a)
--- ^ /O/(1) Focus on the next higher item. If you're at the top already, return Nothing.
-tryUp (Stack x (x' : ups) dns) = Just $ Stack x' ups (x : dns)
-tryUp _                        = Nothing
 
-tryDown :: Stack a -> Maybe (Stack a)
--- ^ /O/(1) Focus on the next lower item. If your're already at the bottom, return Nothing.
-tryDown = fmap reverse . tryUp . reverse
--- tryDown (Stack x ups (x' : dns)) = Just $ Stack x' (x : ups) dns
--- tryDown _                        = Nothing
+-- Shift the focus up or down
 
 goUp :: Stack a -> Stack a
 {- ^ /O/(1) amortized, /O/(/n/) worst case
@@ -154,11 +189,22 @@ goUp (Stack x upx dnx) = case upx of
         x' : upx' -> Stack x' upx' []
         []        -> errorWithoutStackTrace "goUp: impossible empty list"
 
+tryUp :: Stack a -> Maybe (Stack a)
+-- ^ /O/(1) Focus on the next higher item. If you're at the top already, return Nothing.
+tryUp (Stack x (x' : ups) dns) = Just $ Stack x' ups (x : dns)
+tryUp _                        = Nothing
+
 goDown :: Stack a -> Stack a
 {- ^ /O/(1) amortized, /O/(/n/) worst case
 Focus on the next element down. If you're at the bottom, treat the 'Stack' as a loop and focus on the top.
 -}
 goDown = reverse . goUp . reverse
+
+tryDown :: Stack a -> Maybe (Stack a)
+-- ^ /O/(1) Focus on the next lower item. If your're already at the bottom, return Nothing.
+tryDown = fmap reverse . tryUp . reverse
+-- tryDown (Stack x ups (x' : dns)) = Just $ Stack x' (x : ups) dns
+-- tryDown _                        = Nothing
 
 swapUp :: Stack a -> Stack a
 {- ^ /O/(1) amortized, /O/(/n/) worst case
@@ -167,6 +213,9 @@ Swap the focus with the item above it, keeping focus on the focus. If you're at 
 swapUp (Stack x upx dnx) = case upx of
     x' : upx' -> Stack x upx' (x' : dnx)
     []        -> Stack x (List.reverse dnx) []
+
+
+-- Move top element and focus
 
 swapTop :: Stack a -> Stack a
 -- ^ /O/(/n/) Make the current focus the top by swapping it with the current top.
@@ -186,14 +235,8 @@ focusTop s@(Stack x ups dns) = case List.reverse ups of
     []      -> s
     x' : xs -> Stack x' [] (xs <> (x : dns))
 
-maybeStack :: [a] -> [a] -> Maybe (Stack a)
-{- ^ /O/(1) Construct a stack from a reversed list and a list. The focus is selected in the same way as in 'delete' (the first item of the down list or the first item of the up list).
--}
-maybeStack upx dnx = case dnx of
-    x : dnx' -> Just $ Stack x upx dnx'
-    []       -> case upx of
-        x : upx' -> Just $ Stack x upx' []
-        []       -> Nothing
+
+-- Map over the entire Stack
 
 -- |
 -- /O/(/n/). 'filter p s' returns the elements of 's' such that 'p' evaluates to
@@ -255,30 +298,3 @@ witherList f = foldr consM (pure [])
 -- -- For example, unionAlt f :: Maybe a -> Maybe a -> Maybe a === maybe id (fmap . f)
 -- unionAlt f = liftA2 (maybe id f) . optional
 
-
-insertUpNonEmpty :: a -> Stack a -> Stack a
-{- ^ /O/(1) Insert an item into the focus of a stack, pushing the old focus down.
--}
-insertUpNonEmpty x' ~(Stack x upx dnx) = Stack x' upx (x : dnx)
-
-insertUp :: a -> Maybe (Stack a) -> Stack a
-{- ^ /O/(1) Insert an item into the focus of a (possibly empty) stack, pushing the old focus (if any) down.
--}
-insertUp x' = maybe (pure x') (insertUpNonEmpty x')
-
--- |
--- /O/(1). Turn a list into a possibly empty stack (i.e., a zipper):
--- the first element of the list is focus, and the rest of the list
--- is down.
-differentiate :: [a] -> Maybe (Stack a)
-differentiate = maybeStack []
-
--- |
--- /O/(/n/). Flatten a 'Stack' into a list.
-integrate :: Stack a -> [a]
-integrate = toList
-
--- |
--- /O/(/n/) Flatten a possibly empty stack into a list.
-integrate' :: Maybe (Stack a) -> [a]
-integrate' = foldMap integrate
