@@ -243,6 +243,8 @@ _currentFocus ::
     (Applicative m)=>
     (a -> m a) ->
     StackSet i l a sid sd -> m (StackSet i l a sid sd)
+{- ^ /O/(/n/) Traverse the 'focus' of the 'current' 'stack'.
+-}
 _currentFocus = _current . _stack . traverse . _focus
 
 _workspaces ::
@@ -253,7 +255,8 @@ _workspaces ::
 @_workspaces@ is a @Traversal' from a 'StackSet' to all of the 'Workspace's in that 'StackSet'.
 -}
 _workspaces f stackSet = liftA3
-    (\ cur vis hid -> stackSet{ current = cur, visible = vis, hidden = hid})
+    (\ current' visible' hidden' ->
+        stackSet{ current = current', visible = visible', hidden = hidden' })
     (_workspace f (current stackSet))
     (traverse (_workspace f) (visible stackSet))
     (traverse f (hidden stackSet))
@@ -261,36 +264,39 @@ _workspaces f stackSet = liftA3
 _stacks ::
     (Applicative m)=>
     (Maybe (Stack a) -> m (Maybe (Stack a))) -> StackSet i l a sid sd -> m (StackSet i l a sid sd)
+{- ^ /O/(/n/) Traverse all the 'stack's in a 'StackSet'.
+-}
 _stacks = _workspaces . _stack
 
 _inStacks ::
     (Applicative m)=>
     (a -> m a) -> StackSet i l a s sd -> m (StackSet i l a s sd)
--- _inStacks = _stacks . traverse . traverse
+{- ^ /O/(/n/) Traverse the contents of all the 'stack's in a 'StackSet'.
+-}
 _inStacks = _workspaces . _inStack
 
 _tags ::
     (Applicative m)=>
     (i -> m i') -> StackSet i l a sid sd -> m (StackSet i' l a sid sd)
+{- ^ /O/(/n/) Traverse all the 'tag's in a 'StackSet'.
+-}
 _tags = _workspaces . _tag
 
 _layouts ::
     (Applicative m)=>
     (l -> m l') -> StackSet i l a s sd -> m (StackSet i l' a s sd)
+{- ^ /O/(/n/) Traverse all the 'layout's in a 'StackSet'.
+-}
 _layouts = _workspaces . _layout
-
--- | Visible workspaces, and their Xinerama screens.
-data Screen i l a sid sd = Screen { workspace :: !(Workspace i l a)
-                                  , screen :: !sid
-                                  , screenDetail :: !sd }
-    deriving (Show, Read, Eq)
 
 _iscreen ::
     (Eq sid, Applicative m)=>
     sid ->
     (Screen i l a sid sd -> m (Screen i l a sid sd)) ->
     StackSet i l a sid sd -> m (StackSet i l a sid sd)
-{- ^ Traverse a screen specified by ID.
+{- ^ /O/(/n/) Traverse a 'Screen' specified by ID.
+@(^? _iscreen screenID)@ gets the 'Screen' with 'screen' ID @screenID@, if it exists.
+@(_iscreen screenID %~)@ maps a function over the 'Screen' with 'screen' ID @screenID@ (if it exists).
 -}
 _iscreen sid f = _screens . traverse $
     \ screen' -> if screen screen' == sid then f screen' else pure screen'
@@ -300,10 +306,18 @@ _iworkspace ::
     i ->
     (Workspace i l a -> m (Workspace i l a)) ->
     StackSet i l a sid sd -> m (StackSet i l a sid sd)
-{- ^ Traverse a workspace specificed by tag.
+{- ^ /O/(/n/) Traverse a 'Workspace' specificed by 'tag'.
+@(^? _iworkspace tag')@ gets the 'Workspace' with 'tag' @tag'@, if it exists.
 -}
 _iworkspace tag' f = _workspaces $ \ workspace' ->
     if tag workspace' == tag' then f workspace' else pure workspace'
+
+
+-- | Visible workspaces, and their Xinerama screens.
+data Screen i l a sid sd = Screen { workspace :: !(Workspace i l a)
+                                  , screen :: !sid
+                                  , screenDetail :: !sd }
+    deriving (Show, Read, Eq)
 
 -- Screen Optics
 -- Screen Lenses
