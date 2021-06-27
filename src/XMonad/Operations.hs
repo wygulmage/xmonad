@@ -175,7 +175,7 @@ windows f = do
     -- notify non visibility
     let
         tags_oldvisible, tags_newhidden :: S.Set WorkspaceId
-        tags_oldvisible = old ^. W._screens . traverse . W._workspace . W._tag . to S.singleton
+        tags_oldvisible = old ^. W._screens . traverse . W._tag . to S.singleton
         tags_newhidden = ws ^. W._hidden . traverse . W._tag . to S.singleton
         gottenHiddenTags = S.intersection tags_oldvisible tags_newhidden
     filterMessageWithNoRefresh
@@ -340,20 +340,18 @@ refresh :: X ()
 refresh = do
     ws <- gets windowset
 
-    _windowset .= ws
-
     -- for each workspace, layout the currently visible workspaces
     let allscreens     = W.screens ws
         summed_visible :: [[Window]]
         -- What is this? The first element is []. The second is all the windows in the current screen. The second is all the windows in the current screen and all the windows in the next screen. Etc. Why? It tells you what windows you've already seen, in case they're visible in multiple workspaces. Essentially you're traversing allscreens with state, except you figured out what the state would be in a previous pass.
         summed_visible = scanl (<>) [] $ fmap (W.integrate' . W.stack . W.workspace) allscreens
-    rects <- fmap concat $ for (zip allscreens summed_visible) $ \ (w, vis) -> do
+    rects <- fmap concat $ for (zip allscreens summed_visible) $ \ (scr, vis) -> do
         let
-          wsp   = W.workspace w
-          n     = W.tag wsp
-          tiled = W.stack wsp
+          wsp   = W.workspace scr
+          n     = scr ^. W._tag
+          tiled = scr ^. W._stack
                     >>= W.filter (\ win -> win `M.notMember` W.floating ws && win `notElem` vis)
-          viewrect = screenRect $ W.screenDetail w
+          viewrect = screenRect $ W.screenDetail scr
 
         -- just the tiled windows:
         -- now tile the windows on this workspace, modified by the gap
@@ -391,7 +389,7 @@ refresh = do
     let
       stackToSet = W._inStack . to S.singleton
       visibleSet :: S.Set Window
-      visibleSet = ws ^. W._screens . traverse . W._workspace . stackToSet
+      visibleSet = ws ^. W._screens . traverse . stackToSet
     traverse_ hide (visibleSet S.\\ S.fromList visible)
 
     whenX (asks $ not . mouseFocused) $ clearEvents enterWindowMask
@@ -527,7 +525,7 @@ setFocusX w = do
     dpy <- asks display
 
     traverseOf_
-        (W._screens . traverse . W._workspace . W._inStack)
+        (W._screens . traverse . W._inStack)
         (setButtonGrab True)
         ws
 
@@ -602,7 +600,7 @@ setLayout l = do
     ss <- gets windowset
     handleMessage (W.layout . W.workspace . W.current $ ss)
         (SomeMessage ReleaseResources)
-    windows $ const $ ss & W._current . W._workspace . W._layout .~ l
+    windows $ const $ ss & W._current . W._layout .~ l
 
 ------------------------------------------------------------------------
 -- Utilities
@@ -777,7 +775,7 @@ float w = do
     (sc, rr) <- floatLocation w
     windows $ \ws -> W.float w rr . fromMaybe ws $ do
         i  <- W.findTag w ws -- find the ID of the window's workspace.
-        guard $ i `elem` (ws ^.. W._screens . traverse . W._workspace . W._tag) -- Check the visible workspaces' tags to ensure the window's workspace is visible. If not, return Nothing.
+        guard $ i `elem` (ws ^.. W._screens . traverse . W._tag) -- Check the visible workspaces' tags to ensure the window's workspace is visible. If not, return Nothing.
         f  <- W.peek ws -- Save the focused window of the current workspace.
         sw <- W.lookupWorkspace sc ws -- Search the screens to find the workspace ID of window's float location.
         pure (W.focusWindow f . W.shiftWin sw w $ ws) -- Search all workspaces for the window and move it to the workspace with the ID of the window's float location. Then change the focus back to the original focus.
