@@ -8,7 +8,7 @@ module XMonad.Internal.Stack (
    tryUp, tryDown,
    goUp, goDown, swapUp,
    focusTop, shiftTop, swapTop,
-   insertUp, insertUpMaybe,
+   insertUp,
    differentiate,
 
    integrate, integrate',
@@ -223,20 +223,22 @@ witherList f = foldr consM (pure [])
     consM = liftA2 (maybe id (:)) . f
 
 -- unionAlt :: (Alternative m)=> (a -> a -> a) -> m a -> m a -> m a
+-- -- TODO: This needs a better name.
 -- -- If the first action is empty, return the second; otherwise combine the contents of the first item and the second.
--- -- unionAlt f x empty === empty
--- -- unionAlt f empty x === x
--- unionAlt f = liftA2 (maybe id f) . optional
+-- -- unionAlt f mx empty === empty -- evaluates the mx effect
+-- -- unionAlt f empty mx === mx
+-- -- unionAlt f (pure x1) mx2 === fmap (f x1) mx2
 -- -- For example, unionAlt f :: Maybe a -> Maybe a -> Maybe a === maybe id (fmap . f)
+-- unionAlt f = liftA2 (maybe id f) . optional
 
 
-insertUp :: a -> Stack a -> Stack a
+insertUpNonEmpty :: a -> Stack a -> Stack a
 {- ^ Insert an item into the focus of a stack, pushing the old focus down. -}
-insertUp x' ~(Stack x upx dnx) = Stack x' upx (x : dnx)
+insertUpNonEmpty x' ~(Stack x upx dnx) = Stack x' upx (x : dnx)
 
-insertUpMaybe :: a -> Maybe (Stack a) -> Stack a
+insertUp :: a -> Maybe (Stack a) -> Stack a
 {- ^ Insert an item into the focus of a (possibly empty) stack, pushing the old focus (if any) down. -}
-insertUpMaybe x' = maybe (pure x') (insertUp x')
+insertUp x' = maybe (pure x') (insertUpNonEmpty x')
 
 
 -- |

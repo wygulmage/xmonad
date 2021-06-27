@@ -677,7 +677,7 @@ findTag a =
 insertUp :: Eq a => a -> StackSet i l a s sd -> StackSet i l a s sd
 insertUp w stackSet
   | member w stackSet = stackSet
-  | otherwise = stackSet & _current . _stack %~ Just . Stack.insertUpMaybe w
+  | otherwise = stackSet & _current . _stack %~ Just . Stack.insertUp w
 
 -- insertDown :: a -> StackSet i l a s sd -> StackSet i l a s sd
 -- insertDown a = modify (Stack a [] []) $ \(Stack t l r) -> Stack a (t:l) r
@@ -769,7 +769,7 @@ shiftWin newTag window stackSet
   , newTag /= oldTag
   = stackSet
     & delete' window
-    & _iworkspace newTag . _stack %~ Just . Stack.insertUpMaybe window
+    & _iworkspace newTag . _stack %~ Just . Stack.insertUp window
   | otherwise = stackSet
 
 -- _viewing ::
