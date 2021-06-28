@@ -175,6 +175,12 @@ windows f = do
 
     _windowset .= ws
 
+    -- I moved this up even farther in the action order.
+    ws & W._currentFocus `traverseOf_` \ w -> do
+        fbs <- asks $ focusedBorderColor . config
+        fbc <- asks $ focusedBorder
+        setWindowBorderWithFallback' w fbs fbc
+
     -- notify non visibility
     let
         tags_oldvisible, tags_newhidden, gottenHiddenTags :: S.Set WorkspaceId
@@ -243,15 +249,14 @@ windows f = do
         -- return the visible windows for this workspace:
         pure vs
 
-    ws & W._currentFocus `traverseOf_` \ w -> do
-        fbs <- asks $ focusedBorderColor . config
-        fbc <- asks $ focusedBorder
-        setWindowBorderWithFallback' w fbs fbc
-
-    for_ rects $ uncurry tileWindow -- Do all the windows have to be tiled at once here, or can they be tiled by screen in the loop above?
+    -- for_ rects $ uncurry tileWindow -- Do all the windows have to be tiled at once here, or can they be tiled by screen in the loop above?
 
     let visible = fmap fst rects
-    for_ visible reveal -- Do we have to do this here, or can we do it in the loop above?
+    -- for_ visible reveal -- Do we have to do this here, or can we do it in the loop above?
+
+    for_ rects $ \ (vis, rect) ->
+        tileWindow vis rect *> reveal vis
+
     setTopFocus
 
     -- hide every window that was potentially visible before, but is not
