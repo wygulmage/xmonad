@@ -9,9 +9,9 @@ module XMonad.Internal.Stack (
    goUp, goDown, swapUp,
    focusTop, shiftTop, swapTop,
    insertUp,
-   differentiate,
+   differentiate, integrate',
 
-   integrate, integrate',
+   integrate, -- Instead of 'integrate', use 'toList'.
    ) where
 
 
@@ -269,5 +269,5 @@ mapAlt f (Just xs) =
 mapAltList :: (Alternative m)=> (a -> m b) -> [a] -> m [b]
 {- ^ /O/(/n/) Run an action of each item of a list and collect the successful results.
 -}
-mapAltList f =
-    foldr (liftA2 (maybe id (:)) . optional . f) (pure [])
+mapAltList f = foldr (liftA2 (maybe id (:)) . optional . f) (pure [])
+-- Compare to traverse f = foldr (liftA2 (:) . f) (pure [])
