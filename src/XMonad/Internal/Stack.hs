@@ -266,35 +266,8 @@ mapAlt f (Just xs) =
         (mapAltList f (focus xs : down xs))
 {-# SPECIALIZE mapAlt :: (a -> Maybe b) -> Maybe (Stack a) -> Maybe (Maybe (Stack b)) #-}
 
--- wither ::
---     (Applicative m)=>
---     (a -> m (Maybe b)) -> Maybe (Stack a) -> m (Maybe (Stack b))
--- wither _ Nothing = pure Nothing
--- wither f (Just xs) =
---     liftA2 maybeStack
---         (forwards $ witherList (Backwards . f) (up xs))
---         (witherList f (focus xs : down xs))
-
-
 mapAltList :: (Alternative m)=> (a -> m b) -> [a] -> m [b]
 {- ^ /O/(/n/) Run an action of each item of a list and collect the successful results.
 -}
 mapAltList f =
-    witherList (optional . f)
-
-witherList :: (Applicative m)=> (a -> m (Maybe b)) -> [a] -> m [b]
-{- ^ /O/(/n/) Run an action of each item of a list and collect the 'Just' results.
--}
-witherList f = foldr consM (pure [])
-  where
-    consM = liftA2 (maybe id (:)) . f
-
--- unionAlt :: (Alternative m)=> (a -> a -> a) -> m a -> m a -> m a
--- -- TODO: This needs a better name.
--- -- If the first action is empty, return the second; otherwise combine the contents of the first item and the second.
--- -- unionAlt f mx empty === empty -- evaluates the mx effect
--- -- unionAlt f empty mx === mx
--- -- unionAlt f (pure x1) mx2 === fmap (f x1) mx2
--- -- For example, unionAlt f :: Maybe a -> Maybe a -> Maybe a === maybe id (fmap . f)
--- unionAlt f = liftA2 (maybe id f) . optional
-
+    foldr (liftA2 (maybe id (:)) . optional . f) (pure [])
