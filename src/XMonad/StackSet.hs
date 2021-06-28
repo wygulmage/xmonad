@@ -363,6 +363,7 @@ instance HasTag (Screen i l w sid sd) (Screen i' l w sid sd) i i' where
 data Workspace i l a = Workspace  { tag :: !i, layout :: l, stack :: Maybe (Stack a) }
     deriving (Show, Read, Eq)
 
+
 -- Workspace Optics
 -- Workspace Lenses
 
@@ -370,22 +371,11 @@ instance HasLayout (Workspace i l w) (Workspace i l' w) l l' where
   _layout f wrk = f (layout wrk) <&> \ layout' -> wrk{ layout = layout' }
 
 class HasLayout a a' l l' | a -> l, a' -> l', a l' -> a', a' l -> a where
+{- ^ @HasLayout@ currently has two instances: 'Workspace' and 'Screen'. The 'Screen' 'layout' is the @screen@'s @Workspace@ 'layout'.
+-}
   _layout :: (Functor m)=> (l -> m l') -> a -> m a'
-  {- ^
-  @_layout@ is a @Lens@ to a 'layout'.
-  It currently has two instances: 'Workspace' and 'Screen'. The 'Screen' layout is the @screen@'s @Workspace@'s layout.
+  {- ^ @_layout@ is a @Lens@ to a 'layout'.
   -}
-
--- _stack ::
---     (Functor m)=>
---     (Maybe (Stack a) -> m (Maybe (Stack b))) ->
---     Workspace i l a -> m (Workspace i l b)
--- {- ^
--- @_stack@ is a @Lens@ from a 'Workspace' to 'Maybe' a 'Stack'.
-
--- To map a function over the windows in a 'Workspace'\'s 'Stack', use @(_stack . traverse %~)@.
--- -}
--- _stack f wrk = fmap (\ sta' -> wrk{ stack = sta' }) (f (stack wrk))
 
 instance HasStack (Workspace i l w) (Workspace i l w') w w' where
   _stack f wrk = f (stack wrk) <&> \ stack' -> wrk{ stack = stack' }
@@ -395,14 +385,13 @@ class HasStack a a' w w' | a -> w, a' -> w', a w' -> a', a' w -> a where
       (Functor m)=>
       (Maybe (Stack w) -> m (Maybe (Stack w'))) -> a -> m a'
   {- ^
-  @_stack@ is a @Lens@ from a 'Workspace' to 'Maybe' a 'Stack'.
-
-  To map a function over the windows in a 'Workspace'\'s 'Stack', use @(_stack . traverse %~)@.
+  @_stack@ is a @Lens@ to a 'stack' ('Maybe' a 'Stack').
+  To map a function over the windows in a 'Workspace'\'s 'Stack', use @(_inStack %~)@, which is equivalent to @(_stack . traverse . traverse)@.
+  To modify the whole 'Maybe' 'Stack', use @(_stack %~)@.
   -}
 
 _inStack ::
     (HasStack a a' w w') =>
-    -- (Applicative m)=> (a -> m b) -> Workspace i l a -> m (Workspace i l b)
     (Applicative m)=> (w -> m w') -> a -> m a'
 _inStack = _stack . traverse . traverse
 
@@ -410,10 +399,11 @@ instance HasTag (Workspace i l w) (Workspace i' l w) i i' where
   _tag f wrk = f (tag wrk) <&> \ tag' -> wrk{ tag = tag' }
 
 class HasTag a a' i i' | a -> i, a' -> i', a i' -> a', a' i -> a where
+{- ^   @HasTag@ currently has two instances: 'Workspace' and 'Screen'. The 'Screen' 'tag' is the @screen@'s @Workspace@'s 'tag'.
+-}
   _tag :: (Functor m)=> (i -> m i') -> a -> m a'
-
--- _tag :: (Functor m)=> (i -> m i') -> Workspace i l a -> m (Workspace i' l a)
--- _tag f wrk = fmap (\ tag' -> wrk{ tag = tag' }) (f (tag wrk))
+  {- ^ @_tag@ is a @Lens@ to a 'Workspace' 'tag'.
+  -}
 
 
 -- | A structure for window geometries
@@ -646,13 +636,18 @@ renameTag oldTag newTag =
 -- necessary.
 ensureTags :: Eq i => l -> [i] -> StackSet i l a s sd -> StackSet i l a s sd
 ensureTags l tags stackSet =
-    ensure tags ((stackSet ^.. _tags) \\ tags) stackSet
+    ensure newTags oldTags stackSet
   where
-    ensure [] _ stackSet' = stackSet'
-    ensure (tag' : tags') rn stackSet'
-      | tag' `tagMember` stackSet' = ensure tags' rn stackSet'
-    ensure (tag' : tags') [] stackSet' = ensure tags' [] (stackSet' & _hidden %~ (Workspace tag' l Nothing :))
-    ensure (tag' : tags') (r:rs) stackSet' = ensure tags' rs $ renameTag r tag' stackSet'
+    (newTags, oldTags) = disjoin tags (stackSet ^.. _tags)
+
+    ensure (newTag : newTags') (oldTag : oldTags') stackSet' =
+        ensure newTags' oldTags' (stackSet' & _iworkspace oldTag . _tag .~ newTag) -- Replace an old tag with a new tag and continue.
+    ensure newTags' _ stackSet' =
+        stackSet' & _hidden %~ (fmap (\ i -> Workspace{ layout = l, stack = Nothing, tag = i }) newTags' <>) -- Add any remaining new tags as empty workspaces and you're done.
+
+disjoin :: (Eq a)=> [a] -> [a] -> ([a], [a])
+disjoin xs1 xs2 = (xs1 \\ xs2, xs2 \\ xs1)
+-- TODO: There is prabably a more efficient way to get both differences like this.
 
 -- | Map a function on all the workspaces in the 'StackSet'.
 mapWorkspace :: (Workspace i l a -> Workspace i l a) -> StackSet i l a s sd -> StackSet i l a s sd
