@@ -72,7 +72,7 @@ infixr 4 .~
 
 (%%~) :: ((a -> m b) -> c -> m d) -> (a -> m b) -> c -> m d
 {- ^
-@o %%~ f@ applies an Optic 'o' to 'f'. For example, @xs & 'Data.Traversable.traverse' %%~ f@ is just @'Data.Traversable.traverse' f xs@.
+@o %%~ f@ applies an Optic @o@ to @f@. For example, @xs & 'Data.Traversable.traverse' %%~ f@ is just @'Data.Traversable.traverse' f xs@.
 -}
 (%%~) = ($)
 infixr 4 %%~
