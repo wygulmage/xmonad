@@ -154,13 +154,16 @@ windows f = do
         stackToSet = W._inStack . to S.singleton
 
         oldVisibleSet :: S.Set Window
+        -- Windows that were in visible Workspaces
         oldVisibleSet = old ^. W._screens . traverse . W._workspace . stackToSet
         oldWindowsSet :: S.Set Window
+        -- Windows that were in Workspaces
         oldWindowsSet = (old ^. W._hidden . traverse . stackToSet) <> oldVisibleSet
         ws :: WindowSet
         ws = f old
 
         newWindowsSet :: S.Set Window
+        -- Windows that are in Workspaces now but were not before.
         newWindowsSet = (ws ^. W._workspaces . stackToSet) S.\\ oldWindowsSet
 
     for_ newWindowsSet setInitialProperties
@@ -174,10 +177,11 @@ windows f = do
 
     -- notify non visibility
     let
-        tags_oldvisible, tags_newhidden :: S.Set WorkspaceId
+        tags_oldvisible, tags_newhidden, gottenHiddenTags :: S.Set WorkspaceId
         tags_oldvisible = old ^. W._screens . traverse . W._tag . to S.singleton
         tags_newhidden = ws ^. W._hidden . traverse . W._tag . to S.singleton
         gottenHiddenTags = S.intersection tags_oldvisible tags_newhidden
+
     filterMessageWithNoRefresh
         ((`elem` gottenHiddenTags) . W.tag)
         Hide
@@ -235,7 +239,6 @@ windows f = do
     -- will overwrite withdrawnState with iconicState
     traverse_ (`setWMState` withdrawnState) (oldWindowsSet S.\\ newWindowsSet)
 
-    -- unless isMouseFocused $ clearEvents enterWindowMask
     whenX (asks $ not . mouseFocused) $ clearEvents enterWindowMask
     asks (logHook . config) >>= userCodeDef ()
 
