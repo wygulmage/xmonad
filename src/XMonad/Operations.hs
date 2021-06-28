@@ -192,55 +192,28 @@ windows f = do
         ((`elem` gottenHiddenTags) . W.tag)
         Hide
 
-    -- ws & W._screens . traverse %%~ \ scr -> do
-    --   seen <- get
-    --   put $ seen <> (scr ^. W._inStack . to S.singleton)
-    --   let
-    --     tiled = scr ^. W._stack >>=
-    --         W.filter (\ win -> win `M.notMember` W.floating ws  &&  win `notElem` seen)
-    --     viewrect = screenRect $ W.screenDetail scr
-    --   do
-    --      (rs, ml') <-
-    --       runLayout (scr & W._stack .~ tiled) viewrect
-    --       `catchX`
-    --       runLayout (scr & W._stack .~ tiled & W._layout .~ Layout Full) viewrect
-    --      updateLayout (scr ^. W._tag) ml'
-    --      let
-    --       flt = [(fw, scaleRationalRect viewrect r)
-    --             | fw <- W.integrate' . W.stack $ wsp
-    --             , Just r <- [M.lookup fw (W.floating ws)]]
-    --       vs = flt <> rs
-
-    --      d <- asks display
-    --      io $ restackWindows d (fmap fst vs)
-    --      -- return the visible windows for this workspace:
-    --      pure vs
-
     -- for each workspace, layout the currently visible workspaces
     let allscreens     = W.screens ws
         summed_visible :: [S.Set Window]
         -- What is this? The first element is []. The second is all the windows in the current screen. The second is all the windows in the current screen and all the windows in the next screen. Etc. Why? It tells you what windows you've already seen, in case they're visible in multiple workspaces. Essentially you're traversing allscreens with state, except you figured out what the state would be in a previous pass.
         summed_visible = scanl (<>) S.empty $ fmap (S.fromList . W.integrate' . W.stack . W.workspace) allscreens
-    rects <- fmap concat $ for (zip allscreens summed_visible) $ \ (w, seen) -> do
+    rects <- fmap concat $ for (zip allscreens summed_visible) $ \ (scr, seen) -> do
         let
-          wsp   = W.workspace w
-          n     = W.tag wsp
-          tiled = W.stack wsp
-                    >>= W.filter (\ win -> win `M.notMember` W.floating ws && win `notElem` seen)
-          viewrect = screenRect $ W.screenDetail w
+          tiledWorkspace = scr ^. W._workspace & W._stack %~ (>>= W.filter (\ win -> win `M.notMember` W.floating ws && win `notElem` seen))
+          viewrect = screenRect $ W.screenDetail scr
 
         -- just the tiled windows:
         -- now tile the windows on this workspace, modified by the gap
         (rs, ml') <-
-           runLayout (wsp & W._stack .~ tiled) viewrect
+           runLayout tiledWorkspace viewrect
            `catchX`
-           runLayout (wsp & W._stack .~ tiled & W._layout .~ Layout Full) viewrect
+           runLayout (tiledWorkspace & W._layout .~ Layout Full) viewrect
 
-        updateLayout n ml'
+        updateLayout (scr ^. W._tag) ml'
 
         let
           flt = [(fw, scaleRationalRect viewrect r)
-                | fw <- W.integrate' . W.stack $ wsp
+                | fw <- scr ^. W._stack . to W.integrate'
                 , Just r <- [M.lookup fw (W.floating ws)]]
           vs = flt <> rs
 
