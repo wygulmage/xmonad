@@ -42,7 +42,6 @@ import Data.Function ((&))
 import Data.Functor ((<&>))
 
 
-
 -- ** Modifying
 
 type ASetter c d a b = (a -> Identity b) -> c -> Identity d
@@ -205,3 +204,6 @@ instance (Applicative m)=> Monoid (Traversed a m) where
     mempty = Traversed (pure (error "Traversed: value used"))
     {-# INLINE mempty #-}
     mappend = (<>)
+
+-- ** Notes
+-- (Control.Lens.<>~) is ommitted because it's not completely obvious that it's @o %~ (<> x)@ rather than @o %~ (x <>)@, and the second is sometimes what you want. Better to be explicit.
