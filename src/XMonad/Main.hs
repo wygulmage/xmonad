@@ -20,8 +20,8 @@ import qualified Control.Exception as E
 import Data.Bits
 import Data.List ((\\))
 import Data.Function
-import Data.Foldable (for_, traverse_, foldl')
-import Data.Traversable (for)
+import Data.Foldable (for_, sequenceA_, traverse_, foldl')
+import Data.Traversable (for, sequenceA)
 import qualified Data.Map as M
 import qualified Data.Set as S
 import Control.Monad.Reader
@@ -176,7 +176,6 @@ launch initxmc drs = do
     -- ignore SIGPIPE and SIGCHLD
     installSignalHandlers
     -- First, wrap the layout in an existential, to keep things pretty:
-    -- let xmc = initxmc { layoutHook = Layout $ layoutHook initxmc }
     let xmc = initxmc & _layoutHook %~ Layout
     dpy   <- openDisplay ""
     let dflt = defaultScreen dpy
@@ -308,7 +307,7 @@ handle KeyEvent{ ev_event_type = t, ev_state = m, ev_keycode = code }
         s  <- io $ keycodeToKeysym dpy code 0
         mClean <- cleanMask m
         ks <- asks keyActions
-        userCodeDef () $ whenJust (M.lookup (mClean, s) ks) id
+        userCodeDef () $ sequenceA_ (M.lookup (mClean, s) ks)
 
 -- manage a new window
 handle MapRequestEvent{ ev_window = w } = do
@@ -462,7 +461,7 @@ setNumlockMask :: X ()
 setNumlockMask = do
     dpy <- asks display
     ms <- io $ getModifierMapping dpy
-    xs <- sequence [ io $
+    xs <- sequenceA [ io $
                          (\ ks -> if ks == xK_Num_Lock
                             then setBit 0 (fromIntegral m)
                             else 0 :: KeyMask)
