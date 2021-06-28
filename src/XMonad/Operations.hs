@@ -184,15 +184,15 @@ windows f = do
 
     -- for each workspace, layout the currently visible workspaces
     let allscreens     = W.screens ws
-        summed_visible :: [[Window]]
+        summed_visible :: [S.Set Window]
         -- What is this? The first element is []. The second is all the windows in the current screen. The second is all the windows in the current screen and all the windows in the next screen. Etc. Why? It tells you what windows you've already seen, in case they're visible in multiple workspaces. Essentially you're traversing allscreens with state, except you figured out what the state would be in a previous pass.
-        summed_visible = scanl (<>) [] $ fmap (W.integrate' . W.stack . W.workspace) allscreens
-    rects <- fmap concat $ for (zip allscreens summed_visible) $ \ (w, vis) -> do
+        summed_visible = scanl (<>) S.empty $ fmap (S.fromList . W.integrate' . W.stack . W.workspace) allscreens
+    rects <- fmap concat $ for (zip allscreens summed_visible) $ \ (w, seen) -> do
         let
           wsp   = W.workspace w
           n     = W.tag wsp
           tiled = W.stack wsp
-                    >>= W.filter (\ win -> win `M.notMember` W.floating ws && win `notElem` vis)
+                    >>= W.filter (\ win -> win `M.notMember` W.floating ws && win `notElem` seen)
           viewrect = screenRect $ W.screenDetail w
 
         -- just the tiled windows:
@@ -341,10 +341,11 @@ refresh = do
     ws <- gets windowset
 
     -- for each workspace, layout the currently visible workspaces
-    let allscreens     = W.screens ws
-        summed_visible :: [[Window]]
+    let
+      allscreens     = W.screens ws
+      summed_visible :: [S.Set Window]
         -- What is this? The first element is []. The second is all the windows in the current screen. The second is all the windows in the current screen and all the windows in the next screen. Etc. Why? It tells you what windows you've already seen, in case they're visible in multiple workspaces. Essentially you're traversing allscreens with state, except you figured out what the state would be in a previous pass.
-        summed_visible = scanl (<>) [] $ fmap (W.integrate' . W.stack . W.workspace) allscreens
+      summed_visible = scanl (<>) S.empty $ fmap (S.fromList . W.integrate' . W.stack . W.workspace) allscreens
     rects <- fmap concat $ for (zip allscreens summed_visible) $ \ (scr, vis) -> do
         let
           wsp   = W.workspace scr
