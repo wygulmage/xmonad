@@ -202,7 +202,7 @@ _current ::
     (Screen i l a sid sd -> m (Screen i l a sid sd)) ->
     StackSet i l a sid sd -> m (StackSet i l a sid sd)
 {- ^
-@_current@ is a 'Lens' from a 'StackSet' to its 'current' 'Screen'.
+@_current@ is a @Lens@ from a 'StackSet' to its 'current' 'Screen'.
 -}
 _current f stackSet =
     fmap (\ cur -> stackSet{ current = cur }) (f (current stackSet))
@@ -232,7 +232,7 @@ _floating ::
     (M.Map a RationalRect -> m (M.Map a RationalRect)) ->
     StackSet i l a sid sd -> m (StackSet i l a sid sd)
 {- ^
-@_floating@ is a Lens to the 'M.Map' of 'floating' windows.
+@_floating@ is a @Lens@ to the 'M.Map' of 'floating' windows.
 -}
 _floating f stackSet =
     fmap (\ flo -> stackSet{ floating = flo }) (f (floating stackSet))
@@ -252,7 +252,7 @@ _workspaces ::
     (Workspace i l a -> m (Workspace i' l' a)) ->
     StackSet i l a sid sd -> m (StackSet i' l' a sid sd)
 {- ^
-@_workspaces@ is a @Traversal' from a 'StackSet' to all of the 'Workspace's in that 'StackSet'.
+@_workspaces@ is a @Traversal@ from a 'StackSet' to all of the 'Workspace's in that 'StackSet'.
 -}
 _workspaces f stackSet = liftA3
     (\ current' visible' hidden' ->
@@ -326,7 +326,7 @@ _workspace ::
     (Workspace i l a -> m (Workspace i' l' a')) ->
     Screen i l a sid sd -> m (Screen i' l' a' sid sd)
 {- ^
-@_workspace@ is a 'Lens' from a 'Screen' to its 'Workspace'.
+@_workspace@ is a @Lens@ from a 'Screen' to its 'Workspace'.
 -}
 _workspace f scr =
     fmap
@@ -370,9 +370,8 @@ data Workspace i l a = Workspace  { tag :: !i, layout :: l, stack :: Maybe (Stac
 instance HasLayout (Workspace i l w) (Workspace i l' w) l l' where
   _layout f wrk = f (layout wrk) <&> \ layout' -> wrk{ layout = layout' }
 
+-- | ^ @HasLayout@ currently has two instances: 'Workspace' and 'Screen'. The 'Screen' 'layout' is the @screen@'s @Workspace@ 'layout'.
 class HasLayout a a' l l' | a -> l, a' -> l', a l' -> a', a' l -> a where
-{- ^ @HasLayout@ currently has two instances: 'Workspace' and 'Screen'. The 'Screen' 'layout' is the @screen@'s @Workspace@ 'layout'.
--}
   _layout :: (Functor m)=> (l -> m l') -> a -> m a'
   {- ^ @_layout@ is a @Lens@ to a 'layout'.
   -}
@@ -398,9 +397,8 @@ _inStack = _stack . traverse . traverse
 instance HasTag (Workspace i l w) (Workspace i' l w) i i' where
   _tag f wrk = f (tag wrk) <&> \ tag' -> wrk{ tag = tag' }
 
+-- |   @HasTag@ currently has two instances: 'Workspace' and 'Screen'. The 'Screen' 'tag' is the @screen@'s @Workspace@'s 'tag'.
 class HasTag a a' i i' | a -> i, a' -> i', a i' -> a', a' i -> a where
-{- ^   @HasTag@ currently has two instances: 'Workspace' and 'Screen'. The 'Screen' 'tag' is the @screen@'s @Workspace@'s 'tag'.
--}
   _tag :: (Functor m)=> (i -> m i') -> a -> m a'
   {- ^ @_tag@ is a @Lens@ to a 'Workspace' 'tag'.
   -}
