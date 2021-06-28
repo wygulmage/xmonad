@@ -186,6 +186,30 @@ windows f = do
         ((`elem` gottenHiddenTags) . W.tag)
         Hide
 
+    -- ws & W._screens . traverse %%~ \ scr -> do
+    --   seen <- get
+    --   put $ seen <> (scr ^. W._inStack . to S.singleton)
+    --   let
+    --     tiled = scr ^. W._stack >>=
+    --         W.filter (\ win -> win `M.notMember` W.floating ws  &&  win `notElem` seen)
+    --     viewrect = screenRect $ W.screenDetail scr
+    --   do
+    --      (rs, ml') <-
+    --       runLayout (scr & W._stack .~ tiled) viewrect
+    --       `catchX`
+    --       runLayout (scr & W._stack .~ tiled & W._layout .~ Layout Full) viewrect
+    --      updateLayout (scr ^. W._tag) ml'
+    --      let
+    --       flt = [(fw, scaleRationalRect viewrect r)
+    --             | fw <- W.integrate' . W.stack $ wsp
+    --             , Just r <- [M.lookup fw (W.floating ws)]]
+    --       vs = flt <> rs
+
+    --      d <- asks display
+    --      io $ restackWindows d (fmap fst vs)
+    --      -- return the visible windows for this workspace:
+    --      pure vs
+
     -- for each workspace, layout the currently visible workspaces
     let allscreens     = W.screens ws
         summed_visible :: [S.Set Window]
@@ -219,7 +243,7 @@ windows f = do
         -- return the visible windows for this workspace:
         pure vs
 
-    for_ rects $ uncurry tileWindow
+    for_ rects $ uncurry tileWindow -- Do all the windows have to be tiled at once here, or can they be tiled by screen in the loop above?
 
     ws & W._currentFocus `traverseOf_` \ w -> do
         fbs <- asks $ focusedBorderColor . config
@@ -227,7 +251,7 @@ windows f = do
         setWindowBorderWithFallback' w fbs fbc
 
     let visible = fmap fst rects
-    for_ visible reveal
+    for_ visible reveal -- Do we have to do this here, or can we do it in the loop above?
     setTopFocus
 
     -- hide every window that was potentially visible before, but is not
@@ -377,12 +401,12 @@ refresh = do
         -- return the visible windows for this workspace:
         pure vs
 
-    for_ rects $ uncurry tileWindow
-
-    fbc <- asks focusedBorder
     ws & W._currentFocus `traverseOf_` \ w -> do
+        fbc <- asks focusedBorder
         fbs <- asks $ focusedBorderColor . config
         setWindowBorderWithFallback' w fbs fbc
+
+    for_ rects $ uncurry tileWindow
 
     let visible = fmap fst rects
     for_ visible reveal
