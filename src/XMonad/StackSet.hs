@@ -643,7 +643,7 @@ ensureTags l tags stackSet =
     ensure (newTag : newTags') (oldTag : oldTags') stackSet' =
         ensure newTags' oldTags' (stackSet' & _iworkspace oldTag . _tag .~ newTag) -- Replace an old tag with a new tag and continue.
     ensure newTags' _ stackSet' =
-        stackSet' & _hidden %~ (fmap (\ i -> Workspace{ layout = l, stack = Nothing, tag = i }) newTags' <>) -- Add any remaining new tags as empty workspaces and you're done.
+        stackSet' & _hidden %~ (fmap (\ i -> Workspace{ layout = l, stack = Nothing, tag = i }) newTags' <>) -- Add any remaining new tags as empty, hidden workspaces before the existing ones and you're done.
 
 disjoin :: (Eq a)=> [a] -> [a] -> ([a], [a])
 disjoin xs1 xs2 = (xs1 \\ xs2, xs2 \\ xs1)
