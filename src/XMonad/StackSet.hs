@@ -180,16 +180,16 @@ _screens ::
 {- ^
 @_screens@ is a @Lens@ from a 'StackSet' to a 'NonEmpty' list of 'Screen's. The head of the list is the 'current' 'Screen' and the tail is the 'visible' 'Screen's.
 
-Use @stackSet '&' _screens '.~' screens'@ to set the 'Screens' in @stackSet@ to @screens'@.
+Use @stackSet '&' _screens 'Control.Lens..~' screens'@ to set the 'Screens' in @stackSet@ to @screens'@.
 
-Use @stackSet '&' _screens . 'traverse' '%~' f@ to map a function @f@ over all the 'Screens' in @stackSet@.
+Use @stackSet '&' _screens . 'traverse' 'Control.Lens.%~' f@ to map a function @f@ over all the 'Screens' in @stackSet@.
 
-Use @stackSet & _screens . traverse '%%~' f@ to traverse an 'Applicative' function over the 'Screen's in @stackSet@.
+Use @stackSet & _screens . traverse 'Control.Lens.%%~' f@ to traverse an 'Applicative' function over the 'Screen's in @stackSet@.
 
 @
-(_screens '.~') :: 'NonEmpty' (Screen i l a sid' sd') -> StackSet i l a sid sd -> StackSet i l a sid' sd'
-(_screens . traverse '%~') :: (Screen i l a sid sd -> Screen i l a sid' sd') -> StackSet i l a sid sd -> StackSet i l a sid' sd'
-(_screens . traverse '%%~') :: (Applicative m)=> (Screen i l a sid sd -> m (Screen i l a sid' sd')) -> StackSet i l a sid sd -> StackSet i l a sid' sd'
+(_screens 'Control.Lens..~') :: 'NonEmpty' (Screen i l a sid' sd') -> StackSet i l a sid sd -> StackSet i l a sid' sd'
+(_screens . traverse 'Control.Lens.%~') :: (Screen i l a sid sd -> Screen i l a sid' sd') -> StackSet i l a sid sd -> StackSet i l a sid' sd'
+(_screens . traverse 'Control.Lens.%%~') :: (Applicative m)=> (Screen i l a sid sd -> m (Screen i l a sid' sd')) -> StackSet i l a sid sd -> StackSet i l a sid' sd'
 @
 -}
 _screens f stackSet =
