@@ -41,7 +41,7 @@ module XMonad.Operations (
     initColor, pointScreen, screenWorkspace,
     setLayout, updateLayout,
 -- * Deprecated
-    modifyWindowSet,
+    modifyWindowSet, -- use (_windowset %=)
     ) where
 
 import XMonad.Core
@@ -162,9 +162,13 @@ windows f = do
         ws :: WindowSet
         ws = f old
 
+        windowsSet' :: S.Set Window
+        -- Windows that are in Workspaces now.
+        windowsSet' = ws ^. W._workspaces . stackToSet
+
         newWindowsSet :: S.Set Window
         -- Windows that are in Workspaces now but were not before.
-        newWindowsSet = (ws ^. W._workspaces . stackToSet) S.\\ oldWindowsSet
+        newWindowsSet = windowsSet' S.\\ oldWindowsSet
 
     for_ newWindowsSet setInitialProperties
 
@@ -173,7 +177,6 @@ windows f = do
         nbc <- asks $ normalBorder
         setWindowBorderWithFallback' otherw nbs nbc
 
-    _windowset .= ws
 
     -- I moved this up even farther in the action order.
     ws & W._currentFocus `traverseOf_` \ w -> do
@@ -181,22 +184,25 @@ windows f = do
         fbc <- asks $ focusedBorder
         setWindowBorderWithFallback' w fbs fbc
 
+    _windowset .= ws -- This has to come after any actions that query or modify the old WindowSet, and before any actions that query or modify the new WindowSet. But as 'windows' is currently defined, it almost exclusively acts on copies of the WindowSet rather than the state's WindowSet. The 'filterMessageWithNoRefresh' below is probably the first thing that uses the state.
+
     -- notify non visibility
     let
-        tags_oldvisible, tags_newhidden, gottenHiddenTags :: S.Set WorkspaceId
+        tags_oldvisible, tags_newhidden, newlyHiddenTags :: S.Set WorkspaceId
         tags_oldvisible = old ^. W._screens . traverse . W._tag . to S.singleton
         tags_newhidden = ws ^. W._hidden . traverse . W._tag . to S.singleton
-        gottenHiddenTags = S.intersection tags_oldvisible tags_newhidden
+        newlyHiddenTags = S.intersection tags_oldvisible tags_newhidden
 
     filterMessageWithNoRefresh
-        ((`elem` gottenHiddenTags) . W.tag)
+        ((`elem` newlyHiddenTags) . W.tag)
         Hide
 
     -- for each workspace, layout the currently visible workspaces
-    let allscreens     = W.screens ws
-        summed_visible :: [S.Set Window]
-        -- What is this? The first element is []. The second is all the windows in the current screen. The second is all the windows in the current screen and all the windows in the next screen. Etc. Why? It tells you what windows you've already seen, in case they're visible in multiple workspaces. Essentially you're traversing allscreens with state, except you figured out what the state would be in a previous pass.
-        summed_visible = scanl (<>) S.empty $ fmap (S.fromList . W.integrate' . W.stack . W.workspace) allscreens
+    let
+      allscreens     = W.screens ws
+      summed_visible :: [S.Set Window]
+      -- What is this? The first element is []. The second is all the windows in the current screen. The second is all the windows in the current screen and all the windows in the next screen. Etc. Why? It tells you what windows you've already seen, in case they're visible in multiple workspaces. Essentially you're traversing allscreens with state, except you figured out what the state would be in a previous pass.
+      summed_visible = scanl (<>) S.empty $ fmap (S.fromList . W.integrate' . W.stack . W.workspace) allscreens
     rects <- fmap concat $ for (zip allscreens summed_visible) $ \ (scr, seen) -> do
         let
           tiledWorkspace = scr ^. W._workspace & W._stack %~ (>>= W.filter (\ win -> win `M.notMember` W.floating ws && win `notElem` seen))
@@ -222,11 +228,7 @@ windows f = do
         -- return the visible windows for this workspace:
         pure vs
 
-    -- for_ rects $ uncurry tileWindow -- Do all the windows have to be tiled at once here, or can they be tiled by screen in the loop above?
-
-    -- let visible = fmap fst rects
-    -- for_ visible reveal -- Do we have to do this here, or can we do it in the loop above?
-
+    -- Can we move this loop into the loop above?
     for_ rects $ \ (vis, rect) ->
         tileWindow vis rect *> reveal vis
 
@@ -239,7 +241,7 @@ windows f = do
     -- all windows that are no longer in the windowset are marked as
     -- withdrawn, it is important to do this after the above, otherwise 'hide'
     -- will overwrite withdrawnState with iconicState
-    traverse_ (`setWMState` withdrawnState) (oldWindowsSet S.\\ newWindowsSet)
+    traverse_ (`setWMState` withdrawnState) (oldWindowsSet S.\\ windowsSet')
 
     whenX (asks $ not . mouseFocused) $ clearEvents enterWindowMask
     asks (logHook . config) >>= userCodeDef ()
@@ -257,7 +259,7 @@ refresh = windows id
 
 -- | Modify the @WindowSet@ in state with no special handling.
 modifyWindowSet :: (MonadState XState m)=> (WindowSet -> WindowSet) -> m ()
-modifyWindowSet f = _windowset %= f
+modifyWindowSet = (_windowset %=)
 
 -- | Perform an @X@ action and check its return value against a predicate p.
 -- If p holds, unwind changes to the @WindowSet@ and replay them using @windows@.
