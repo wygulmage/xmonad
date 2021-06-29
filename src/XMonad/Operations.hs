@@ -224,7 +224,7 @@ windows f = do
 
     -- for_ rects $ uncurry tileWindow -- Do all the windows have to be tiled at once here, or can they be tiled by screen in the loop above?
 
-    let visible = fmap fst rects
+    -- let visible = fmap fst rects
     -- for_ visible reveal -- Do we have to do this here, or can we do it in the loop above?
 
     for_ rects $ \ (vis, rect) ->
@@ -234,7 +234,7 @@ windows f = do
 
     -- hide every window that was potentially visible before, but is not
     -- given a position by a layout now.
-    traverse_ hide ((oldVisibleSet <> newWindowsSet) S.\\ S.fromList visible)
+    traverse_ hide ((oldVisibleSet <> newWindowsSet) S.\\ foldMap (S.singleton . fst) rects)
 
     -- all windows that are no longer in the windowset are marked as
     -- withdrawn, it is important to do this after the above, otherwise 'hide'
@@ -417,7 +417,10 @@ clearEvents mask = asks display >>= \d -> io $ do
 tileWindow :: Window -> Rectangle -> X ()
 tileWindow w r = withWindowAttributes' w $ \wa -> do
     -- give all windows at least 1x1 pixels
-    let bw = fromIntegral $ wa_border_width wa
+    let
+        bw :: Dimension
+        bw = fromIntegral $ wa_border_width wa
+        least :: Dimension -> Dimension
         least x
           | x <= bw*2 = 1
           | otherwise = x - bw*2
@@ -559,7 +562,7 @@ setFocusX w = do
                   ev_time ev
                 else
                   currentTime
-              timedEvents = [ keyPress, keyRelease, buttonPress, buttonRelease, enterNotify, leaveNotify, selectionRequest ]
+              timedEvents = S.fromList [ keyPress, keyRelease, buttonPress, buttonRelease, enterNotify, leaveNotify, selectionRequest ]
 
 ------------------------------------------------------------------------
 -- Message handling
@@ -579,7 +582,7 @@ broadcastMessage = filterMessageWithNoRefresh (const True)
 
 updateLayoutsBy ::
     (MonadState XState m)=>
-    (W.Workspace WorkspaceId (Layout Window) Window -> m (Maybe (Layout Window))) ->
+    (WindowSpace -> m (Maybe (Layout Window))) ->
     m ()
 updateLayoutsBy f = runOnWorkspaces $ \ wrk ->
     maybe wrk (\ l' -> wrk & W._layout .~ l') <$> f wrk
@@ -597,7 +600,8 @@ filterMessageWithNoRefresh p message = updateLayoutsBy $ \ windowSpace ->
       else pure Nothing
 
 -- | Update the layout field of a workspace
-updateLayout :: WorkspaceId -> Maybe (Layout Window) -> X ()
+updateLayout ::
+    (MonadState XState m)=> WorkspaceId -> Maybe (Layout Window) -> m ()
 updateLayout i = traverse_ (_windowset . W._iworkspace i . W._layout .=)
 
 -- | Set the layout of the currently viewed workspace
@@ -612,26 +616,27 @@ setLayout l = do
 -- Utilities
 
 -- | Return workspace visible on screen @sc@, or 'Nothing'.
-screenWorkspace :: ScreenId -> X (Maybe WorkspaceId)
+screenWorkspace :: (MonadState XState m)=> ScreenId -> m (Maybe WorkspaceId)
 screenWorkspace sc = gets $ W.lookupWorkspace sc . windowset
 
 -- | Apply an 'X' operation to the currently focused window, if there is one.
-withFocused :: (Window -> X ()) -> X ()
+withFocused :: (MonadState XState m)=> (Window -> m ()) -> m ()
 withFocused f = traverse_ f =<< gets (W.peek . windowset)
 
 -- | Is the window is under management by xmonad?
-isClient :: Window -> X Bool
+-- isClient :: Window -> X Bool
+isClient :: (MonadState XState m)=> Window -> m Bool
 isClient w = gets $ W.member w . windowset
 
 -- | Combinations of extra modifier masks we need to grab keys\/buttons for.
 -- (numlock and capslock)
-extraModifiers :: X [KeyMask]
+extraModifiers :: (MonadState XState m)=> m [KeyMask]
 extraModifiers = do
     nlm <- gets numberlockMask
     pure [0, nlm, lockMask, nlm .|. lockMask ]
 
 -- | Strip numlock\/capslock from a mask.
-cleanMask :: KeyMask -> X KeyMask
+cleanMask :: (MonadState XState m)=> KeyMask -> m KeyMask
 cleanMask km = do
     nlm <- gets numberlockMask
     pure (complement (nlm .|. lockMask) .&. km)
@@ -762,8 +767,10 @@ floatLocation w =
           pure (W.screen sc, rr)
 
 -- | Given a point, determine the screen (if any) that contains it.
-pointScreen :: Position -> Position
-            -> X (Maybe (W.Screen WorkspaceId (Layout Window) Window ScreenId ScreenDetail))
+pointScreen ::
+    (MonadState XState m)=>
+    Position -> Position ->
+    m (Maybe (W.Screen WorkspaceId (Layout Window) Window ScreenId ScreenDetail))
 pointScreen x y = gets $ find p . W.screens . windowset
   where p = pointWithin x y . screenRect . W.screenDetail
 
