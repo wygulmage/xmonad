@@ -170,6 +170,12 @@ windows f = do
         -- Windows that are in Workspaces now but were not before.
         newWindowsSet = windowsSet' S.\\ oldWindowsSet
 
+        tags_oldvisible, tags_newhidden, newlyHiddenTags :: S.Set WorkspaceId
+        tags_oldvisible = old ^. W._screens . traverse . W._tag . to S.singleton
+        tags_newhidden = ws ^. W._hidden . traverse . W._tag . to S.singleton
+        newlyHiddenTags = S.intersection tags_oldvisible tags_newhidden
+
+
     for_ newWindowsSet setInitialProperties
 
     old & W._currentFocus `traverseOf_` \otherw -> do
@@ -187,12 +193,6 @@ windows f = do
     _windowset .= ws -- This has to come after any actions that query or modify the old WindowSet, and before any actions that query or modify the new WindowSet. But as 'windows' is currently defined, it almost exclusively acts on copies of the WindowSet rather than the state's WindowSet. The 'filterMessageWithNoRefresh' below is probably the first thing that uses the state.
 
     -- notify non visibility
-    let
-        tags_oldvisible, tags_newhidden, newlyHiddenTags :: S.Set WorkspaceId
-        tags_oldvisible = old ^. W._screens . traverse . W._tag . to S.singleton
-        tags_newhidden = ws ^. W._hidden . traverse . W._tag . to S.singleton
-        newlyHiddenTags = S.intersection tags_oldvisible tags_newhidden
-
     filterMessageWithNoRefresh
         ((`elem` newlyHiddenTags) . W.tag)
         Hide
@@ -215,7 +215,7 @@ windows f = do
            `catchX`
            runLayout (tiledWorkspace & W._layout .~ Layout Full) viewrect
 
-        updateLayout (scr ^. W._tag) ml'
+        updateLayout (scr ^. W._tag) ml' -- If this loop were map over the screens in state, we could set this directly.
 
         let
           flt = [(fw, scaleRationalRect viewrect r)
@@ -223,14 +223,17 @@ windows f = do
                 , Just r <- [M.lookup fw (W.floating ws)]]
           vs = flt <> rs
 
-        d <- asks display
-        io $ restackWindows d (fmap fst vs)
+        asks display >>= \ d -> io $ restackWindows d (fmap fst vs)
+
+        for_ vs $ \ (vis, rect) ->
+            tileWindow vis rect *> reveal vis
+
         -- return the visible windows for this workspace:
         pure vs
 
-    -- Can we move this loop into the loop above?
-    for_ rects $ \ (vis, rect) ->
-        tileWindow vis rect *> reveal vis
+    -- -- Can we move this loop into the loop above?
+    -- for_ rects $ \ (vis, rect) ->
+    --     tileWindow vis rect *> reveal vis
 
     setTopFocus
 
