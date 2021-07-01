@@ -50,7 +50,7 @@ module XMonad.Core (
   ) where
 
 import XMonad.StackSet hiding (modify)
-import XMonad.Internal.Optics ((%%~), (.=), use)
+import XMonad.Internal.Optics
 
 import Prelude hiding (fail)
 import Control.Exception (fromException, try, throw, finally, SomeException(..))
@@ -763,9 +763,10 @@ xfork x = io . forkProcess . finally nullStdin $ do
 -- each workspace with the output of that function being the modified workspace.
 runOnWorkspaces ::
    (MonadState XState m)=> (WindowSpace -> m WindowSpace) -> m ()
-runOnWorkspaces job = do
-   ws' <- _workspaces %%~ job =<< use _windowset
-   _windowset .= ws'
+runOnWorkspaces job = _windowset .=<< _workspaces %%~ job =<< use _windowset
+  where
+    (.=<<) = (<~)
+    infixr 1 .=<<
    -- WARNING: This has changed the order of runOnWorkspaces. Carefully check whether anything depended on acting on hidden workspaces first!
 {-# SPECIALIZE runOnWorkspaces :: (WindowSpace -> X WindowSpace) -> X () #-}
 
