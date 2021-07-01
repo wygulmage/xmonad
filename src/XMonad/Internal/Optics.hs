@@ -112,6 +112,7 @@ Get 'Just' the first element traveersed by a 'Getter', or 'Nothing'.
 -}
 x ^? o = x ^. o . to (First #. Just) & getFirst
 -- x ^? o = x ^.. o & listToMaybe
+-- x ^? o = foldMapOf o (First #. Just) x & getFirst
 infixl 8 ^?
 {-# INLINE (^?) #-}
 
@@ -120,14 +121,25 @@ infixl 8 ^?
 @x ^. o@ builds the list of all elements accessed by @o@.
 -}
 x ^.. o = x ^. o . to singleDList & runDList
+-- x ^.. o = foldMapOf o singleDList x & runDList
 infixl 8 ^..
 {-# INLINE (^..) #-}
 
-traverseOf_ :: (Functor m)=> Getting (Traversed r m) c a -> (a -> m r) -> c -> m ()
+traverseOf_ ::
+    (Functor m)=>
+    Getting (Traversed r m) c a -> (a -> m r) -> c -> m ()
+{- ^ This is the optic equivalent of 'traverse_'. It only needs a 'Getting' (rather than a 'Traversal') because, like 'traverse_', it executes the effects of its traversal without (re)building a structure.
+-}
 traverseOf_ o f = (() <$) . getTraversed #. foldMapOf o (Traversed #. f)
+-- traverseOf_ o f = (() <$) . getTraversed #. getConst #. o (Const #. Traversed #. f)
+{-# INLINE traverseOf_ #-}
 
 foldMapOf :: Getting r c a -> (a -> r) -> c -> r
+{- ^ Apply a function to each item got by a 'Getting' before monadically smooshing them together.
+Currently used only to define 'traverseOf_'. -}
 foldMapOf o f = getConst #. o (Const #. f)
+-- The subtlety here is that f is applied before the value is wrapped in Const. With 'to', the function is applied after.
+{-# INLINE foldMapOf #-}
 
 type Getter c a = forall m. (Contravariant m)=> (a -> m a) -> c -> m c
 {- ^ @Getter@ characterizes optics that can only be used to get a single value out of a structure.
@@ -144,7 +156,7 @@ to f g = contramap f . g . f
 -- ** Reading
 
 view :: (Reader.MonadReader r m)=> Getting a r a -> m a
-view l = Reader.asks (^. l)
+view o = Reader.asks (^. o)
 {-# INLINE view #-}
 
 -- ** Modifying State
@@ -153,28 +165,31 @@ infixr 4 %=
 (%=) :: (State.MonadState s m)=> ASetter s s a b -> (a -> b) -> m ()
 {- ^ Apply a function to part of the state.
 -}
-l %= f = State.modify $ l %~ f
+o %= f = State.modify $ o %~ f
 {-# INLINE (%=) #-}
 
 infixr 4 .=
 (.=) :: (State.MonadState s m)=> ASetter s s a b -> b -> m ()
 {- ^ Set part of the state to a new value.
 -}
-l .= x = State.modify $ l .~ x
+o .= x = State.modify $ o .~ x
 {-# INLINE (.=) #-}
 
 infixr 2 <~
 (<~) :: (State.MonadState s m)=> ASetter s s a b -> m b -> m ()
 {- ^ Think of @<~@ as @.=<<@. It sets part of the state to a monadic value.
+
+Might be more convienient to offer (.=<<) at a lower precidence, e.g. infixr 1 to match ('=<<'). This would allow @o .=<< f =<< mx@.
 -}
-l <~ mx = (l .=) =<< mx
+o <~ mx = (o .=) =<< mx
 {-# INLINE (<~) #-}
 
 
 -- ** Getting State
 
 use :: (State.MonadState s m)=> Getting a s a -> m a
-use l = State.gets (^. l)
+{- ^ Use 'State.get's part of the state focused on by a @Getting@. -}
+use o = State.gets (^. o)
 {-# INLINE use #-}
 
 
@@ -189,6 +204,7 @@ This can violate @Traversal@ laws when the action invalidates the predicate, so 
 filtered p f x
    | p x       = f x
    | otherwise = pure x
+
 
 --- Module-Internal Definitions (not exported) ---
 
@@ -217,7 +233,7 @@ instance (Applicative m)=> Semigroup (Traversed a m) where
 instance (Applicative m)=> Monoid (Traversed a m) where
     mempty = Traversed (pure (error "Traversed: value used"))
     {-# INLINE mempty #-}
-    mappend = (<>)
+
 
 -- ** Notes
 -- (Control.Lens.<>~) is ommitted because it's not completely obvious that it's @o %~ (<> x)@ rather than @o %~ (x <>)@, and the second is sometimes what you want. Better to be explicit.
