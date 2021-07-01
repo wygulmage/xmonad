@@ -298,8 +298,7 @@ _iscreen ::
 @(^? _iscreen screenID)@ gets the 'Screen' with 'screen' ID @screenID@, if it exists.
 @(_iscreen screenID %~)@ maps a function over the 'Screen' with 'screen' ID @screenID@ (if it exists).
 -}
-_iscreen sid f = _screens . traverse $
-    \ screen' -> if screen screen' == sid then f screen' else pure screen'
+_iscreen sid = _screens . traverse . filtered ((sid ==) . screen)
 
 _iworkspace ::
     (Eq i, Applicative m)=>
@@ -309,8 +308,7 @@ _iworkspace ::
 {- ^ /O/(/n/) Traverse a 'Workspace' specificed by 'tag'.
 @(^? _iworkspace tag')@ gets the 'Workspace' with 'tag' @tag'@, if it exists.
 -}
-_iworkspace tag' f = _workspaces $ \ workspace' ->
-    if tag workspace' == tag' then f workspace' else pure workspace'
+_iworkspace tag' = _workspaces . filtered ((tag' ==) . tag)
 
 
 -- | Visible workspaces, and their Xinerama screens.
