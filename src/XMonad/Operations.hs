@@ -55,6 +55,7 @@ import Data.Maybe
 import Data.Monoid          (Endo(..),Any(..))
 import Data.List            (nub, find)
 import qualified Data.List as List
+import Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Bits            ((.|.), (.&.), complement, testBit)
 import Data.Foldable        (for_, traverse_)
@@ -369,9 +370,8 @@ tileWindow w r = withWindowAttributes' w $ \wa -> do
         least x
           | x <= bw*2 = 1
           | otherwise = x - bw*2
-    d <- asks display
-    io $ moveResizeWindow d w (rect_x r) (rect_y r)
-                              (least $ rect_width r) (least $ rect_height r)
+    asks display >>= \ d -> io $ moveResizeWindow d w
+        (rect_x r) (rect_y r) (least $ rect_width r) (least $ rect_height r)
 
 -- ---------------------------------------------------------------------
 
@@ -415,8 +415,7 @@ rescreen = do
             (xs, ys) = splitAt (length xinesc) $ ws ^.. W._workspaces
             (a:as)   = zipWith3 W.Screen xs [0..] $ fmap SD xinesc
         in ws
-           & W._current .~ a
-           & W._visible .~ as
+           & W._screens .~ a :| as
            & W._hidden  .~ ys
 
 -- ---------------------------------------------------------------------
