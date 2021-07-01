@@ -23,6 +23,8 @@ module XMonad.Internal.Optics (
     (%=), (.=), (<~),
 -- Get State
     use,
+-- Traversals
+    filtered,
 -- Helpers
     (&), (<&>), -- re-exported
     ) where
@@ -175,6 +177,18 @@ use :: (State.MonadState s m)=> Getting a s a -> m a
 use l = State.gets (^. l)
 {-# INLINE use #-}
 
+
+-- ** Specific Traversals
+
+type Traversal c d a b = forall m. (Applicative m)=> (a -> m b) -> c -> m d
+
+filtered :: (a -> Bool) -> Traversal a a a a
+{- ^ @filtered@ traverses elements for which a predicate is 'True', and passes over (with 'pure') elements for which the predicate is 'False'.
+This can violate @Traversal@ laws when the action invalidates the predicate, so use with caution.
+-}
+filtered p f x
+   | p x       = f x
+   | otherwise = pure x
 
 --- Module-Internal Definitions (not exported) ---
 
