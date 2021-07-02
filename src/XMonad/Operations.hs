@@ -511,6 +511,8 @@ setFocusX w = do
 ------------------------------------------------------------------------
 -- Message handling
 
+-- NOTE: handleMessage is an X operation. This means it can do anything to X state. That said, it's a function from a layout to Maybe a layout, which means that it probably doesn't know anything about its own workspace. So the functions below that assume a workspace won't be affected when its layout handles a message are probably correct. It seems like, conceptually, handleMessage should be a ReaderT (XState, XConfig) IO action rather than an X action.
+
 -- | Throw a message to the current 'LayoutClass' possibly modifying how we
 -- layout the windows, in which case changes are handled through a refresh.
 sendMessage :: Message a => a -> X ()
@@ -518,18 +520,21 @@ sendMessage a = windowBracket_ $ do
     l <- use $ _windowset . W._current . W._layout
     ml' <- userCodeDef Nothing $ handleMessage l (SomeMessage a)
     traverse_ (_windowset . W._current . W._layout .=) ml'
-    pure (Any $ isJust ml')
+    pure (Any $ isJust ml') -- Could do a refresh in the traverse_ instead of using windowBracket_?
 
 -- | Send a message to all layouts, without refreshing.
 broadcastMessage :: Message a => a -> X ()
 broadcastMessage = filterMessageWithNoRefresh (const True)
 
-updateLayoutsBy ::
-    (MonadState XState m)=>
-    (WindowSpace -> m (Maybe (Layout Window))) ->
-    m ()
-updateLayoutsBy f = runOnWorkspaces $ \ wrk ->
-    maybe wrk (\ l' -> wrk & W._layout .~ l') <$> f wrk
+messageLayout :: (LayoutClass l w, Message a)=> a -> l w -> X (l w)
+{- ^ Handle a message to a layout and return the result if it's 'Just' a new layout. If the result is 'Nothing' or if there's an error, return the original layout.
+-}
+messageLayout message l =
+    userCodeDef l $ maybe l id <$> l `handleMessage` SomeMessage message
+
+-- This definition only modifies the workspace when there's a new layout.
+messageWorkspace message windowSpace =
+    userCodeDef windowSpace $ maybe windowSpace (\l -> windowSpace & W._layout .~ l) <$> (windowSpace ^. W._layout) `handleMessage` SomeMessage message
 
 -- | Send a message to a layout, without refreshing.
 sendMessageWithNoRefresh :: Message a => a -> WindowSpace -> X ()
@@ -538,15 +543,15 @@ sendMessageWithNoRefresh message windowSpace =
 
 -- | Send a message to the layouts of some workspaces, without refreshing.
 filterMessageWithNoRefresh :: Message a => (WindowSpace -> Bool) -> a -> X ()
-filterMessageWithNoRefresh p message = updateLayoutsBy $ \ windowSpace ->
-    if p windowSpace
-      then userCodeDef Nothing $ W.layout windowSpace `handleMessage` SomeMessage message
-      else pure Nothing
+filterMessageWithNoRefresh p message =
+    _windowset <~ (W._workspaces . filtered p . W._layout %%~ messageLayout message =<< use _windowset)
+    -- _windowset <~ (W._workspaces . filtered p %%~ messageWorkspace message =<< use _windowset)
 
 -- | Update the layout field of a workspace
 updateLayout ::
     (MonadState XState m)=> WorkspaceId -> Maybe (Layout Window) -> m ()
-updateLayout i = traverse_ (_windowset . W._iworkspace i . W._layout .=)
+updateLayout i =
+    traverse_ (_windowset . W._iworkspace i . W._layout .=)
 
 -- | Set the layout of the currently viewed workspace
 setLayout :: Layout Window -> X ()
