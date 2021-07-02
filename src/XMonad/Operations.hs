@@ -68,6 +68,7 @@ import qualified Data.Set as S
 import Control.Arrow (second)
 import Control.Monad.Reader
 import Control.Monad.State
+import Control.Monad.Writer
 import qualified Control.Exception as C
 
 import System.IO
@@ -283,6 +284,22 @@ windowBracket p action = do
 windowBracket_ :: X Any -> X ()
 windowBracket_ = void . windowBracket getAny
 
+refresh_ :: X a -> X a
+{- ^ Use the writer state of an 'X' action to decide whether to refresh.
+-}
+refresh_ act = censor (\_-> Any False) $ do
+    ((old, x), needsRefresh) <- act'
+    when (getAny needsRefresh) $ do
+        new <- gets windowset
+        _windowset .= old
+        windows $ \_-> new
+    pure x
+  where
+    act' = listen $ do
+        old <- gets windowset
+        x <- act
+        pure (old, x)
+
 -- | Produce the actual rectangle from a screen and a ratio on that screen.
 scaleRationalRect :: Rectangle -> W.RationalRect -> Rectangle
 scaleRationalRect (Rectangle sx sy sw sh) (W.RationalRect rx ry rw rh) =
@@ -409,14 +426,24 @@ cleanedScreenInfo = asks display >>= getCleanedScreenInfo
 -- update the state and refresh the screen, and reset the gap.
 rescreen :: X ()
 rescreen = do
-    xinesc <- cleanedScreenInfo
-    windows $ \ws ->
+    xinesc <- fmap (fmap SD) cleanedScreenInfo
+    currentsc <- gets (^.. _windowset . W._screens . traverse . W._screenDetail)
+    when (xinesc /= currentsc) $ windows $ \ ws ->
         let
-            (xs, ys) = splitAt (length xinesc) $ ws ^.. W._workspaces
-            (a:as)   = zipWith3 W.Screen xs [0..] $ fmap SD xinesc
+          (xs, ys) = splitAt (length xinesc) $ ws ^.. W._workspaces
+          (a : as) = zipWith3 W.Screen xs [0..] xinesc
         in ws
            & W._screens .~ a :| as
            & W._hidden  .~ ys
+
+    -- xinesc <- cleanedScreenInfo
+    -- windows $ \ws ->
+    --     let
+    --         (xs, ys) = splitAt (length xinesc) $ ws ^.. W._workspaces
+    --         (a:as)   = zipWith3 W.Screen xs [0..] $ fmap SD xinesc
+    --     in ws
+    --        & W._screens .~ a :| as
+    --        & W._hidden  .~ ys
 
 -- ---------------------------------------------------------------------
 
