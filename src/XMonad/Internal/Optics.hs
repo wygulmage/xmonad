@@ -24,7 +24,7 @@ module XMonad.Internal.Optics (
 -- Get State
     use,
 -- Traversals
-    filtered,
+    filtered, -- perhaps,
 -- Helpers
     (&), (<&>), -- re-exported
     ) where
@@ -200,11 +200,19 @@ type Traversal c d a b = forall m. (Applicative m)=> (a -> m b) -> c -> m d
 filtered :: (a -> Bool) -> Traversal a a a a
 {- ^ @filtered@ traverses elements for which a predicate is 'True', and passes over (with 'pure') elements for which the predicate is 'False'.
 This can violate @Traversal@ laws when the action invalidates the predicate, so use with caution.
+
+This should be a 'Control.Lens.Prism', but we don't have 'Data.Profunctor's.
 -}
 filtered p f x
    | p x       = f x
    | otherwise = pure x
 
+-- perhaps :: (a -> Maybe a) -> Traversal a a a a
+-- {- ^ Create a poor man's 'Control.Lens.Prism''.
+
+-- This either focuses on the 'Just' result or passing along the original value.
+-- -}
+-- perhaps g f x = maybe (pure x) f (g x)
 
 --- Module-Internal Definitions (not exported) ---
 
