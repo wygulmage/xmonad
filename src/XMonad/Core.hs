@@ -337,6 +337,8 @@ instance Monad X where
         XResult s' w' a <- act r s w
         unX (f a) r s' w'
     {-# INLINE (>>=) #-}
+    (>>) = (*>)
+    {-# INLINE (>>) #-}
 
 instance Applicative X where
     pure a = X $ \ _ s w -> pure (XResult s w a)
@@ -344,8 +346,12 @@ instance Applicative X where
     liftA2 f (X act1) (X act2) = X $ \ r s w -> do
         XResult s' w' a <- act1 r s w
         XResult s'' w'' b <- act2 r s' w'
-        pure (XResult s'' w'' (f a b))
+        pure $ XResult s'' w'' (f a b)
     {-# INLINE liftA2 #-}
+    X act1 *> X act2 = X $ \ r s w -> do
+        XResult s' w' _ <- act1 r s w
+        act2 r s' w'
+    {-# INLINE (*>) #-}
 
 instance Alternative X where
     empty = X $ \ _ _ _ -> empty
@@ -362,33 +368,33 @@ instance MonadIO X where
     {-# INLINE liftIO #-}
 
 instance MonadReader XConf X where
-    reader f = X $ \ r s w -> pure (XResult s w (f r))
+    reader f = X $ \ r s w -> pure $ XResult s w (f r)
     {-# INLINE reader #-}
-    ask = X $ \ r s w -> pure (XResult s w r)
+    ask = X $ \ r s w -> pure $ XResult s w r
     {-# INLINE ask #-}
     local f (X act) = X $ \ r s w -> act (f r) s w
     {-# INLINE local #-}
 
 instance MonadState XState X where
-    state f = X $ \ _ s w -> case f s of (a, s') -> pure (XResult s' w a)
+    state f = X $ \ _ s w -> case f s of (a, s') -> pure $ XResult s' w a
     {-# INLINE state #-}
-    get = X $ \ _ s w -> pure (XResult s w s)
+    get = X $ \ _ s w -> pure $ XResult s w s
     {-# INLINE get #-}
-    put s = X $ \ _ _ w -> pure (XResult s w ())
+    put s = X $ \ _ _ w -> pure $ XResult s w ()
     {-# INLINE put #-}
 
 instance MonadWriter Any X where
-    writer (a, w) = X $ \ _ s w' -> pure (XResult s (w <> w') a)
+    writer (a, w) = X $ \ _ s w' -> pure $ XResult s (w <> w') a
     {-# INLINE writer #-}
-    tell w = X $ \ _ s w' -> pure (XResult s (w <> w') ())
+    tell w = X $ \ _ s w' -> pure $ XResult s (w <> w') ()
     {-# INLINE tell #-}
     listen (X act) = X $ \ r s w -> do
         XResult s' w' a <- act r s w
-        pure (XResult s' w' (a, w'))
+        pure $ XResult s' w' (a, w')
     {-# INLINE listen #-}
     pass (X act) = X $ \ r s w -> do
         XResult s' w' (a, f) <- act r s w
-        pure (XResult s' (f w') a)
+        pure $ XResult s' (f w') a
     {-# INLINE pass #-}
 
 instance Semigroup a => Semigroup (X a) where
