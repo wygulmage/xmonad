@@ -390,7 +390,7 @@ class HasStack a a' w w' | a -> w, a' -> w', a w' -> a', a' w -> a where
 _inStack ::
     (HasStack a a' w w') =>
     (Applicative m)=> (w -> m w') -> a -> m a'
-_inStack = _stack . traverse . traverse
+_inStack = _stack . _Just . traverse
 
 instance HasTag (Workspace i l w) (Workspace i' l w) i i' where
   _tag f wrk = f (tag wrk) <&> \ tag' -> wrk{ tag = tag' }
@@ -535,7 +535,7 @@ modify d f = _current . _stack %~ maybe d f
 --  want to empty it.
 --
 modify' :: (Stack a -> Stack a) -> StackSet i l a s sd -> StackSet i l a s sd
-modify' f = _current . _stack . traverse %~ f
+modify' f = _current . _stack . _Just %~ f
 
 -- |
 -- /O(1)/. Extract the focused element of the current stack.
@@ -655,7 +655,7 @@ mapLayout f = _layouts %~ f
 
 -- | /O(n)/. Is a window in the 'StackSet'?
 member :: Eq a => a -> StackSet i l a s sd -> Bool
-member w = getAny . (^. _workspaces . _stack . traverse . to (Any . elem w))
+member w = getAny . (^. _workspaces . _stack . _Just . to (Any . elem w))
 
 -- | /O(1) on current window, O(n) in general/.
 -- Return 'Just' the workspace tag of the given window, or 'Nothing'

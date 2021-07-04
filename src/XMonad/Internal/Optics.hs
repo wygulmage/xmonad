@@ -25,6 +25,7 @@ module XMonad.Internal.Optics (
     use,
 -- Traversals
     filtered, -- perhaps,
+    _Just,
 -- Helpers
     (&), (<&>), -- re-exported
     ) where
@@ -213,6 +214,12 @@ filtered p f x
 -- This either focuses on the 'Just' result or passing along the original value.
 -- -}
 -- perhaps g f x = maybe (pure x) f (g x)
+
+_Just :: Traversal (Maybe a) (Maybe b) a b
+{- ^ @_Just@ should be a 'Control.Lens.Prism', but unfortunately we don't have 'Data.Profunctor's. So it's equivalent to 'traverse'.
+-}
+_Just = traverse
+
 
 --- Module-Internal Definitions (not exported) ---
 
