@@ -504,10 +504,9 @@ setFocusX w = do
     ws <- gets windowset
     dpy <- asks display
 
-    traverseOf_
+    ws & traverseOf_
         (W._screens . traverse . W._inStack)
-        (setButtonGrab True)
-        ws
+        (setButtonGrab True) -- Why?
 
     -- If we ungrab buttons on the root window, we lose our mouse bindings.
     whenX (not <$> isRoot w) $ setButtonGrab False w
@@ -518,13 +517,12 @@ setFocusX w = do
     wmtf <- atom_WM_TAKE_FOCUS
     currevt <- asks currentEvent
     let inputHintSet = wmh_flags hints `testBit` inputHintBit
-
+    io $ do
     -- FIXME: What is this test actually supposed to do? Should it be (wmh_input hints == inputHintSet)?
     -- when ((inputHintSet && wmh_input hints) || not inputHintSet) $
     when (wmh_input hints || not inputHintSet) $
-      io $ do setInputFocus dpy w revertToPointerRoot 0
-    when (wmtf `elem` protocols) $
-      io $ allocaXEvent $ \ev -> do
+        setInputFocus dpy w revertToPointerRoot 0
+    when (wmtf `elem` protocols) $ allocaXEvent $ \ev -> do
         setEventType ev clientMessage
         setClientMessageEvent ev w wmprot 32 wmtf $ maybe currentTime event_time currevt
         sendEvent dpy w False noEventMask ev
@@ -559,7 +557,7 @@ messageLayout :: (LayoutClass l w, Message a)=> a -> l w -> X (l w)
 {- ^ Handle a message to a layout and return the result if it's 'Just' a new layout. If the result is 'Nothing' or if there's an error, return the original layout.
 -}
 messageLayout message l =
-    userCodeDef l $ maybe l id <$> l `handleMessage` SomeMessage message
+    userCodeDef l $ fromMaybe l <$> l `handleMessage` SomeMessage message
 
 -- -- This definition only modifies the workspace when there's a new layout.
 -- messageWorkspace message windowSpace =
@@ -586,7 +584,7 @@ updateLayout i =
 setLayout :: Layout Window -> X ()
 setLayout l = do
     ss <- gets windowset
-    handleMessage (W.layout . W.workspace . W.current $ ss)
+    handleMessage (ss ^. W._current . W._layout)
         (SomeMessage ReleaseResources)
     windows $ const $ ss & W._current . W._layout .~ l
 
@@ -669,12 +667,12 @@ readStateFile xmc = do
           extState = M.fromList . fmap (second Left) $ sfExt sf
 
       pure XState { windowset       = winset
-                    , numberlockMask  = 0
-                    , mapped          = S.empty
-                    , waitingUnmap    = M.empty
-                    , dragging        = Nothing
-                    , extensibleState = extState
-                    }
+                  , numberlockMask  = 0
+                  , mapped          = S.empty
+                  , waitingUnmap    = M.empty
+                  , dragging        = Nothing
+                  , extensibleState = extState
+                  }
   where
     layout = Layout (layoutHook xmc)
     lreads = readsLayout layout
@@ -712,9 +710,8 @@ floatLocation w =
         fi :: CInt -> Position
         fi = fromIntegral
         go = do
-          d <- asks display
           ws <- gets windowset
-          wa <- io $ getWindowAttributes d w
+          wa <- asks display >>= \ d -> io $ getWindowAttributes d w
           let bw = wa_border_width wa
           point_sc <- pointScreen (fi $ wa_x wa) (fi $ wa_y wa)
           managed <- isClient w
