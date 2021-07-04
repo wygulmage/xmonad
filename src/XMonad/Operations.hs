@@ -543,15 +543,17 @@ setFocusX w = do
 -- | Throw a message to the current 'LayoutClass' possibly modifying how we
 -- layout the windows, in which case changes are handled through a refresh.
 sendMessage :: Message a => a -> X ()
-sendMessage a = windowBracket_ $ do
+sendMessage a = refresh_ $ do
     l <- use $ _windowset . W._current . W._layout
     ml' <- userCodeDef Nothing $ handleMessage l (SomeMessage a)
     traverse_ (_windowset . W._current . W._layout .=) ml'
-    pure (Any $ isJust ml') -- Could do a refresh in the traverse_ instead of using windowBracket_?
+    tell $ Any $ isJust ml'
 
 -- | Send a message to all layouts, without refreshing.
 broadcastMessage :: Message a => a -> X ()
-broadcastMessage = filterMessageWithNoRefresh (const True)
+-- broadcastMessage = filterMessageWithNoRefresh (const True)
+broadcastMessage message =
+    _windowset <~ (W._layouts %%~ messageLayout message =<< use _windowset)
 
 messageLayout :: (LayoutClass l w, Message a)=> a -> l w -> X (l w)
 {- ^ Handle a message to a layout and return the result if it's 'Just' a new layout. If the result is 'Nothing' or if there's an error, return the original layout.
@@ -559,9 +561,9 @@ messageLayout :: (LayoutClass l w, Message a)=> a -> l w -> X (l w)
 messageLayout message l =
     userCodeDef l $ maybe l id <$> l `handleMessage` SomeMessage message
 
--- This definition only modifies the workspace when there's a new layout.
-messageWorkspace message windowSpace =
-    userCodeDef windowSpace $ maybe windowSpace (\l -> windowSpace & W._layout .~ l) <$> (windowSpace ^. W._layout) `handleMessage` SomeMessage message
+-- -- This definition only modifies the workspace when there's a new layout.
+-- messageWorkspace message windowSpace =
+--     userCodeDef windowSpace $ maybe windowSpace (\l -> windowSpace & W._layout .~ l) <$> (windowSpace ^. W._layout) `handleMessage` SomeMessage message
 
 -- | Send a message to a layout, without refreshing.
 sendMessageWithNoRefresh :: Message a => a -> WindowSpace -> X ()
