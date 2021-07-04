@@ -117,12 +117,12 @@ className =
     io $ resClass <$> getClassHint d w
 
 -- | A query that can return an arbitrary X property of type 'String',
---   identified by name. If the query fails it returns the empty @String@.
+--   identified by name. If the query fails it returns the empty 'String'.
 stringProperty :: String -> Query String
 stringProperty p =
     liftX . fmap fold . getWindowPropertyString p =<< ask
 
--- | Get a @String@ property of a 'Window'.
+-- | Get a 'String' property of a 'Window'.
 getWindowPropertyString :: String -> Window -> X (Maybe String)
 getWindowPropertyString p w = do
     d <- asks display
@@ -134,7 +134,7 @@ getStringProperty d w p = local (_display .~ d) $ getWindowPropertyString p w
 {-# DEPRECATED getStringProperty "Use getWindowPropertyString." #-}
 
 -- | Modify the 'WindowSet' with a pure function.
--- Usually used as @doF :: (WindowSet -> WindowSet) -> ManageHook@.
+-- Usually used as @doF :: (WindowSet -> WindowSet) -> 'ManageHook'@.
 doF :: (s -> s) -> Query (Endo s)
 doF = pure . Endo
 
