@@ -109,7 +109,7 @@ manage w = whenX (not <$> isClient w) $ withDisplay $ \d -> do
           = W.float w (adjust rr) . W.insertUp w . W.view i $ ws
           | otherwise
           = W.insertUp w ws
-        where i = W.tag $ W.workspace $ W.current ws
+        where i = ws ^. W._current . W._tag
 
     mh <- asks $ manageHook . config
     g <- userCodeDef id (appEndo <$> runQuery mh w)
@@ -288,17 +288,13 @@ refresh_ :: X a -> X a
 {- ^ Use the writer state of an 'X' action to decide whether to refresh.
 -}
 refresh_ act = censor (\_-> Any False) $ do
-    ((old, x), needsRefresh) <- act'
+    old <- gets windowset
+    (x, needsRefresh) <- listen act
     when (getAny needsRefresh) $ do
         new <- gets windowset
         _windowset .= old
         windows $ \_-> new
     pure x
-  where
-    act' = listen $ do
-        old <- gets windowset
-        x <- act
-        pure (old, x)
 
 -- | Produce the actual rectangle from a screen and a ratio on that screen.
 scaleRationalRect :: Rectangle -> W.RationalRect -> Rectangle
@@ -436,14 +432,6 @@ rescreen = do
            & W._screens .~ a :| as
            & W._hidden  .~ ys
 
-    -- xinesc <- cleanedScreenInfo
-    -- windows $ \ws ->
-    --     let
-    --         (xs, ys) = splitAt (length xinesc) $ ws ^.. W._workspaces
-    --         (a:as)   = zipWith3 W.Screen xs [0..] $ fmap SD xinesc
-    --     in ws
-    --        & W._screens .~ a :| as
-    --        & W._hidden  .~ ys
 
 -- ---------------------------------------------------------------------
 
@@ -793,15 +781,16 @@ mouseDrag f done = do
                 currentTime
             _dragging .= Just (motion, cleanup)
  where
+    motion x y = f x y <* clearEvents pointerMotionMask
     cleanup = do
-        withDisplay $ io . flip ungrabPointer currentTime
+        asks display >>= io . flip ungrabPointer currentTime
         _dragging .= Nothing
         done
-    motion x y = f x y <* clearEvents pointerMotionMask
 
 -- | Drag the window under the cursor with the mouse while it is dragged.
 mouseMoveWindow :: Window -> X ()
-mouseMoveWindow w = whenX (isClient w) $ withDisplay $ \d -> do
+mouseMoveWindow w = whenX (isClient w) $ do
+    d <- asks display
     wa <- io $ getWindowAttributes d w
     (_, _, _, ox', oy', _, _, _) <- io $ queryPointer d w
     mouseDrag (\ex ey -> do
