@@ -775,7 +775,8 @@ shiftWin newTag window stackSet
   = stackSet
     & delete' window
     & _iworkspace newTag . _stack %~ Just . Stack.insertUp window
-  | otherwise = stackSet
+  | otherwise
+  = stackSet
 
 -- _viewing ::
 --     (Functor m, Eq i, Eq s, Eq s')=>
