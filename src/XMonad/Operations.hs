@@ -547,9 +547,13 @@ messageLayout :: (LayoutClass l w, Message a)=> a -> l w -> X (l w)
 messageLayout message l =
     userCodeDef l $ fromMaybe l <$> l `handleMessage` SomeMessage message
 
--- -- This definition only modifies the workspace when there's a new layout.
--- messageWorkspace message windowSpace =
---     userCodeDef windowSpace $ maybe windowSpace (\l -> windowSpace & W._layout .~ l) <$> (windowSpace ^. W._layout) `handleMessage` SomeMessage message
+-- This definition only modifies the workspace when there's a new layout.
+messageWorkspace ::
+    (Message a, W.HasLayout b b (l w) (l w), LayoutClass l w)=> a -> b -> X b
+messageWorkspace message windowSpace =
+    userCodeDef windowSpace
+    $ maybe windowSpace (\l -> windowSpace & W._layout .~ l)
+    <$> (windowSpace ^. W._layout) `handleMessage` SomeMessage message
 
 -- | Send a message to a layout, without refreshing.
 sendMessageWithNoRefresh :: Message a => a -> WindowSpace -> X ()
@@ -559,8 +563,8 @@ sendMessageWithNoRefresh message windowSpace =
 -- | Send a message to the layouts of some workspaces, without refreshing.
 filterMessageWithNoRefresh :: Message a => (WindowSpace -> Bool) -> a -> X ()
 filterMessageWithNoRefresh p message =
-    _windowset <~ (W._workspaces . filtered p . W._layout %%~ messageLayout message =<< use _windowset)
-    -- _windowset <~ (W._workspaces . filtered p %%~ messageWorkspace message =<< use _windowset)
+    -- _windowset <~ (W._workspaces . filtered p . W._layout %%~ messageLayout message =<< use _windowset)
+    _windowset <~ (W._workspaces . filtered p %%~ messageWorkspace message =<< use _windowset)
 
 -- | Update the layout field of a workspace
 updateLayout ::
@@ -572,8 +576,7 @@ updateLayout i =
 setLayout :: Layout Window -> X ()
 setLayout l = do
     ss <- gets windowset
-    handleMessage (ss ^. W._current . W._layout)
-        (SomeMessage ReleaseResources)
+    () <$ (ss ^. W._current . W._layout) `handleMessage` SomeMessage ReleaseResources
     windows $ const $ ss & W._current . W._layout .~ l
 
 ------------------------------------------------------------------------
