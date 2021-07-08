@@ -52,7 +52,7 @@ module XMonad.StackSet (
         -- Stack Optics
         _focus, _up, _down,
         -- Workspace Optics
-        _tag, _layout, _stack, _inStack,
+        HasTag, _tag, HasLayout, _layout, HasStack, _stack, _inStack,
         -- Screen Optics
         _workspace, _screen, _screenDetail,
         -- StackSet Optics
