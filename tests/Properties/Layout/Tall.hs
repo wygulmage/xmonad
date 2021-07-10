@@ -1,4 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# OPTIONS_GHC -fno-warn-warnings-deprecations #-} -- Silence warnings about using pureLayout and pureMessage when testing them.
 module Properties.Layout.Tall where
 
 import Test.QuickCheck

@@ -642,8 +642,10 @@ class (Show (layout a), Typeable layout) => LayoutClass layout a where
     description :: layout a -> String
     description      = show
 
---    toLayout :: layout a -> Layout a
---    toLayout = Layout
+{-# WARNING doLayout "Any code which /uses/ 'LayoutClass' methods should only ever call 'runLayout', 'handleMessage', and 'description'" #-}
+{-# WARNING emptyLayout "Any code which /uses/ 'LayoutClass' methods should only ever call 'runLayout', 'handleMessage', and 'description'" #-}
+{-# WARNING pureMessage "Any code which /uses/ 'LayoutClass' methods should only ever call 'runLayout', 'handleMessage', and 'description'" #-}
+{-# WARNING pureLayout "Any code which /uses/ 'LayoutClass' methods should only ever call 'runLayout', 'handleMessage', and 'description'" #-}
 
 instance LayoutClass Layout Window where
     runLayout (Workspace i (Layout l) ms) r = fmap (fmap Layout) `fmap` runLayout (Workspace i l ms) r
