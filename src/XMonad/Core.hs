@@ -662,12 +662,13 @@ instance Show (Layout a) where show (Layout l) = show l
 --
 -- User-extensible messages must be a member of this class.
 --
-class Typeable a => Message a where
+class Typeable a => Message a
 
 -- |
 -- A wrapped value of some type in the 'Message' class.
 --
 data SomeMessage = forall a. Message a => SomeMessage a deriving Typeable
+-- Could possibly simplify things by making a SomeMessage instance of Message...
 
 -- |
 -- And now, unwrap a given, unknown 'Message' type, performing a (dynamic)
@@ -681,9 +682,10 @@ instance Message Event
 
 -- | 'LayoutMessages' are core messages that all layouts (especially stateful
 -- layouts) should consider handling.
-data LayoutMessages = Hide              -- ^ sent when a layout becomes non-visible
-                    | ReleaseResources  -- ^ sent when xmonad is exiting or restarting
-    deriving Eq
+data LayoutMessages
+    = Hide              -- ^ sent when a layout becomes non-visible
+    | ReleaseResources  -- ^ sent when xmonad is exiting or restarting, or when the layout is discarded ard replaced (e.g. by 'XMonad.Operations.setLayout')
+  deriving Eq
 
 instance Message LayoutMessages
 
