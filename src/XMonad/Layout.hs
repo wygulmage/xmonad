@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses, PatternGuards, DeriveDataTypeable #-}
+{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses, PatternGuards #-}
 
 -- --------------------------------------------------------------------------
 -- |
@@ -26,11 +26,13 @@ module XMonad.Layout (
 
 import XMonad.Core
 
-import Graphics.X11 (Rectangle(..))
+import Graphics.X11 (Dimension, Position, Rectangle(..))
 import qualified XMonad.StackSet as W
 import Control.Arrow ((***), second)
 import Control.Applicative (liftA2)
 import Control.Monad
+import Data.Foldable (toList)
+import qualified Data.List.NonEmpty as NonEmpty
 import Data.Maybe (fromMaybe)
 
 ------------------------------------------------------------------------
@@ -89,21 +91,32 @@ tile
     -> Int       -- ^ @nmaster@, the number of windows in the master pane
     -> Int       -- ^ @n@, the total number of windows to tile
     -> [Rectangle]
-tile f r nmaster n
+tile frac r nmaster n
     | nmaster == 0 || n <= nmaster
     = splitVertically n r
     | otherwise
     = splitVertically nmaster r1 <> splitVertically (n-nmaster) r2 -- two columns
-  where (r1,r2) = splitHorizontallyBy f r
+  where (r1,r2) = splitHorizontallyBy frac r
 
 --
 -- Divide the screen vertically into n subrectangles
 --
 splitVertically, splitHorizontally :: Int -> Rectangle -> [Rectangle]
-splitVertically n r | n < 2 = [r]
-splitVertically n (Rectangle sx sy sw sh) = Rectangle sx sy sw smallh :
-    splitVertically (n-1) (Rectangle sx (sy+fromIntegral smallh) sw (sh-smallh))
-  where smallh = sh `div` fromIntegral n --hmm, this is a fold or map.
+
+splitVertically n0 r0 = toList $ NonEmpty.unfoldr st (n0, r0)
+  where
+    st (n, r@(Rectangle sx sy sw sh))
+      | n <= 1
+      = (r, Nothing)
+      | otherwise
+      = (Rectangle sx sy sw smallh, Just (n - 1, Rectangle sx (sy + dimensionToPosition smallh) sw (sh - smallh)))
+      where
+        smallh :: Dimension
+        smallh = sh `div` intToDimension n
+        intToDimension :: Int -> Dimension
+        intToDimension = fromIntegral
+        dimensionToPosition :: Dimension -> Position
+        dimensionToPosition = fromIntegral
 
 -- Not used in the core, but exported
 splitHorizontally n = fmap mirrorRect . splitVertically n . mirrorRect
