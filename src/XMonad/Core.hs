@@ -663,19 +663,11 @@ instance Show (Layout a) where show (Layout l) = show l
 -- User-extensible messages must be a member of this class.
 --
 class Typeable a => Message a where
-   -- toMessage :: a -> SomeMessage
-   -- toMessage = SomeMessage
-   -- fromMessage :: SomeMessage -> Maybe a
-   -- fromMessage (SomeMessage x) = cast x
 
 -- |
 -- A wrapped value of some type in the 'Message' class.
 --
 data SomeMessage = forall a. Message a => SomeMessage a deriving Typeable
-
--- instance Message SomeMessage where
---    toMessage = id
---    fromMessage = Just
 
 -- |
 -- And now, unwrap a given, unknown 'Message' type, performing a (dynamic)
@@ -993,6 +985,7 @@ recompile Directories{ cfgDir, dataDir } force = io $ do
 
 
 -- | Conditionally run an action, using a @Maybe a@ to decide.
+-- @whenJust = 'for_'@
 whenJust :: Monad m => Maybe a -> (a -> m ()) -> m ()
 whenJust = for_
 
