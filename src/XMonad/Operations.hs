@@ -537,23 +537,23 @@ sendMessage a = refresh_ $ do
 
 -- | Send a message to all layouts, without refreshing.
 broadcastMessage :: Message a => a -> X ()
--- broadcastMessage = filterMessageWithNoRefresh (const True)
-broadcastMessage message =
-    _windowset <~ (W._layouts %%~ messageLayout message =<< use _windowset)
+broadcastMessage = filterMessageWithNoRefresh (const True)
 
-messageLayout :: (LayoutClass l w, Message a)=> a -> l w -> X (l w)
-{- ^ Handle a message to a layout and return the result if it's 'Just' a new layout. If the result is 'Nothing' or if there's an error, return the original layout.
--}
-messageLayout message l =
-    userCodeDef l $ fromMaybe l <$> l `handleMessage` SomeMessage message
+-- messageLayout :: (LayoutClass l w, Message a)=> a -> l w -> X (l w)
+-- {- ^ Handle a message to a layout and return the result if it's 'Just' a new layout. If the result is 'Nothing' or if there's an error, return the original layout.
+-- -}
+-- messageLayout message l =
+--     userCodeDef l $ fromMaybe l <$> l `handleMessage` SomeMessage message
 
--- This definition only modifies the workspace when there's a new layout.
 messageWorkspace ::
     (Message a, W.HasLayout b b (l w) (l w), LayoutClass l w)=> a -> b -> X b
-messageWorkspace message windowSpace =
-    userCodeDef windowSpace
-    $ maybe windowSpace (\l -> windowSpace & W._layout .~ l)
-    <$> (windowSpace ^. W._layout) `handleMessage` SomeMessage message
+{- ^ Handle a message to a 'W.Workspace's layout and return the 'W.Workspace' with the new layout, if there is one. If the result is 'Nothing' or if there's an error, return the original 'Workspace'.
+-}
+-- This definition is used rather than messageLayout because it avoids creating a new Workspace when possible.
+messageWorkspace message x =
+    userCodeDef x
+    $ maybe x (\l -> x & W._layout .~ l)
+    <$> (x ^. W._layout) `handleMessage` SomeMessage message
 
 -- | Send a message to a layout, without refreshing.
 sendMessageWithNoRefresh :: Message a => a -> WindowSpace -> X ()
@@ -563,7 +563,6 @@ sendMessageWithNoRefresh message windowSpace =
 -- | Send a message to the layouts of some workspaces, without refreshing.
 filterMessageWithNoRefresh :: Message a => (WindowSpace -> Bool) -> a -> X ()
 filterMessageWithNoRefresh p message =
-    -- _windowset <~ (W._workspaces . filtered p . W._layout %%~ messageLayout message =<< use _windowset)
     _windowset <~ (W._workspaces . filtered p %%~ messageWorkspace message =<< use _windowset)
 
 -- | Update the layout field of a workspace
