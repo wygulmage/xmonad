@@ -13,6 +13,7 @@ module XMonad.Internal.Optics (
     (%%~),
     sets,
 -- Summarize
+    Fold, Getter,
     (^.), (^?), (^..),
     to,
 -- Act on
@@ -93,7 +94,7 @@ sets f g = Identity #. f (runIdentity #. g)
 
 type Getting r c a = (a -> Const r a) -> c -> Const r c
 {- ^
-@Getting@ is a concrete type used to instantiate optics when they are used to get single values or 'Data.Monoid.Monoid' folds.
+@Getting@ is a concrete type used to instantiate optics when they are used to get single values ('Getter') or 'Data.Monoid.Monoid' folds ('Fold').
 
 This type alias is not exported.
 -}
@@ -142,10 +143,14 @@ foldMapOf o f = getConst #. o (Const #. f)
 -- The subtlety here is that f is applied before the value is wrapped in Const. With 'to', the function is applied after.
 {-# INLINE foldMapOf #-}
 
+type Fold c a =
+   forall m. (Applicative m, Contravariant m)=> (a -> m a) -> c -> m c
+{- ^
+@Fold@ characterizes optics that can be used to get zero or more values out of a structure.
+-}
+
 type Getter c a = forall m. (Contravariant m)=> (a -> m a) -> c -> m c
 {- ^ @Getter@ characterizes optics that can only be used to get a single value out of a structure.
-
-This type alias is not exported.
 -}
 
 to :: (c -> a) -> Getter c a
