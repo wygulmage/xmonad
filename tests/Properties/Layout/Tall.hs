@@ -41,7 +41,7 @@ prop_split_horizontal (NonNegative n) x =
         xs = splitHorizontally n x
 
 -- splitting vertically yields sensible results
-prop_split_vertical (r :: Rational) x =
+prop_split_verticallyBy (r :: Rational) x =
         rect_x x == rect_x a && rect_x x == rect_x b
       &&
         rect_width x == rect_width a && rect_width x == rect_width b

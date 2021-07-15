@@ -168,7 +168,7 @@ tests =
   ,("tile 1 window fullsize", property prop_tile_fullscreen)
   ,("tiles never overlap",    property prop_tile_non_overlap)
   ,("split horizontal",       property prop_split_horizontal)
-  ,("split vertical",         property prop_split_vertical)
+  ,("split verticallyBy",     property prop_split_verticallyBy)
 
   ,("pure layout tall",       property prop_purelayout_tall)
   ,("send shrink    tall",    property prop_shrink_tall)
