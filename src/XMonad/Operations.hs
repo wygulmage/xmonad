@@ -207,7 +207,10 @@ windows f = do
       summed_visible = scanl (<>) S.empty $ fmap (S.fromList . W.integrate' . W.stack . W.workspace) allscreens
     rects <- fmap concat $ for (zip allscreens summed_visible) $ \ (scr, seen) -> do
         let
-          tiledWorkspace = scr ^. W._workspace & W._stack %~ (>>= W.filter (\ win -> win `M.notMember` W.floating ws && win `notElem` seen))
+          tiledWorkspace =
+              scr ^. W._workspace & W._stack %~
+                  (>>= W.filter (\ win ->
+                      win `M.notMember` W.floating ws && win `notElem` seen))
           viewrect = screenRect $ W.screenDetail scr
 
         -- just the tiled windows:
@@ -227,8 +230,8 @@ windows f = do
 
         asks display >>= \ d -> io $ restackWindows d (fmap fst vs)
 
-        for_ vs $ \ (vis, rect) ->
-            tileWindow vis rect *> reveal vis
+        -- for_ vs $ \ (vis, rect) ->
+        --     tileWindow vis rect *> reveal vis
 
         -- return the visible windows for this workspace:
         pure vs
@@ -236,6 +239,8 @@ windows f = do
     -- -- Can we move this loop into the loop above?
     -- for_ rects $ \ (vis, rect) ->
     --     tileWindow vis rect *> reveal vis
+    for_ rects $ uncurry tileWindow
+    for_ rects $ reveal . fst
 
     setTopFocus
 
