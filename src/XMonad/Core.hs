@@ -647,7 +647,8 @@ class (Show (layout a), Typeable layout) => LayoutClass layout a where
 {-# WARNING pureMessage "Any code which /uses/ 'LayoutClass' methods should only ever call 'runLayout', 'handleMessage', and 'description'" #-}
 {-# WARNING pureLayout "Any code which /uses/ 'LayoutClass' methods should only ever call 'runLayout', 'handleMessage', and 'description'" #-}
 
-instance LayoutClass Layout Window where
+-- instance LayoutClass Layout Window where
+instance LayoutClass Layout w where
     runLayout (Workspace i (Layout l) ms) =
                              fmap (fmap (fmap Layout)) . runLayout (Workspace i l ms)
     doLayout (Layout l) r  = fmap (fmap (fmap Layout)) . doLayout l r
