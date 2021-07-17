@@ -29,7 +29,7 @@ module XMonad.Core (
     ScreenId(..), ScreenDetail(..), XState(..),
     XConf(..), XConfig(..), LayoutClass(..),
     Layout(..), readsLayout, Typeable, Message,
-    SomeMessage(..), fromMessage, LayoutMessages(..),
+    SomeMessage(..), fromMessage, passMessage, LayoutMessages(..),
     StateExtension(..), ExtensionClass(..), ConfExtension(..),
     runX, catchX, userCode, userCodeDef, io, catchIO, installSignalHandlers, uninstallSignalHandlers,
     withDisplay, withWindowSet, isRoot, runOnWorkspaces,
@@ -360,7 +360,7 @@ instance Alternative X where
     {-# INLINE (<|>) #-}
 
 instance MonadFail X where
-    fail message = X $ \ _ _ _ -> fail message
+    fail str = X $ \ _ _ _ -> fail str
     {-# INLINE fail #-}
 
 instance MonadIO X where
@@ -664,13 +664,22 @@ instance Show (Layout a) where show (Layout l) = show l
 --
 -- User-extensible messages must be a member of this class.
 --
-class Typeable a => Message a
+class Typeable a => Message a where
+  toMessage :: a -> SomeMessage -- not exported; for use only in 'message'
+  toMessage = SomeMessage
+
+-- |
+-- Send a message (that may or may not be wrapped in 'SomeMessage') to a layout.
+passMessage :: (LayoutClass l w, Message a)=> a -> l w -> X (Maybe (l w))
+passMessage m l = handleMessage l (toMessage m)
 
 -- |
 -- A wrapped value of some type in the 'Message' class.
 --
 data SomeMessage = forall a. Message a => SomeMessage a deriving Typeable
--- Could possibly simplify things by making a SomeMessage instance of Message...
+-- Could possibly simplify things by making a SomeMessage instance of Message... It would be really nice to have a class with a method 'someMessage' that wraps any Message in SomeMessage and is an identity operation on SomeMessage. Then rather than writing handleMessage (SomeMessage m) or handleMessage l m depending on whether it's wrapped, you just write message m l, where message m l = handleMessage l (toMessage m). There doesn't seem to be a risk as long as you always uwrap with fromMessage.
+instance Message SomeMessage where
+  toMessage = id
 
 -- |
 -- And now, unwrap a given, unknown 'Message' type, performing a (dynamic)
