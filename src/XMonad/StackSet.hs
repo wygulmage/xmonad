@@ -53,8 +53,12 @@ module XMonad.StackSet (
     ) where
 
 import Prelude hiding (filter)
+import Control.Applicative (liftA2)
 import Control.Applicative.Backwards (Backwards (Backwards, forwards))
 import Data.Foldable (foldr, toList)
+import Data.Bifoldable (Bifoldable (..))
+import Data.Bifunctor (Bifunctor (..))
+import Data.Bitraversable (Bitraversable (..), bifoldMapDefault, bimapDefault)
 import Data.Maybe   (listToMaybe,isJust,fromMaybe)
 import qualified Data.List as L (deleteBy,find,splitAt,filter,nub)
 import Data.List ( (\\) )
@@ -150,6 +154,27 @@ data Screen sid i sd l a = Screen
     }
   deriving (Show, Read, Eq)
 
+instance Bifoldable (Screen sid i sd) where
+  bifoldMap = bifoldMapDefault
+
+instance Foldable (Screen sid i sd l) where
+  foldMap f = foldMap f . workspace
+  toList = toList . workspace
+
+instance Bifunctor (Screen sid i sd) where
+  bimap = bimapDefault
+
+instance Functor (Screen sid i sd l) where
+  fmap = bimap id
+
+instance Bitraversable (Screen sid i sd) where
+  bitraverse f g scr =
+      (\ workspace' -> scr{ workspace = workspace' }) <$> bitraverse f g (workspace scr)
+
+instance Traversable (Screen sid i sd l) where
+  traverse = bitraverse pure
+
+
 -- |
 -- A workspace is just a tag, a layout, and a stack.
 --
@@ -159,6 +184,28 @@ data Workspace i l a = Workspace
     , stack :: Maybe (Stack a)
     }
   deriving (Show, Read, Eq)
+
+instance Bifoldable (Workspace i) where
+  bifoldMap = bifoldMapDefault
+
+instance Foldable (Workspace i l) where
+  foldMap f = foldMap (foldMap f) . stack
+  toList = foldMap toList . stack
+
+instance Bifunctor (Workspace i) where
+  bimap = bimapDefault
+
+instance Functor (Workspace i l) where
+  fmap = bimap id
+
+instance Bitraversable (Workspace i) where
+  bitraverse f g wrk = liftA2
+      (\ layout' stack' -> wrk{ layout = layout', stack = stack' })
+      (f (layout wrk))
+      (traverse (traverse g) (stack wrk))
+
+instance Traversable (Workspace i l) where
+  traverse = bitraverse pure
 
 -- | A structure for window geometries
 data RationalRect = RationalRect !Rational !Rational !Rational !Rational
@@ -411,7 +458,7 @@ workspaces s = workspace (current s) : map workspace (visible s) ++ hidden s
 
 -- | Get a list of all windows in the 'StackSet' in no particular order
 allWindows :: Eq a => StackSet sid i sd l a -> [a]
-allWindows = L.nub . concatMap (integrate' . stack) . workspaces
+allWindows = L.nub . foldMap toList . workspaces
 
 -- | Get the tag of the currently focused workspace.
 currentTag :: StackSet sid i sd l a -> i
@@ -446,10 +493,7 @@ mapWorkspace f s = s { current = updScr (current s)
 -- | Map a function on all the layouts in the 'StackSet'.
 mapLayout :: (l -> l') -> StackSet sid i sd l a -> StackSet sid i sd l' a
 mapLayout f (StackSet v vs hs m) =
-    StackSet (fScreen v) (map fScreen vs) (map fWorkspace hs) m
- where
-    fScreen (Screen ws s sd) = Screen (fWorkspace ws) s sd
-    fWorkspace (Workspace t l s) = Workspace t (f l) s
+    StackSet (bimap f id v) (map (bimap f id) vs) (map (bimap f id) hs) m
 
 -- | /O(n)/. Is a window in the 'StackSet'?
 member :: Eq a => a -> StackSet sid i sd l a -> Bool
