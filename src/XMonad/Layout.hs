@@ -238,12 +238,7 @@ choose (Choose d l r) d' ml mr
       chooseCL = Choose CL
       chooseCR = Choose CR
 
-      hide l' = fromMaybe l' <$> handle l' Hide
-
--- | A small wrapper around handleMessage, as it is tedious to write
--- SomeMessage repeatedly.
-handle :: (LayoutClass l a, Message m) => l a -> m -> X (Maybe (l a))
-handle l m = handleMessage l (SomeMessage m)
+      hide l' = fromMaybe l' <$> passMessage Hide l'
 
 
 instance (LayoutClass l a, LayoutClass r a) => LayoutClass (Choose l r) a where
@@ -258,24 +253,24 @@ instance (LayoutClass l a, LayoutClass r a) => LayoutClass (Choose l r) a where
     handleMessage c@(Choose d l r) m | Just NextNoWrap <- fromMessage m =
         case d of
             CL -> do
-                ml <- handle l NextNoWrap
+                ml <- passMessage NextNoWrap l
                 if null ml
-                  then choose c CR Nothing =<< handle r FirstLayout
+                  then choose c CR Nothing =<< passMessage FirstLayout r
                   else choose c CL ml Nothing
 
-            CR -> choose c CR Nothing =<< handle r NextNoWrap
+            CR -> choose c CR Nothing =<< passMessage NextNoWrap r
 
     handleMessage c@(Choose _ l _) m | Just FirstLayout <- fromMessage m =
         handleMessage l m >>= \ ml -> choose c CL ml Nothing
 
     handleMessage c m | Just NextLayout <- fromMessage m = do
-        mlr <- handle c NextNoWrap
+        mlr <- passMessage NextNoWrap c
         if null mlr
-          then handle c FirstLayout
+          then passMessage FirstLayout c
           else pure mlr
 
     handleMessage c@(Choose d l r) m | Just ReleaseResources <- fromMessage m =
-        join $ liftA2 (choose c d) (handleMessage l m) (handleMessage r m)
+        join $ liftA2 (choose c d) (passMessage m l) (passMessage m r)
 
     handleMessage c@(Choose _ l r) m | Just (JumpToLayout desc) <- fromMessage m =
         let
@@ -284,9 +279,9 @@ instance (LayoutClass l a, LayoutClass r a) => LayoutClass (Choose l r) a where
             | desc == description (fromMaybe r mr) = choose c CR Nothing mr
             | otherwise                            = pure Nothing
         in
-          join $ liftA2 jump (handleMessage l m) (handleMessage r m)
+          join $ liftA2 jump (passMessage m l) (passMessage m r)
 
     handleMessage c@(Choose d l r) m = do
         case d of
-            CL -> handleMessage l m >>= \ ml -> choose c d ml Nothing
-            CR -> handleMessage r m >>= \ mr -> choose c d Nothing mr
+            CL -> passMessage m l >>= \ ml -> choose c d ml Nothing
+            CR -> passMessage m r >>= \ mr -> choose c d Nothing mr

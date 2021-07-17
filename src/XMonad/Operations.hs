@@ -534,9 +534,9 @@ setFocusX w = do
 -- | Throw a message to the current 'LayoutClass' possibly modifying how we
 -- layout the windows, in which case changes are handled through a refresh.
 sendMessage :: Message a => a -> X ()
-sendMessage a = refresh_ $ do
+sendMessage message = refresh_ $ do
     l <- use $ _windowset . W._current . W._layout
-    ml' <- userCodeDef Nothing $ handleMessage l (SomeMessage a)
+    ml' <- userCodeDef Nothing $ passMessage message l
     traverse_ (_windowset . W._current . W._layout .=) ml'
     tell $ Any $ isJust ml'
 
@@ -548,7 +548,7 @@ broadcastMessage = filterMessageWithNoRefresh (const True)
 -- {- ^ Handle a message to a layout and return the result if it's 'Just' a new layout. If the result is 'Nothing' or if there's an error, return the original layout.
 -- -}
 -- messageLayout message l =
---     userCodeDef l $ fromMaybe l <$> l `handleMessage` SomeMessage message
+--     userCodeDef l $ fromMaybe l <$> passMessage message l
 
 messageWorkspace ::
     (Message a, W.HasLayout b b (l w) (l w), LayoutClass l w)=> a -> b -> X b
@@ -558,7 +558,7 @@ messageWorkspace ::
 messageWorkspace message x =
     userCodeDef x
     $ maybe x (\l -> x & W._layout .~ l)
-    <$> (x ^. W._layout) `handleMessage` SomeMessage message
+    <$> passMessage message (x ^. W._layout)
 
 -- | Send a message to a layout, without refreshing.
 sendMessageWithNoRefresh :: Message a => a -> WindowSpace -> X ()
@@ -580,7 +580,7 @@ updateLayout i =
 setLayout :: Layout Window -> X ()
 setLayout l = do
     ss <- gets windowset
-    () <$ (ss ^. W._current . W._layout) `handleMessage` SomeMessage ReleaseResources
+    () <$ passMessage ReleaseResources (ss ^. W._current . W._layout)
     windows $ const $ ss & W._current . W._layout .~ l
 
 ------------------------------------------------------------------------

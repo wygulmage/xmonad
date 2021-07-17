@@ -671,7 +671,7 @@ class Typeable a => Message a where
 -- |
 -- Send a message (that may or may not be wrapped in 'SomeMessage') to a layout.
 passMessage :: (LayoutClass l w, Message a)=> a -> l w -> X (Maybe (l w))
-passMessage m l = handleMessage l (toMessage m)
+passMessage m = (`handleMessage` toMessage m)
 
 -- |
 -- A wrapped value of some type in the 'Message' class.
