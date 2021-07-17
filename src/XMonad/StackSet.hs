@@ -75,7 +75,10 @@ module XMonad.StackSet (
     ) where
 
 import Prelude hiding (filter)
-import Control.Applicative (liftA3)
+import Control.Applicative (liftA2, liftA3)
+import Data.Bifoldable
+import Data.Bifunctor
+import Data.Bitraversable
 import Data.Foldable (find, toList)
 import Data.Semigroup (Any (Any, getAny))
 import Data.Maybe (fromMaybe)
@@ -361,6 +364,26 @@ instance HasTag (Screen i l w sid sd) (Screen i' l w sid sd) i i' where
 data Workspace i l a = Workspace  { tag :: !i, layout :: l, stack :: Maybe (Stack a) }
     deriving (Show, Read, Eq)
 
+instance Bifoldable (Workspace i) where
+  bifoldMap = bifoldMapDefault
+
+instance Foldable (Workspace i l) where
+  foldMap f = foldMap (foldMap f) . stack
+
+instance Bifunctor (Workspace i) where
+  bimap = bimapDefault
+
+instance Functor (Workspace i l) where
+  fmap = bimap id
+
+instance Bitraversable (Workspace i) where
+  bitraverse f g ws = liftA2
+      (Workspace (tag ws))
+      (f (layout ws))
+      (traverse (traverse g) (stack ws))
+
+instance Traversable (Workspace i l) where
+  traverse = bitraverse pure
 
 -- Workspace Optics
 -- Workspace Lenses
