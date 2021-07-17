@@ -18,7 +18,7 @@ import Control.Applicative
 -- The all important Arbitrary instance for StackSet.
 --
 instance (Integral i, Integral s, Eq a, Arbitrary a, Arbitrary l, Arbitrary sd)
-         => Arbitrary (StackSet i l a s sd) where
+         => Arbitrary (StackSet s i sd l a) where
   arbitrary = do
       -- TODO: Fix this to be a reasonable higher number, Possibly use PositiveSized
       numWs        <- choose (1, 20)    -- number of workspaces, there must be at least 1.
@@ -58,7 +58,7 @@ instance (Integral i, Integral s, Eq a, Arbitrary a, Arbitrary l, Arbitrary sd)
 --
 type Tag = Int
 type Window = Char
-type T = StackSet Tag Int Window Int Int
+type T = StackSet Int Tag Int Int Window
 
 
 

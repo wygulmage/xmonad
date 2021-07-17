@@ -130,7 +130,8 @@ data XConfig l = XConfig
     }
 
 
-type WindowSet   = StackSet  WorkspaceId (Layout Window) Window ScreenId ScreenDetail
+type WindowSet =
+    StackSet ScreenId WorkspaceId ScreenDetail (Layout Window) Window
 type WindowSpace = Workspace WorkspaceId (Layout Window) Window
 
 -- | Virtual workspace indices
