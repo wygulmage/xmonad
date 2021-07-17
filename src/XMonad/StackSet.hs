@@ -377,13 +377,13 @@ instance Functor (Workspace i l) where
   fmap = bimap id
 
 instance Bitraversable (Workspace i) where
-  bitraverse f g ws = liftA2
-      (Workspace (tag ws))
-      (f (layout ws))
-      (traverse (traverse g) (stack ws))
+  bitraverse f g wrk = liftA2
+      (\ layout' stack' -> wrk{ layout = layout', stack = stack' })
+      (f (layout wrk))
+      (traverse (traverse g) (stack wrk))
 
 instance Traversable (Workspace i l) where
-  traverse = bitraverse pure
+  traverse = _inStack
 
 -- Workspace Optics
 -- Workspace Lenses
@@ -413,6 +413,9 @@ class HasStack a a' w w' | a -> w, a' -> w', a w' -> a', a' w -> a where
 _inStack ::
     (HasStack a a' w w') =>
     (Applicative m)=> (w -> m w') -> a -> m a'
+{- ^
+@_inStack@ is 'Workspace'\'s 'Traversable' instance generalized to any instance of 'HasStack'. If 'Screen' had its type parameters in a different order (e.g. @Screen sid sd i l a@), we'd just use 'traverse'.
+-}
 _inStack = _stack . _Just . traverse
 
 instance HasTag (Workspace i l w) (Workspace i' l w) i i' where
