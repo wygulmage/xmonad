@@ -134,16 +134,16 @@ import qualified Data.Map  as M (Map,insert,delete,empty)
 -- that are produced are used to track those workspaces visible as
 -- Xinerama screens, and those workspaces not visible anywhere.
 
-data StackSet i l a sid sd =
-    StackSet { current  :: !(Screen i l a sid sd)    -- ^ currently focused workspace
-             , visible  :: [Screen i l a sid sd]     -- ^ non-focused workspaces, visible in xinerama
+data StackSet i l a s sd =
+    StackSet { current  :: !(Screen s i sd l a)    -- ^ currently focused workspace
+             , visible  :: [Screen s i sd l a]     -- ^ non-focused workspaces, visible in xinerama
              , hidden   :: [Workspace i l a]         -- ^ workspaces not visible anywhere
              , floating :: M.Map a RationalRect      -- ^ floating windows
              } deriving (Show, Read, Eq)
 
 -- | Visible workspaces, and their Xinerama screens.
-data Screen i l a sid sd = Screen { workspace :: !(Workspace i l a)
-                                  , screen :: !sid
+data Screen s i sd l a = Screen { workspace :: !(Workspace i l a)
+                                  , screen :: !s
                                   , screenDetail :: !sd }
     deriving (Show, Read, Eq)
 
@@ -388,7 +388,7 @@ focusWindow w s | Just w == peek s = s
                     return $ until ((Just w ==) . peek) focusUp (view n s)
 
 -- | Get a list of all screens in the 'StackSet'.
-screens :: StackSet i l a s sd -> [Screen i l a s sd]
+screens :: StackSet i l a s sd -> [Screen s i sd l a]
 screens s = current s : visible s
 
 -- | Get a list of all workspaces in the 'StackSet'.

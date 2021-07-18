@@ -573,7 +573,7 @@ floatLocation w =
 
 -- | Given a point, determine the screen (if any) that contains it.
 pointScreen :: Position -> Position
-            -> X (Maybe (W.Screen WorkspaceId (Layout Window) Window ScreenId ScreenDetail))
+            -> X (Maybe (W.Screen ScreenId WorkspaceId ScreenDetail (Layout Window) Window))
 pointScreen x y = withWindowSet $ return . find p . W.screens
   where p = pointWithin x y . screenRect . W.screenDetail
 
