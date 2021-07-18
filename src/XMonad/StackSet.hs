@@ -53,8 +53,12 @@ module XMonad.StackSet (
     ) where
 
 import Prelude hiding (filter)
+import Control.Applicative (liftA2)
 import Control.Applicative.Backwards (Backwards (Backwards, forwards))
 import Data.Foldable (foldr, toList)
+import Data.Bifoldable
+import Data.Bifunctor
+import Data.Bitraversable
 import Data.Maybe   (listToMaybe,isJust,fromMaybe)
 import qualified Data.List as L (deleteBy,find,splitAt,filter,nub)
 import Data.List ( (\\) )
@@ -142,16 +146,36 @@ data StackSet i l a s sd =
              } deriving (Show, Read, Eq)
 
 -- | Visible workspaces, and their Xinerama screens.
-data Screen s i sd l a = Screen { workspace :: !(Workspace i l a)
-                                  , screen :: !s
-                                  , screenDetail :: !sd }
-    deriving (Show, Read, Eq)
+data Screen s i sd l a = Screen
+    { workspace :: !(Workspace i l a)
+    , screen :: !s
+    , screenDetail :: !sd }
+  deriving (Show, Read, Eq)
+
+instance Bifoldable (Screen s i sd) where bifoldMap = bifoldMapDefault
+
+instance Bifunctor (Screen s i sd) where bimap = bimapDefault
+
+instance Bitraversable (Screen s i sd) where
+  bitraverse f g scr =
+      (\ workspace' -> scr{ workspace = workspace'}) <$>
+      bitraverse f g (workspace scr)
 
 -- |
 -- A workspace is just a tag, a layout, and a stack.
 --
 data Workspace i l a = Workspace  { tag :: !i, layout :: l, stack :: Maybe (Stack a) }
     deriving (Show, Read, Eq)
+
+instance Bifoldable (Workspace i) where bifoldMap = bifoldMapDefault
+
+instance Bifunctor (Workspace i) where bimap = bimapDefault
+
+instance Bitraversable (Workspace i) where
+  bitraverse f g wrk = liftA2
+      (\ layout' stack' -> wrk{ layout = layout', stack = stack' })
+      (f (layout wrk))
+      (traverse (traverse g) (stack wrk))
 
 -- | A structure for window geometries
 data RationalRect = RationalRect !Rational !Rational !Rational !Rational
